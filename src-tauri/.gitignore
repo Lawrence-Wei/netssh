@@ -1,0 +1,10 @@
+# build artifacts
+/target
+/dist
+
+# bundles
+/bundle
+
+# editor
+.idea
+.vscode

@@ -1,0 +1,28 @@
+# Build outputs
+node_modules/
+dist/
+target/
+*.log
+
+# Release artifacts (too large, use GitHub Releases instead)
+release/
+releases/
+
+# Code intelligence cache
+.codegraph/
+
+# Editor / OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# Tauri
+src-tauri/target/
+
+# Env
+.env
+.env.local
+
+# Test
+coverage/
