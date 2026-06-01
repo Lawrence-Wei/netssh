@@ -37,6 +37,12 @@ vi.mock("@tauri-apps/api/core", () => ({
         return Promise.resolve([]);
       case "detect_system_language":
         return Promise.resolve("en");
+      case "host_ping":
+        return Promise.resolve({ ok: false, latency_ms: null });
+      case "app_state_get":
+        return Promise.resolve(null);
+      case "app_state_put":
+        return Promise.resolve();
       default:
         return Promise.resolve(null);
     }

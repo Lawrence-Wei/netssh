@@ -6,22 +6,22 @@
  *
  * 运行：npm test
  */
-import { describe, it, expect, beforeEach, afterEach } from "vitest";
-import { render, screen, fireEvent, waitFor, within, act } from "@testing-library/react";
+import { describe, it, expect, beforeEach } from "vitest";
+import { render, screen, fireEvent, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { createElement } from "react";
-import App from "../App";
-import { ConfirmProvider } from "../components/shared/ConfirmDialog";
+import App from "../pages/App";
+import { ConfirmProvider } from "../components/ConfirmDialog";
 
 // ============================================================
 // Store reset — 在每个测试间重置全局 zustand store 状态
 // ============================================================
-import { useHosts } from "../stores/hostsStore";
-import { useSessions } from "../stores/sessionsStore";
-import { useSnippets } from "../stores/snippetsStore";
-import { useSettings } from "../stores/settingsStore";
-import { useCredentials } from "../stores/credentialsStore";
-import { useIdentities } from "../stores/identitiesStore";
+import { useHosts } from "../store/hosts";
+import { useSessions } from "../store/sessions";
+import { useSnippets } from "../store/snippets";
+import { useSettings } from "../store/settings";
+import { useCredentials } from "../store/credentials";
+import { useIdentities } from "../store/identities";
 
 /** 保存各 store 的初始状态，用于测试间重置 */
 let initialStates: Record<string, unknown> = {};

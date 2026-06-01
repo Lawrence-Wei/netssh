@@ -2,7 +2,7 @@
  * 主机部署位置推断与标签的共享工具函数。
  * 在 Sidebar 和 HostDetail 中均有使用，提取到此模块以避免重复代码。
  */
-import type { DeployScope, Host, Lang } from "../types";
+import type { DeployScope, Host, Lang } from "../config/types";
 
 /**
  * 根据主机属性推断部署位置（本地 / 云端）。
