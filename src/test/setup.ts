@@ -125,23 +125,11 @@ vi.mock("../services/tauri", () => ({
   onPtyExit: vi.fn(() => Promise.resolve(() => {})),
   configParse: vi.fn(() => Promise.resolve([])),
 }));
-vi.mock("@tauri-apps/plugin-os", () => ({
-  platform: () => "win32",
-  arch: () => "x86_64",
-  version: () => "10.0.22621",
-  type: () => "Windows_NT",
-}));
-
 vi.mock("@tauri-apps/plugin-fs", () => ({
   readTextFile: vi.fn(() => Promise.resolve("")),
   writeTextFile: vi.fn(() => Promise.resolve()),
   exists: vi.fn(() => Promise.resolve(false)),
   createDir: vi.fn(() => Promise.resolve()),
-}));
-
-vi.mock("@tauri-apps/plugin-shell", () => ({
-  open: vi.fn(() => Promise.resolve()),
-  Command: vi.fn(),
 }));
 
 // ============================================================
@@ -190,10 +178,6 @@ vi.mock("@xterm/addon-webgl", () => ({
     activate: vi.fn(),
     dispose: vi.fn(),
   })),
-}));
-
-vi.mock("@xterm/addon-search", () => ({
-  SearchAddon: vi.fn(),
 }));
 
 // ============================================================
