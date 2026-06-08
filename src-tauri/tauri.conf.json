@@ -46,7 +46,7 @@
       "digestAlgorithm": "sha256",
       "timestampUrl": "http://timestamp.digicert.com",
       "wix": {
-        "language": ["en-US", "zh-CN"]
+        "language": ["en-US"]
       },
       "nsis": {
         "installMode": "currentUser",

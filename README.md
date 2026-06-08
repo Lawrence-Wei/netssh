@@ -1,310 +1,144 @@
-# Netssh — Windows SSH Manager
+# Netssh
 
-> Personal SSH / device management app for Windows 11. Tauri 2 + React + xterm.js.
-> This package is the **engineering handoff** for the prototype at `../Netssh Prototype.html`.
+Netssh is a local-first Windows SSH and serial console workstation for infrastructure, network, SRE, ops, IT admin, and lab users.
 
-![Netssh multi-site network topology view](docs/assets/netssh-app-screenshot.png)
+It is an asset and connection workbench, not a generic chat terminal or a marketing shell. The app is designed around daily network operations: find an asset, inspect its metadata, connect safely, and keep credentials private on the local machine.
 
----
+![Netssh app screenshot](docs/assets/netssh-app-screenshot.png)
 
-## 1 - What this is
+## Current Release
 
-A modern Windows desktop SSH client inspired by **Termius**, **MobaXterm**, **Xshell**, and **Windows Terminal**. The prototype defines the UX, this scaffold turns it real.
+Latest release: `v0.0.7`
 
-- **Source of truth for hosts:** the user's existing `~/.ssh/config`. Netssh imports, never silently writes.
-- **Native shells:** PowerShell, Command Prompt, WSL, custom — opened via ConPTY.
-- **Remote shells:** `russh` (pure-Rust SSH2 client) with key-based auth; passphrases held in Windows Credential Manager.
-- **UI:** purple/blue/mica themes and frameless chrome.
+Download the Windows installers from GitHub Releases:
 
----
+- NSIS setup: best default installer for most Windows users
+- MSI package: useful for managed installation workflows
 
-## 2 - MVP feature list (v0.1)
+## What Works
 
-Ship-or-cut for the first release.
+- Asset inventory with sites, groups, tags, aliases, notes, and favorites
+- Read-only SSH config import from `~/.ssh/config`
+- Import preview and diagnostics before hosts are added
+- Duplicate alias and duplicate target diagnostics
+- Missing identity file diagnostics
+- Quick SSH connection tabs backed by Tauri and Rust
+- Local shell tabs through Windows ConPTY
+- Unknown host key TOFU confirmation before trust is stored
+- Host key mismatch blocking with high-risk warning behavior
+- Netssh-managed trusted host keys stored in local SQLite
+- Favorites and recent connection timestamps
+- Connection error explanations for DNS, routing, port, auth, and key passphrase failures
+- Command snippets and per-host quick command surfaces
+- English-only repository surface and GitHub documentation
 
-| Status | Feature |
-|---|---|
-| **MUST** | Import hosts from `~/.ssh/config` (read-only) |
-| **MUST** | Sidebar host browser with groups, search, filter |
-| **MUST** | Open SSH session in tab; xterm.js + ConPTY backend bridged via Tauri |
-| **MUST** | Multiple tabs + the vertical session rail |
-| **MUST** | Local shell tabs (PowerShell / CMD / WSL) |
-| **MUST** | Theme switcher (purple / blue / Mica) |
-| **MUST** | English UI defaults, follows Windows system language where supported |
-| **MUST** | Credentials in Windows Credential Manager — never in plaintext |
-| **MUST** | Right-click context menu on hosts (connect, pin, copy `ssh` cmd, edit) |
-| SHOULD | Snippet library + per-host quick commands |
-| SHOULD | Reconnect on transient failure |
-| SHOULD | Connection log per session |
-| COULD  | Split panes (horizontal / vertical) |
-| COULD  | Port-forward configuration UI |
-| WON'T (v0.1) | SFTP browser — design for it, ship in v0.2 |
-| WON'T (v0.1) | Workspace save/restore — local-only autosave is fine for v0.1 |
+Serial console profile foundations are present in the data model. Live serial backend support is still planned work.
 
----
+## Security Model
 
-## 3 - Tech stack & why
+- Passwords, passphrases, private keys, and ephemeral passwords must not be persisted in frontend state or local storage.
+- Credentials are stored through the operating system credential manager / keyring.
+- SSH config import is read-only unless the user explicitly confirms writes.
+- Netssh does not silently modify OpenSSH `known_hosts`.
+- Unknown host keys require user-confirmed TOFU.
+- Host key mismatches block the connection.
+- Netssh-trusted host keys are stored in local SQLite, not in the user's OpenSSH files.
+- Logs must not record user command text.
 
-| Layer | Choice | Why |
-|---|---|---|
-| Shell | **Tauri 2** (Rust + WebView2) | ~10 MB installer vs Electron's 100+ MB; native Win32 access; signed MSIX out of the box. |
-| UI | **React 18** + **Vite** | Matches the prototype 1:1; fast HMR; mature ecosystem. |
-| Styling | Hand-rolled CSS + design tokens | The aesthetic is opinionated — Tailwind would dilute it. Tokens live in `src/styles/tokens.css`. |
-| Terminal | **xterm.js 5** + addons (`fit`, `web-links`, `search`, `webgl`) | The de-facto standard; supports OSC8 hyperlinks, search, GPU rendering. |
-| Remote SSH | **russh** (pure Rust) | No native deps, no OpenSSH license entanglement, works inside the Tauri sidecar. |
-| Local PTY | **portable-pty** (uses ConPTY on Win10+) | Production-tested by Wezterm. Handles ANSI, resize, signal forwarding. |
-| Persistence | **rusqlite** (encrypted via SQLCipher) for metadata, **keyring-rs** for secrets | SQLite is overkill until host count > 50; switch to JSON file under `%APPDATA%\Netssh` if you prefer simpler. Credentials go to Windows Credential Manager via `keyring-rs`. |
-| i18n | Native `t()` helper + JSON dictionaries | No `react-i18next` weight; we have ~80 keys. |
+## Tech Stack
 
----
+- Frontend: React 18, Vite, TypeScript, Zustand, xterm.js
+- Desktop shell: Tauri 2
+- Backend: Rust
+- SSH: `russh`
+- Local PTY: `portable-pty` / Windows ConPTY
+- Storage: SQLite through `rusqlite`
+- Credentials: OS keyring through `keyring`
+- Tests: Vitest, React Testing Library, Rust unit tests
 
-## 4 - UI / UX design plan
+## Repository Layout
 
-The prototype is the spec. Highlights:
+```text
+src/
+  api/          Tauri API wrappers
+  assets/       CSS and localization catalogs
+  components/   Shared React components
+  config/       Types and defaults
+  hooks/        React hooks
+  layouts/      App shell layouts
+  pages/        Main app pages and panes
+  store/        Zustand state stores
+  test/         Frontend tests and mocks
+  utils/        Shared frontend utilities
 
-- **Frameless window** with our own chrome (`<TitleBar>`). Draggable everywhere except controls. Min/max/close drawn as 38px square buttons on the right.
-- **Sidebar** = MobaXterm-style left rail. Grouped collapsible host list with constellation hover effect. Search + chip filters at top. Snippets + Preferences entry at bottom.
-- **Workspace** = main area. Three views depending on the active tab kind:
-  - `host` + not connected → **HostDetail landing** (eyebrow labels, target card, quick commands, snippets preview)
-  - `host` + connected → **Terminal pane** (conn-bar header, xterm host with per-host aurora hue, status strip)
-  - `settings` / `snippets` → full-bleed routed pane
-- **Session rail** (novelty) = vertical pill tabs on the right; each is a rotated alias + breathing latency dot. Click to switch sessions without disturbing the tab strip.
-- **Context menu** = right-click any host. 12 actions, dividers, kbd shortcuts shown on the right.
-- **Themes** swappable via Settings → Appearance OR via the Tweaks panel. Three: `purple` (Aurora), `blue` (Cobalt), `mica` (Windows-native restrained).
+src-tauri/src/
+  commands.rs     Thin Tauri command handlers
+  credentials.rs  OS credential manager integration
+  pty.rs          Local PTY sessions
+  ssh.rs          SSH session handling and host key checks
+  ssh_config.rs   OpenSSH config parsing
+  storage.rs      SQLite app state and host key storage
 
-Eyebrow labels (uppercase 10px tracked-out Space Grotesk in `--text-eyebrow`) are used throughout — pre-section, in cards, as the only header on the session rail.
+.ai/
+  Product vision, backlog, iteration rules, and checkpoint reports
 
----
-
-## 5 - Technical architecture
-
-```
-┌──────────────────────────────────────────────────────────┐
-│                       WebView2 (UI)                       │
-│  React 18 ▸ App.tsx ▸ TitleBar / Sidebar / Workspace      │
-│  xterm.js ─── pty events ◄─┐                              │
-│           └── input chars ─┼──── IPC bridge (Tauri)        │
-└──────────────────────────────────┼────────────────────────┘
-                                   │
-┌──────────────────────────────────▼────────────────────────┐
-│                    Tauri main process (Rust)              │
-│  commands.rs ── ssh_open / ssh_send / pty_open / ...      │
-│  ssh.rs       ◄── russh client per session                │
-│  pty.rs       ◄── portable-pty (ConPTY)                    │
-│  ssh_config.rs ── parse ~/.ssh/config (read-only)         │
-│  credentials.rs ─ keyring-rs → Windows Credential Manager │
-│  storage.rs   ── sqlite under %APPDATA%\Netssh\db.sqlite  │
-└────────────────────────────────────────────────────────────┘
+tools/
+  Validation and development helper scripts
 ```
 
-**Event channels:**
-- `ssh://{session_id}/data` → bytes from remote → xterm.write
-- `ssh://{session_id}/exit` → connection closed
-- `pty://{session_id}/data` → same for local PTYs
+## Development
 
-**Command surface (frontend → Rust):**
-```ts
-ssh_open({ alias, host, user, port, identityFile }) → sessionId
-ssh_send(sessionId, bytes)
-ssh_resize(sessionId, cols, rows)
-ssh_close(sessionId)
-
-pty_open(shellId)  →  sessionId
-pty_send(sessionId, bytes)
-pty_resize(sessionId, cols, rows)
-
-config_parse(path?)             → Host[]
-config_write_block(alias, block) // ONLY after user confirms
-
-shells_detect() → ShellInfo[]
-keys_list()    → SshKey[]
-
-cred_store(account, secret)      // → Credential Manager
-cred_load(account)               // → Result<string>
-cred_delete(account)
-```
-
----
-
-## 6 - Folder structure
-
-```
-netssh/
-├─ README.md                      ← you are here
-├─ ARCHITECTURE.md
-├─ IMPLEMENTATION_PLAN.md
-├─ TEST_PLAN.md
-├─ package.json
-├─ vite.config.ts
-├─ tsconfig.json
-├─ index.html
-├─ src/                           ← React frontend
-│  ├─ main.tsx
-│  ├─ App.tsx
-│  ├─ types.ts
-│  ├─ components/
-│  │  ├─ TitleBar.tsx
-│  │  ├─ Sidebar.tsx
-│  │  ├─ SessionRail.tsx
-│  │  ├─ ContextMenu.tsx
-│  │  ├─ HostDetail.tsx
-│  │  ├─ Terminal.tsx
-│  │  ├─ Settings.tsx
-│  │  └─ SnippetsLibrary.tsx
-│  ├─ state/
-│  │  ├─ hosts.ts        ← zustand store
-│  │  ├─ sessions.ts
-│  │  └─ settings.ts
-│  ├─ services/
-│  │  ├─ tauri.ts        ← typed wrappers over invoke()
-│  │  ├─ ssh-config.ts
-│  │  └─ i18n.ts
-│  ├─ i18n/
-│  │  ├─ en.json
-│  │  └─ zh.json
-│  └─ styles/
-│     ├─ tokens.css
-│     └─ themes.css
-└─ src-tauri/                     ← Rust backend
-   ├─ Cargo.toml
-   ├─ tauri.conf.json
-   ├─ build.rs
-   └─ src/
-      ├─ main.rs
-      ├─ commands.rs       ← #[tauri::command]s
-      ├─ ssh.rs            ← russh client + Channel manager
-      ├─ pty.rs            ← portable-pty + ConPTY
-      ├─ ssh_config.rs     ← ~/.ssh/config parser
-      ├─ credentials.rs    ← keyring-rs wrappers
-      └─ storage.rs        ← sqlite + migrations
-```
-
----
-
-## 7 - Theme & localization strategy
-
-### Themes
-
-CSS custom properties only. Switching theme = `document.documentElement.setAttribute('data-theme', id)`. No tree-shake, no FOUC.
-
-```css
-:root              { /* purple defaults */ }
-[data-theme=blue]  { /* overrides */ }
-[data-theme=mica]  { /* overrides */ }
-```
-
-Effects toggles (`translucency`, `reduceMotion`) apply additional classes on `<body>`. Translucency uses `backdrop-filter: blur()`; degrades gracefully when WebView2 has acrylic disabled.
-
-### Localization
-
-- **First launch:** call `i18n_detect_system()` (Rust → `windows::Globalization::Language`). Map `zh-CN/zh-Hans-CN/zh-SG` → `zh`, anything else → `en`.
-- **Manual override:** writes to `localStorage["netssh.lang"]` and to the SQLite settings row. The local-storage copy is what loads instantly on next start.
-- **Strings:** flat JSON dictionaries in `src/i18n/en.json` and `zh.json`. Lookup via `t(key, vars?)`. ALL visible strings are keyed — no hard-coded literals.
-- **Terminal locale:** `LANG`/`LC_ALL` forwarded to remote sessions via the SSH `Env` request when supported (most distros allow `LANG`).
-
----
-
-## 8 - Security considerations
-
-| Surface | Treatment |
-|---|---|
-| Private keys | Never read by JS. Rust reads from `~/.ssh/`, holds in process memory only. |
-| Passphrases | Windows Credential Manager via `keyring-rs`. Service name `Netssh`. Account = key fingerprint. |
-| Passwords | Same as passphrases. Prompted on first use; offer "remember" → Credential Manager. |
-| Known hosts | Standard `~/.ssh/known_hosts`. On mismatch, present TOFU prompt with both fingerprints. Never auto-accept. |
-| `~/.ssh/config` | Read by default. Writes **require explicit user confirmation** per the brief — an "Allow Netssh to modify ~/.ssh/config" toggle in Settings → Advanced (OFF by default). |
-| Snippets | Stored in the SQLite DB. Snippets tagged `danger` show a confirm dialog before execution. |
-| Logs | Per-session connection logs stored under `%APPDATA%\Netssh\logs\`. Command text is NEVER logged — only metadata (timestamps, bytes-in/out, exit codes). |
-| Auto-update | Tauri's signed updater. Code-signing certificate required for shipping; dev builds are unsigned. |
-| WebView CSP | Strict CSP in `tauri.conf.json` — no remote scripts, no inline eval. |
-
----
-
-## 9 - Implementation plan (one-week sprint cadence)
-
-**Week 1 — Skeleton**
-- [ ] Tauri 2 scaffold + frontend mounts
-- [ ] Frameless window + custom titlebar (no controls yet)
-- [ ] Theme token system + theme switcher
-- [ ] i18n stub with English strings
-- [ ] Port prototype CSS verbatim into `src/styles/`
-
-**Week 2 — Hosts & layout**
-- [ ] `ssh_config.rs` parser (test against real-world configs — include `Match`, `Include`, `Wildcard`)
-- [ ] Sidebar + grouping + search + chip filters
-- [ ] HostDetail landing
-- [ ] Right-click context menu
-
-**Week 3 — Terminal**
-- [ ] Local PTY: `portable-pty` integration; round-trip a PowerShell session
-- [ ] xterm.js mount; event bridge (`emit`/`listen`)
-- [ ] Local shell list + default selection
-
-**Week 4 — Remote SSH**
-- [ ] `russh` client; key-based auth from `IdentityFile`
-- [ ] Known-hosts check + TOFU UI
-- [ ] Multiple concurrent sessions
-
-**Week 5 — Productivity**
-- [ ] Snippets library + per-host quick commands
-- [ ] Reconnect on transient failure
-- [ ] Connection logs
-
-**Week 6 — Polish & ship**
-- [ ] Settings screens (all 7 panes)
-- [ ] Credentials integration (passphrases + remembered passwords)
-- [ ] Code signing + MSI installer
-- [ ] Auto-update channel
-
----
-
-## 10 - Test plan
-
-| Layer | Tooling | Targets |
-|---|---|---|
-| Unit (Rust) | `cargo test` | `ssh_config` parser (Include/Match/Wildcard), `credentials` keyring round-trip, `pty` byte stream |
-| Unit (TS) | Vitest | i18n key coverage (every dict has every key), reducers, ssh-config-to-Host shape |
-| Component | React Testing Library | Sidebar render with 100 hosts, context menu actions emit correct events, theme switch swaps `data-theme` |
-| E2E | Playwright + Tauri test driver | Boot → import config → open session → close session → relaunch (state restored) |
-| Manual matrix | A real Win11 box | Acrylic on/off, Windows light/dark, EN/zh system, 100% / 125% / 150% DPI, narrow window 800×600, multi-monitor |
-| Security | Manual + `cargo audit` | No private key bytes cross IPC boundary; CSP blocks remote scripts; Credential Manager entries deletable on uninstall |
-
----
-
-## 11 - Getting started
+Use npm for frontend package management.
 
 ```powershell
-# prerequisites
-winget install Rustlang.Rustup
-winget install OpenJS.NodeJS.LTS
-rustup default stable
-rustup target add x86_64-pc-windows-msvc
-
-# install deps
 npm install
-cd src-tauri && cargo fetch && cd ..
-
-# dev
-npm run tauri dev
-
-# build MSI
-npm run tauri build
-# → src-tauri/target/release/bundle/msi/netssh_0.1.0_x64_en-US.msi
+npm run dev
+npm test -- --run
+npm run build
 ```
 
-Run against the prototype CSS first to sanity-check the visual port:
+Run the full validation gate before publishing development work:
+
 ```powershell
-npm run dev  # vite only — opens in browser, sans Tauri APIs
+tools\ai-loop\run-validation.ps1
 ```
 
----
+The validation gate runs:
 
-## 12 - Working with the prototype
+- `npm run lint`
+- `npm test -- --run`
+- `npm run build`
+- `cargo test --manifest-path src-tauri\Cargo.toml`
 
-The HTML prototype (`../Netssh Prototype.html`) is the canonical visual spec. When in doubt:
-- Lift `styles.css` wholesale into `src/styles/tokens.css` + `themes.css`.
-- Port each `.jsx` file in `components/` to a typed `.tsx` of the same name in `src/components/`.
-- Replace mock data imports (`window.HOSTS`, `window.SNIPPETS`) with Zustand stores fed by Tauri commands.
-- Replace the fake shell with a real xterm wired to the SSH/PTY event channels.
+## Desktop Build
 
-Every visible string in the prototype is already in `data/i18n.js` — copy directly into `src/i18n/en.json` and `zh.json`.
+Build the Windows desktop application with:
+
+```powershell
+npm run tauri:build
+```
+
+Successful Windows builds create installer artifacts under:
+
+```text
+src-tauri/target/release/bundle/
+```
+
+Expected bundle outputs include NSIS and MSI installers when the required Windows build tooling is installed.
+
+## Release Process
+
+1. Update README and release notes.
+2. Run `tools\ai-loop\run-validation.ps1`.
+3. Run `npm run tauri:build`.
+4. Publish the generated installers to GitHub Releases.
+
+Release assets should use the version from `package.json`, `src-tauri/Cargo.toml`, and `src-tauri/tauri.conf.json`.
+
+## Project Direction
+
+Phase 1 focuses on asset inventory, SSH config import, safe SSH connections, favorites, recents, diagnostics, and local-first credential handling.
+
+Phase 2 adds serial console live support: COM port selection, baud rate, 8N1 presets, serial event handling, and terminal live mode.
+
+Phase 3 expands credential profile polish, production asset markers, dangerous command confirmation, and local operation metadata without command bodies.
