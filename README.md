@@ -3,6 +3,8 @@
 > Personal SSH / device management app for Windows 11. Tauri 2 + React + xterm.js.
 > This package is the **engineering handoff** for the prototype at `../Netssh Prototype.html`.
 
+![Netssh app interface](docs/assets/netssh-app-screenshot.png)
+
 ---
 
 ## 1 · What this is
