@@ -1,16 +1,16 @@
 /**
- * 主机部署位置推断与标签的共享工具函数。
- * 在 Sidebar 和 HostDetail 中均有使用，提取到此模块以避免重复代码。
+ * Shared helpers for host deployment scope inference and labels.
+ * Used by Sidebar and HostDetail to avoid duplicate heuristics.
  */
 import type { DeployScope, Host, Lang } from "../config/types";
 
 /**
- * 根据主机属性推断部署位置（本地 / 云端）。
- * 优先使用显式 deployScope 字段，否则通过关键字启发式匹配。
+ * Infer deployment scope from host attributes.
+ * Prefer explicit deployScope, then fall back to keyword heuristics.
  */
 export function deployScope(host: Host): DeployScope {
   if (host.deployScope) {
-    /** 将旧的 hybrid / unknown 归一化为 local */
+    /** Normalize legacy hybrid / unknown values to local. */
     if (host.deployScope === "hybrid" || host.deployScope === "unknown") return "local";
     return host.deployScope;
   }
@@ -23,26 +23,26 @@ export function deployScope(host: Host): DeployScope {
 }
 
 /**
- * 返回部署位置的国际化标签文本。
+ * Return the localized deployment scope label.
  */
 export function deployScopeLabel(scope: DeployScope, lang: Lang): string {
-  /** 将旧值归一化 */
+  /** Normalize legacy values. */
   if (scope === "hybrid" || scope === "unknown") scope = "local";
-  const zh: Record<string, string> = { local: "本地", cloud: "云端" };
+  const zh: Record<string, string> = { local: "Local", cloud: "Cloud" };
   const en: Record<string, string> = { local: "Local", cloud: "Cloud" };
-  return lang === "zh" ? zh[scope] || "本地" : en[scope] || "Local";
+  return lang === "zh" ? zh[scope] || "Local" : en[scope] || "Local";
 }
 
 /**
- * 根据主机名、别名、标签等推断设备类型关键词，供图标自动选择使用。
+ * Infer a device type keyword from host name, alias, and tags for icon selection.
  */
 export function deviceTypeFromHost(host: Host): string {
   const haystack = [host.alias, host.hostname, host.role, (host.tags || []).join(" ")]
     .filter(Boolean)
     .join(" ")
     .toLowerCase();
-  if (/zspace|zima|极空间|nance/i.test(haystack)) return "zspace";
-  if (/raspberry|rpi|raspi|树莓派|\bpi\b/i.test(haystack)) return "raspberry";
+  if (/zspace|zima|nance/i.test(haystack)) return "zspace";
+  if (/raspberry|rpi|raspi|\bpi\b/i.test(haystack)) return "raspberry";
   if (/ubuntu/i.test(haystack)) return "ubuntu";
   if (/openwrt|lede|immortalwrt/i.test(haystack)) return "openwrt";
   if (/istoreos|istore/i.test(haystack)) return "istoreos";

@@ -114,7 +114,7 @@ export function Workspace({
                   <span className="split-cell__title">{st.title}</span>
                   <button
                     className="icon-btn"
-                    title={lang === "zh" ? "退出分屏" : "Pop out of split"}
+                    title={lang === "zh" ? "Pop out of split" : "Pop out of split"}
                     onClick={(e) => {
                       e.stopPropagation();
                       toggleSplit(st.id);
@@ -147,7 +147,7 @@ export function Workspace({
                     />
                   ) : (
                     <div style={{ padding: 24, color: "var(--text-mute)" }}>
-                      {lang === "zh" ? "会话不可用" : "session unavailable"}
+                      {lang === "zh" ? "session unavailable" : "session unavailable"}
                     </div>
                   )}
                 </div>
@@ -260,8 +260,8 @@ export function Workspace({
           <button
             className={"split-toggle" + (splitSet.has(tab.id) ? " active" : "")}
             onClick={() => toggleSplit(tab.id)}
-            title={lang === "zh" ? "加入 / 退出四格视图" : "Toggle quad view"}
-            aria-label={lang === "zh" ? "加入 / 退出四格视图" : "Toggle quad view"}
+            title={lang === "zh" ? "Toggle quad view" : "Toggle quad view"}
+            aria-label={lang === "zh" ? "Toggle quad view" : "Toggle quad view"}
           >
             <svg viewBox="0 0 14 14" width="13" height="13" fill="none">
               <rect x="1" y="1" width="12" height="12" rx="1.5" stroke="currentColor" strokeWidth="1.2" />

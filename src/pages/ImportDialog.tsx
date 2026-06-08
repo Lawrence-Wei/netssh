@@ -133,11 +133,11 @@ export function ImportDialog({ lang, existingHosts, onClose, onImport }: ImportD
         {previewHosts.length > 0 && (
           <div className="import-preview">
             <div className="confirm-card__title" style={{ fontSize: 14 }}>
-              {lang === "zh" ? "导入预览" : "Import preview"}
+              {lang === "zh" ? "Import preview" : "Import preview"}
             </div>
             <div className="import-status">
               {lang === "zh"
-                ? `准备导入 ${previewHosts.length} 个资产。`
+                ? `Ready to import ${previewHosts.length} assets.`
                 : `${previewHosts.length} asset(s) ready to import.`}
             </div>
             {diagnostics.length > 0 && (
@@ -159,7 +159,7 @@ export function ImportDialog({ lang, existingHosts, onClose, onImport }: ImportD
               ))}
               {previewHosts.length > 8 && (
                 <div className="import-status">
-                  {lang === "zh" ? `另有 ${previewHosts.length - 8} 个资产未显示。` : `${previewHosts.length - 8} more asset(s) hidden.`}
+                  {lang === "zh" ? `${previewHosts.length - 8} more asset(s) hidden.` : `${previewHosts.length - 8} more asset(s) hidden.`}
                 </div>
               )}
             </div>
@@ -169,7 +169,7 @@ export function ImportDialog({ lang, existingHosts, onClose, onImport }: ImportD
         <div className="confirm-card__actions">
           {previewHosts.length > 0 && (
             <button className="btn" onClick={confirmImport} disabled={busy}>
-              {lang === "zh" ? "确认导入" : "Import"}
+              {lang === "zh" ? "Import" : "Import"}
             </button>
           )}
           <button className="btn ghost" onClick={onClose} disabled={busy}>
@@ -265,19 +265,19 @@ function normalizeRows(rows: unknown[], source: ImportSource): Omit<Host, "id">[
       }
       return undefined;
     };
-    const alias = pick("alias", "name", "别名", "主机名");
-    const hostname = pick("hostname", "host", "ip", "dns", "address", "地址");
+    const alias = pick("alias", "name");
+    const hostname = pick("hostname", "host", "ip", "dns", "address");
     if (!alias && !hostname) return;
-    const user = pick("user", "username", "用户名", "用户") || "root";
-    const portRaw = pick("port", "端口");
+    const user = pick("user", "username") || "root";
+    const portRaw = pick("port");
     const port = portRaw ? Number(portRaw) || 22 : 22;
-    const os = pick("os", "system", "operating system", "系统");
-    const role = pick("role", "type", "角色") || os;
-    const group = pick("group", "site", "分组", "站点") || "unassigned";
-    const env = pick("env", "environment", "环境");
-    const notes = pick("notes", "remark", "备注");
-    const identity = pick("identityfile", "key", "密钥");
-    const tags = pick("tags", "tag", "标签");
+    const os = pick("os", "system", "operating system");
+    const role = pick("role", "type") || os;
+    const group = pick("group", "site") || "unassigned";
+    const env = pick("env", "environment");
+    const notes = pick("notes", "remark");
+    const identity = pick("identityfile", "key");
+    const tags = pick("tags", "tag");
     out.push({
       alias: alias || hostname!,
       hostname: hostname || alias!,
@@ -322,7 +322,7 @@ async function buildDiagnostics(
         diagnostics.push({
           level: "warn",
           message: lang === "zh"
-            ? `已存在同名资产：${alias}，导入时会跳过。`
+            ? `Asset already exists for alias ${alias}; import will skip it.`
             : `Existing asset alias "${alias}" will be skipped during import.`,
         });
       }
@@ -335,7 +335,7 @@ async function buildDiagnostics(
       diagnostics.push({
         level: "info",
         message: lang === "zh"
-          ? `${host.alias} 未指定 IdentityFile，将使用密码或 ssh-agent。`
+          ? `${host.alias} has no IdentityFile; password auth or ssh-agent will be used.`
           : `${host.alias} has no IdentityFile and will rely on password or ssh-agent.`,
       });
     } else {
@@ -354,7 +354,7 @@ async function buildDiagnostics(
       diagnostics.push({
         level: "info",
         message: lang === "zh"
-          ? `${host.alias} 使用非标准 SSH 端口 ${host.port}。`
+          ? `${host.alias} uses non-standard SSH port ${host.port}.`
           : `${host.alias} uses non-standard SSH port ${host.port}.`,
       });
     }
@@ -365,7 +365,7 @@ async function buildDiagnostics(
       diagnostics.push({
         level: "warn",
         message: lang === "zh"
-          ? `导入内容里重复出现 Host alias：${alias}。`
+          ? `Duplicate Host alias in import: ${alias}.`
           : `Duplicate Host alias in import: ${alias}.`,
       });
     }
@@ -376,7 +376,7 @@ async function buildDiagnostics(
       diagnostics.push({
         level: "warn",
         message: lang === "zh"
-          ? `多个资产指向同一目标 ${target}：${owners.join(", ")}。`
+          ? `Multiple assets point at ${target}: ${owners.join(", ")}.`
           : `Multiple assets point to ${target}: ${owners.join(", ")}.`,
       });
     }
@@ -387,7 +387,7 @@ async function buildDiagnostics(
   if (diagnostics.length === 0) {
     diagnostics.push({
       level: "info",
-      message: lang === "zh" ? "未发现明显冲突。" : "No obvious conflicts found.",
+      message: lang === "zh" ? "No obvious conflicts found." : "No obvious conflicts found.",
     });
   }
 
@@ -410,10 +410,10 @@ function identityFileDiagnosticMessage(
 ): string {
   if (result === "unknown") {
     return lang === "zh"
-      ? `${alias} 指定的 IdentityFile 无法检查：${path}。`
+      ? `${alias} IdentityFile could not be checked: ${path}.`
       : `${alias} references an IdentityFile that could not be checked: ${path}.`;
   }
   return lang === "zh"
-    ? `${alias} 指定的 IdentityFile 不存在：${path}。`
+    ? `${alias} IdentityFile does not exist: ${path}.`
     : `${alias} references a missing IdentityFile: ${path}.`;
 }

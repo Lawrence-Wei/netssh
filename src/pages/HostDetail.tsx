@@ -94,7 +94,7 @@ export function HostDetail({
           void confirm({
             title: t("host.action.confirmRemove", lang, { alias: host.alias }),
             message: lang === "zh"
-              ? "仅删除 Netssh 本地管理数据，不会修改 ~/.ssh/config。"
+              ? "Only Netssh local metadata is removed; ~/.ssh/config is not changed."
               : "Only Netssh local data is removed. Your ~/.ssh/config stays untouched.",
             confirmLabel: t("host.action.remove", lang),
             cancelLabel: t("common.cancel", lang),
@@ -139,7 +139,7 @@ export function HostDetail({
             )}
             <span className={"latency " + statusClass(host)} />
             <span className="host-detail-header__status">
-              {host.status === "ok" ? (lang === "zh" ? "在线" : "Online") : host.status === "warn" ? (lang === "zh" ? "告警" : "Warn") : (lang === "zh" ? "离线" : "Offline")}
+              {host.status === "ok" ? (lang === "zh" ? "Online" : "Online") : host.status === "warn" ? (lang === "zh" ? "Warn" : "Warn") : (lang === "zh" ? "Offline" : "Offline")}
             </span>
           </div>
         </div>
@@ -160,7 +160,7 @@ export function HostDetail({
         {/* Basic info */}
         <div className="panel">
           <div className="panel-head">
-            <h3><span className="eyebrow">{lang === "zh" ? "基本信息" : "Basic info"}</span></h3>
+            <h3><span className="eyebrow">{lang === "zh" ? "Basic info" : "Basic info"}</span></h3>
           </div>
           <div className="panel-body dense">
             <div className="kvlist">
@@ -170,11 +170,11 @@ export function HostDetail({
               <span className="v">{host.role || "—"}</span>
               <span className="k">{t("host.field.env", lang)}</span>
               <span className="v">{host.env || "—"}</span>
-              <span className="k">{lang === "zh" ? "部署位置" : "Deploy"}</span>
+              <span className="k">{lang === "zh" ? "Deploy" : "Deploy"}</span>
               <span className="v">{deployScopeLabel(deployScope(host), lang)}</span>
               {host.cloudProvider && (
                 <>
-                  <span className="k">{lang === "zh" ? "云厂商" : "Cloud"}</span>
+                  <span className="k">{lang === "zh" ? "Cloud" : "Cloud"}</span>
                   <span className="v">{host.cloudProvider}</span>
                 </>
               )}
@@ -197,7 +197,7 @@ export function HostDetail({
               <span className="v">{host.port}</span>
               <span className="k">{t("host.eyebrow.key", lang)}</span>
               <span className="v" style={{ fontSize: 11 }}>{identityName(host.identityFile)}</span>
-              <span className="k">{lang === "zh" ? "命令" : "Command"}</span>
+              <span className="k">{lang === "zh" ? "Command" : "Command"}</span>
               <span className="v" style={{ fontFamily: "var(--font-mono)", fontSize: 11 }}>ssh {host.alias}</span>
             </div>
           </div>
@@ -206,7 +206,7 @@ export function HostDetail({
         {/* Site / Group */}
         <div className="panel">
           <div className="panel-head">
-            <h3><span className="eyebrow">{lang === "zh" ? "站点 / 分组" : "Site / group"}</span></h3>
+            <h3><span className="eyebrow">{lang === "zh" ? "Site / group" : "Site / group"}</span></h3>
           </div>
           <div className="panel-body dense">
             <div className="kvlist">
@@ -214,7 +214,7 @@ export function HostDetail({
               <span className="v">{site ? site.name : host.group}</span>
               {site?.subnet && (
                 <>
-                  <span className="k">{lang === "zh" ? "网段" : "Subnet"}</span>
+                  <span className="k">{lang === "zh" ? "Subnet" : "Subnet"}</span>
                   <span className="v" style={{ fontFamily: "var(--font-mono)" }}>{site.subnet}</span>
                 </>
               )}
@@ -229,7 +229,7 @@ export function HostDetail({
           </div>
           <div className="panel-body dense">
             <p style={{ margin: 0, fontSize: 13, color: "var(--text-dim)", lineHeight: 1.6 }}>
-              {host.notes || (lang === "zh" ? "暂无备注" : "No notes")}
+              {host.notes || (lang === "zh" ? "No notes" : "No notes")}
             </p>
           </div>
         </div>
@@ -359,10 +359,10 @@ function Landing({
           className="btn ghost"
           onClick={onOpenQuad}
           disabled={!canOpenQuad}
-          title={lang === "zh" ? "已有 2-4 个会话时可用" : "Available when 2-4 sessions are open"}
+          title={lang === "zh" ? "Available when 2-4 sessions are open" : "Available when 2-4 sessions are open"}
         >
           {Icon.split}
-          <span>{lang === "zh" ? "四格视图" : "Quad view"}</span>
+          <span>{lang === "zh" ? "Quad view" : "Quad view"}</span>
         </button>
       </div>
 
@@ -477,7 +477,7 @@ function ManualConnectCard({
             <option value="">{t("manual.field.credential.pick", lang)}</option>
             {credentials.map((cred) => (
               <option key={cred.id} value={cred.id}>
-                {cred.group} · {cred.name} ({cred.user})
+                {cred.group} - {cred.name} ({cred.user})
               </option>
             ))}
           </select>
@@ -539,14 +539,14 @@ function CommandRow({ name, cmd, lang, onRun }: { name: string; cmd: string; lan
 
 function commandNote(cmd: string, lang: Lang) {
   const lower = cmd.toLowerCase();
-  if (lower.startsWith("ssh ")) return lang === "zh" ? "打开 SSH 会话" : "Open an SSH session";
-  if (lower.startsWith("ping")) return lang === "zh" ? "发送 ICMP 探测包" : "Send ICMP probes";
-  if (lower.includes("ip a") || lower.includes("ifconfig")) return lang === "zh" ? "查看网络接口" : "Show network interfaces";
-  if (lower.startsWith("uptime")) return lang === "zh" ? "查看系统运行时间" : "Show uptime";
-  if (lower.startsWith("df ")) return lang === "zh" ? "查看磁盘占用" : "Show disk usage";
-  if (lower.startsWith("uname")) return lang === "zh" ? "查看系统信息" : "Show system info";
-  if (lower.startsWith("docker ps")) return lang === "zh" ? "列出运行中的容器" : "List running containers";
-  return lang === "zh" ? "点击后在当前会话中运行" : "Click to run in active session";
+  if (lower.startsWith("ssh ")) return lang === "zh" ? "Open an SSH session" : "Open an SSH session";
+  if (lower.startsWith("ping")) return lang === "zh" ? "Send ICMP probes" : "Send ICMP probes";
+  if (lower.includes("ip a") || lower.includes("ifconfig")) return lang === "zh" ? "Show network interfaces" : "Show network interfaces";
+  if (lower.startsWith("uptime")) return lang === "zh" ? "Show uptime" : "Show uptime";
+  if (lower.startsWith("df ")) return lang === "zh" ? "Show disk usage" : "Show disk usage";
+  if (lower.startsWith("uname")) return lang === "zh" ? "Show system info" : "Show system info";
+  if (lower.startsWith("docker ps")) return lang === "zh" ? "List running containers" : "List running containers";
+  return lang === "zh" ? "Click to run in active session" : "Click to run in active session";
 }
 
 function identityName(path?: string) {

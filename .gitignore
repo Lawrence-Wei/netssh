@@ -1,4 +1,4 @@
-# Build outputs
+# Build and dependency outputs
 node_modules/
 dist/
 target/

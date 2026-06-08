@@ -69,7 +69,7 @@
   --tooltip-bg: rgba(20, 12, 40, 0.92);
   --tooltip-border: var(--glass-stroke-strong);
 
-  /* === RGB 分量（供 rgba() / gradient 跨主题使用） === */
+  /* === RGB components for rgba() and cross-theme gradients === */
   --accent-r: 167; --accent-g: 139; --accent-b: 250;
   --accent-strong-r: 139; --accent-strong-g: 92; --accent-strong-b: 246;
   --accent-2-r: 96; --accent-2-g: 165; --accent-2-b: 250;
@@ -1408,7 +1408,7 @@ input, textarea { background: none; border: 0; outline: none; }
   letter-spacing: 0.02em;
   padding: 10px 16px;
   border-radius: var(--radius);
-  /** 使用 RGB 分量变量，使渐变颜色随主题自动切换 */
+  /** Use RGB component variables so gradients follow the active theme. */
   background: linear-gradient(135deg, rgba(var(--accent-strong-r), var(--accent-strong-g), var(--accent-strong-b), 0.45), rgba(var(--accent-2-r), var(--accent-2-g), var(--accent-2-b), 0.35));
   border: 1px solid rgba(var(--accent-r), var(--accent-g), var(--accent-b), 0.35);
   color: #f0e6ff;
@@ -1988,7 +1988,7 @@ input, textarea { background: none; border: 0; outline: none; }
   z-index: 210;
   animation: ctx-in .1s ease-out;
 }
-/** 当右侧空间不足时，子菜单向左展开 */
+/** Open the submenu to the left when there is not enough room on the right. */
 .context-submenu--left {
   left: auto;
   right: calc(100% + 4px);
@@ -2016,7 +2016,7 @@ input, textarea { background: none; border: 0; outline: none; }
 select {
   appearance: none;
   -webkit-appearance: none;
-  /** 使用两个 CSS 渐变绘制向下箭头，颜色跟随 --text-dim，随主题自动切换 */
+  /** Draw the down arrow with CSS gradients so the color follows --text-dim. */
   background-image:
     linear-gradient(45deg, transparent 50%, var(--text-dim) 50%),
     linear-gradient(135deg, var(--text-dim) 50%, transparent 50%);
@@ -2105,7 +2105,7 @@ body.reduce-motion *::after {
   }
 }
 
-/* === 中等宽度：settings / snippets 左侧导航收缩 === */
+/* === Medium width: compact settings / snippets side navigation === */
 @media (max-width: 860px) {
   .settings {
     grid-template-columns: 170px 1fr;
@@ -2129,7 +2129,7 @@ body.reduce-motion *::after {
   }
 }
 
-/* === 窄宽度：settings / snippets 左侧导航进一步收缩或隐藏 === */
+/* === Narrow width: further compact or hide settings / snippets side navigation === */
 @media (max-width: 640px) {
   .settings {
     grid-template-columns: 140px 1fr;
@@ -2174,7 +2174,7 @@ body.reduce-motion *::after {
   }
 }
 
-/* === 触摸设备：为 hover 才可见的 UI 元素提供常驻替代 === */
+/* === Touch devices: keep alternatives visible for hover-only UI === */
 @media (hover: none) and (pointer: coarse) {
   .tab .x {
     opacity: 0.65;

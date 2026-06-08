@@ -226,13 +226,13 @@ export default function App() {
     }
     if (action === "delete") {
       void confirm({
-        title: lang === "zh" ? `删除主机 “${host.alias}”?` : `Remove host "${host.alias}"?`,
+        title: lang === "zh" ? `Remove host "${host.alias}"?` : `Remove host "${host.alias}"?`,
         message:
           lang === "zh"
-            ? "删除后此主机将从列表中移除，但 ~/.ssh/config 不会被修改。"
+            ? "This host is removed from the list. Your ~/.ssh/config stays untouched."
             : "The host is removed from this list. Your ~/.ssh/config stays untouched.",
-        confirmLabel: lang === "zh" ? "删除" : "Remove",
-        cancelLabel: lang === "zh" ? "取消" : "Cancel",
+        confirmLabel: lang === "zh" ? "Remove" : "Remove",
+        cancelLabel: lang === "zh" ? "Cancel" : "Cancel",
         danger: true,
       }).then((ok) => {
         if (ok) removeHost(host.id);
@@ -315,7 +315,7 @@ export default function App() {
           className="sidebar-resizer"
           role="separator"
           aria-orientation="vertical"
-          title={lang === "zh" ? "拖拽调整左侧面板宽度，双击恢复默认" : "Drag to resize the sidebar. Double-click to reset."}
+          title={lang === "zh" ? "Drag to resize the sidebar. Double-click to reset." : "Drag to resize the sidebar. Double-click to reset."}
           onPointerDown={startSidebarResize}
           onDoubleClick={() => {
             setSidebarWidth(320);

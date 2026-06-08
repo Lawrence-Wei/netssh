@@ -176,7 +176,7 @@ function LanguagePane({ lang, setLang, settings, setSetting }: {
           </div>
           <div className="seg">
             <button className={lang === "en" ? "active" : ""} onClick={() => setLang("en")}>English</button>
-            <button className={lang === "zh" ? "active" : ""} onClick={() => setLang("zh")}>简体中文</button>
+            <button className={lang === "zh" ? "active" : ""} onClick={() => setLang("zh")}>English fallback</button>
           </div>
         </div>
       </div>
@@ -288,9 +288,9 @@ function TerminalPaneSettings({ lang, settings, setSetting }: {
         <div className="setting-row">
           <div><div className="label">{t("settings.terminal.cursor", lang)}</div><div className="desc">{t("settings.terminal.cursor.desc", lang)}</div></div>
           <div className="seg">
-            <button>{lang === "zh" ? "块" : "Block"}</button>
-            <button>{lang === "zh" ? "下划线" : "Underline"}</button>
-            <button className="active">{lang === "zh" ? "竖线" : "Bar"}</button>
+            <button>{lang === "zh" ? "Block" : "Block"}</button>
+            <button>{lang === "zh" ? "Underline" : "Underline"}</button>
+            <button className="active">{lang === "zh" ? "Bar" : "Bar"}</button>
           </div>
         </div>
         <ToggleRow label={t("settings.terminal.cursorBlink", lang)} desc={t("settings.terminal.cursorBlink.desc", lang)} on onToggle={() => undefined} />
@@ -316,22 +316,22 @@ function ShortcutsPane({ lang }: { lang: Lang }) {
     {
       title: t("settings.shortcuts.navigation", lang),
       items: [
-        ["Ctrl + K", lang === "zh" ? "命令面板" : "Command palette"],
-        ["Ctrl + T", lang === "zh" ? "新建标签" : "New tab"],
-        ["Ctrl + W", lang === "zh" ? "关闭标签" : "Close tab"],
-        ["Ctrl + Tab", lang === "zh" ? "下一个标签" : "Next tab"],
-        ["Ctrl + Shift + Tab", lang === "zh" ? "上一个标签" : "Previous tab"],
-        ["Ctrl + 1..9", lang === "zh" ? "切到第 N 个标签" : "Switch to tab N"],
+        ["Ctrl + K", lang === "zh" ? "Command palette" : "Command palette"],
+        ["Ctrl + T", lang === "zh" ? "New tab" : "New tab"],
+        ["Ctrl + W", lang === "zh" ? "Close tab" : "Close tab"],
+        ["Ctrl + Tab", lang === "zh" ? "Next tab" : "Next tab"],
+        ["Ctrl + Shift + Tab", lang === "zh" ? "Previous tab" : "Previous tab"],
+        ["Ctrl + 1..9", lang === "zh" ? "Switch to tab N" : "Switch to tab N"],
       ],
     },
     {
       title: t("settings.shortcuts.session", lang),
       items: [
-        [lang === "zh" ? "Enter (选中主机)" : "Enter on host", lang === "zh" ? "连接" : "Connect"],
-        ["Ctrl + D", lang === "zh" ? "向右分屏" : "Split pane right"],
-        ["Ctrl + Shift + D", lang === "zh" ? "向下分屏" : "Split pane down"],
-        ["Ctrl + Shift + F", lang === "zh" ? "搜索回滚" : "Search scrollback"],
-        ["F4", lang === "zh" ? "打开 SFTP" : "Open SFTP"],
+        [lang === "zh" ? "Enter on host" : "Enter on host", lang === "zh" ? "Connect" : "Connect"],
+        ["Ctrl + D", lang === "zh" ? "Split pane right" : "Split pane right"],
+        ["Ctrl + Shift + D", lang === "zh" ? "Split pane down" : "Split pane down"],
+        ["Ctrl + Shift + F", lang === "zh" ? "Search scrollback" : "Search scrollback"],
+        ["F4", lang === "zh" ? "Open SFTP" : "Open SFTP"],
       ],
     },
   ];
@@ -484,8 +484,8 @@ function CredentialsPane({ lang }: { lang: Lang }) {
                   <div className="cred-item__name">{cred.name}</div>
                   <div className="cred-item__sub">
                     {cred.user}
-                    {cred.hasPassword ? ` · ${t("settings.credentials.hasPassword", lang)}` : ""}
-                    {cred.identityFile ? ` · ${cred.identityFile}` : ""}
+                    {cred.hasPassword ? ` - ${t("settings.credentials.hasPassword", lang)}` : ""}
+                    {cred.identityFile ? ` - ${cred.identityFile}` : ""}
                   </div>
                 </div>
                 <div className="cred-item__actions">

@@ -16,7 +16,7 @@ interface BrandRule {
 const BRAND_RULES: BrandRule[] = [
   {
     id: "zspace",
-    test: /zspace|z-space|zima|极空间|nance/i,
+    test: /zspace|z-space|zima|nance/i,
     icon: (
       <svg viewBox="0 0 14 14" fill="none" aria-label="ZSpace">
         <rect x="1.5" y="1.5" width="11" height="11" rx="2" fill="#1A73E8" stroke="#1A73E8" strokeWidth="0.5" />
@@ -65,7 +65,7 @@ const BRAND_RULES: BrandRule[] = [
   },
   {
     id: "huawei",
-    test: /huawei|hw[-_]?|华为|vrp|usg|s5700|s6700|s7700|s9700|s12700/i,
+    test: /huawei|hw[-_]?|vrp|usg|s5700|s6700|s7700|s9700|s12700/i,
     icon: (
       <svg viewBox="0 0 14 14" fill="none">
         <path d="M7 1.5L3 7l4 5.5L11 7 7 1.5z" stroke="currentColor" strokeWidth="1.1" strokeLinejoin="round" />
@@ -114,7 +114,7 @@ const BRAND_RULES: BrandRule[] = [
   },
   {
     id: "asus",
-    test: /asus|华硕|rog\b|tuf\b/i,
+    test: /asus|rog\b|tuf\b/i,
     icon: (
       <svg viewBox="0 0 14 14" fill="none">
         <rect x="1.5" y="2.5" width="11" height="9" rx="1.2" stroke="currentColor" strokeWidth="1.1" />
@@ -162,7 +162,7 @@ const BRAND_RULES: BrandRule[] = [
   },
   {
     id: "tsinghua-linux",
-    test: /tsinghua|清华|tuna|kylin|uos\b|ulinux/i,
+    test: /tsinghua|tuna|kylin|uos\b|ulinux/i,
     icon: (
       <svg viewBox="0 0 14 14" fill="none">
         <circle cx="7" cy="7" r="5.5" stroke="currentColor" strokeWidth="1.1" />
@@ -247,7 +247,7 @@ const BRAND_RULES: BrandRule[] = [
   },
   {
     id: "raspberry",
-    test: /\bpi\b|raspberry|rpi|raspi|树莓派/i,
+    test: /\bpi\b|raspberry|rpi|raspi/i,
     icon: (
       <svg viewBox="0 0 14 14" fill="none" aria-label="Raspberry Pi">
         <circle cx="7" cy="7" r="5.5" fill="#A22846" stroke="#A22846" strokeWidth="0.3" />

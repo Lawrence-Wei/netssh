@@ -1,4 +1,5 @@
 {
+  // TypeScript settings for the React frontend.
   "compilerOptions": {
     "target": "ES2022",
     "useDefineForClassFields": true,

@@ -123,13 +123,13 @@ export function Sidebar({
     if (selectedIds.size === 0) return;
     void confirm({
       title: lang === "zh"
-        ? `批量删除 ${selectedIds.size} 台主机？`
+        ? `Remove ${selectedIds.size} hosts?`
         : `Remove ${selectedIds.size} host(s)?`,
       message: lang === "zh"
-        ? "仅删除 Netssh 本地管理数据，不会修改 ~/.ssh/config。"
+        ? "Only Netssh local metadata is removed; ~/.ssh/config is not changed."
         : "Only Netssh local data is removed. Your ~/.ssh/config stays untouched.",
-      confirmLabel: lang === "zh" ? "删除" : "Remove",
-      cancelLabel: lang === "zh" ? "取消" : "Cancel",
+      confirmLabel: lang === "zh" ? "Remove" : "Remove",
+      cancelLabel: lang === "zh" ? "Cancel" : "Cancel",
       danger: true,
     }).then((ok) => {
       if (ok) {
@@ -156,8 +156,8 @@ export function Sidebar({
             ["all", t("sidebar.filter.all", lang)],
             ["favorite", t("sidebar.filter.pinned", lang)],
             ["recent", t("sidebar.filter.recent", lang)],
-            ["local", lang === "zh" ? "本地" : "Local"],
-            ["cloud", lang === "zh" ? "云端" : "Cloud"],
+            ["local", lang === "zh" ? "Local" : "Local"],
+            ["cloud", lang === "zh" ? "Cloud" : "Cloud"],
           ].map(([id, label]) => (
             <button key={id} className={"chip " + (filter === id ? "active" : "")} onClick={() => setFilter(id as typeof filter)}>
               {label}
@@ -174,7 +174,7 @@ export function Sidebar({
             <span>{t("import.short", lang)}</span>
           </button>
           <button className="sidebar-quick__btn" onClick={() => setSiteEditor((v) => !v)} title={t("site.action.add", lang)}>
-            <span className="sidebar-quick__glyph">畦</span>
+            <span className="sidebar-quick__glyph">#</span>
             <span>{t("site.action.add", lang)}</span>
           </button>
         </div>
@@ -211,21 +211,21 @@ export function Sidebar({
             <button
               className="sidebar-quick__btn"
               onClick={() => setBatchMode(true)}
-              title={lang === "zh" ? "批量管理主机" : "Batch manage hosts"}
+              title={lang === "zh" ? "Batch manage hosts" : "Batch manage hosts"}
             >
               <svg viewBox="0 0 14 14" width="10" height="10" fill="none">
                 <rect x="1.5" y="2" width="11" height="10" rx="1.5" stroke="currentColor" strokeWidth="1.2" />
                 <path d="M4 7l2 2 4-4" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round" />
               </svg>
-              <span>{lang === "zh" ? "批量管理" : "Batch"}</span>
+              <span>{lang === "zh" ? "Batch" : "Batch"}</span>
             </button>
           ) : (
             <div className="batch-actions">
               <button className="chip" onClick={selectAllFiltered}>
-                {lang === "zh" ? "全选" : "Select all"}
+                {lang === "zh" ? "Select all" : "Select all"}
               </button>
               <button className="chip" onClick={deselectAll}>
-                {lang === "zh" ? "取消" : "Deselect"}
+                {lang === "zh" ? "Deselect" : "Deselect"}
               </button>
               <button
                 className="chip danger"
@@ -236,7 +236,7 @@ export function Sidebar({
                 <span>{selectedIds.size > 0 ? `(${selectedIds.size})` : ""}</span>
               </button>
               <button className="chip" onClick={exitBatchMode}>
-                {lang === "zh" ? "完成" : "Done"}
+                {lang === "zh" ? "Done" : "Done"}
               </button>
             </div>
           )}
@@ -400,11 +400,11 @@ export function Sidebar({
                         type="button"
                         className={"host-favorite" + (favorite ? " active" : "")}
                         title={favorite
-                          ? (lang === "zh" ? "取消收藏" : "Remove from favorites")
-                          : (lang === "zh" ? "收藏" : "Add to favorites")}
+                          ? (lang === "zh" ? "Remove from favorites" : "Remove from favorites")
+                          : (lang === "zh" ? "Add to favorites" : "Add to favorites")}
                         aria-label={favorite
-                          ? (lang === "zh" ? "取消收藏" : "Remove from favorites")
-                          : (lang === "zh" ? "收藏" : "Add to favorites")}
+                          ? (lang === "zh" ? "Remove from favorites" : "Remove from favorites")
+                          : (lang === "zh" ? "Add to favorites" : "Add to favorites")}
                         onClick={(event) => {
                           event.stopPropagation();
                           onToggleFavorite(host.id);
@@ -432,15 +432,15 @@ export function Sidebar({
 
 function statusTooltip(latency?: number | null, status?: Host["status"], lang?: Lang) {
   if (status === "off" || latency == null) {
-    return lang === "zh" ? "尚未检测：双击连接后更新状态" : "Not checked yet: double-click to connect and update status";
+    return lang === "zh" ? "Not checked yet: double-click to connect and update status" : "Not checked yet: double-click to connect and update status";
   }
   if (latency < 20) {
-    return lang === "zh" ? `在线正常：延迟 ${latency} ms` : `Healthy: ${latency} ms latency`;
+    return lang === "zh" ? `Healthy: ${latency} ms latency` : `Healthy: ${latency} ms latency`;
   }
   if (latency < 60) {
-    return lang === "zh" ? `需要关注：延迟 ${latency} ms，网络可能不稳定` : `Needs attention: ${latency} ms latency`;
+    return lang === "zh" ? `Needs attention: ${latency} ms latency` : `Needs attention: ${latency} ms latency`;
   }
-  return lang === "zh" ? `严重告警：延迟 ${latency} ms 或连接异常` : `Critical: ${latency} ms latency or connection issue`;
+  return lang === "zh" ? `Critical: ${latency} ms latency or connection issue` : `Critical: ${latency} ms latency or connection issue`;
 }
 
 function latencyClass(latency?: number | null, status?: Host["status"]) {
@@ -474,17 +474,17 @@ function formatRecent(timestamp: number, lang: Lang) {
   const diffMs = Math.max(0, Date.now() - timestamp);
   const minutes = Math.max(1, Math.floor(diffMs / 60000));
   if (minutes < 60) {
-    return lang === "zh" ? `${minutes}分钟前` : `${minutes}m ago`;
+    return lang === "zh" ? `${minutes}m ago` : `${minutes}m ago`;
   }
   const hours = Math.floor(minutes / 60);
   if (hours < 24) {
-    return lang === "zh" ? `${hours}小时前` : `${hours}h ago`;
+    return lang === "zh" ? `${hours}h ago` : `${hours}h ago`;
   }
   const days = Math.floor(hours / 24);
-  return lang === "zh" ? `${days}天前` : `${days}d ago`;
+  return lang === "zh" ? `${days}d ago` : `${days}d ago`;
 }
 
 function recentTooltip(timestamp: number | undefined, lang: Lang) {
-  if (!timestamp) return lang === "zh" ? "从未连接" : "Never connected";
-  return lang === "zh" ? `上次连接：${formatRecent(timestamp, lang)}` : `Last connected: ${formatRecent(timestamp, lang)}`;
+  if (!timestamp) return lang === "zh" ? "Never connected" : "Never connected";
+  return lang === "zh" ? `Last connected: ${formatRecent(timestamp, lang)}` : `Last connected: ${formatRecent(timestamp, lang)}`;
 }

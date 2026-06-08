@@ -1,6 +1,6 @@
 /**
- * 主机编辑表单（全屏 Termius 风格编辑器）。
- * 从 HostDetail 中拆分，独立维护编辑状态与校验逻辑。
+ * Full-screen host editor inspired by Termius-style workflows.
+ * Split from HostDetail so editing state and validation stay isolated.
  */
 import { useEffect, useState } from "react";
 import { t } from "../utils/i18n";
@@ -13,13 +13,13 @@ interface HostFormProps {
   lang: Lang;
   host: Host;
   groups: Group[];
-  /** 保存回调：将编辑后的补丁回传给父组件 */
+  /** Save callback that returns the edited patch to the parent. */
   onSave: (patch: Partial<Host>) => void;
-  /** 取消编辑 */
+  /** Cancel editing. */
   onCancel: () => void;
-  /** 删除当前主机 */
+  /** Remove the current host. */
   onRemove: () => void;
-  /** 内联添加新分组 */
+  /** Add a new group inline. */
   onAddGroup: (name: string, subnet?: string) => Group;
 }
 
@@ -44,11 +44,11 @@ export function HostEditorFull({
     setPortError("");
   }, [host.id, host.port]);
 
-  /** 端口校验后保存 */
+  /** Save after port validation. */
   const validateAndSave = () => {
     const portNum = Number(port);
     if (!Number.isFinite(portNum) || portNum < 1 || portNum > 65535 || !Number.isInteger(portNum)) {
-      setPortError(lang === "zh" ? "端口范围 1-65535" : "Port must be 1-65535");
+      setPortError(lang === "zh" ? "Port must be 1-65535" : "Port must be 1-65535");
       return;
     }
     setPortError("");
@@ -61,7 +61,7 @@ export function HostEditorFull({
         <div className="host-editor-full__head">
           <h2>
             <span style={{ color: "var(--text-mute)", fontWeight: 400 }}>
-              {lang === "zh" ? "编辑主机" : "Edit host"}
+              {lang === "zh" ? "Edit host" : "Edit host"}
             </span>
             <span style={{ marginLeft: 8, color: "var(--accent)" }}>{host.alias}</span>
           </h2>
@@ -69,10 +69,10 @@ export function HostEditorFull({
         </div>
 
         <div className="host-editor-full__body">
-          {/* 基本信息 */}
+          {/* Basic information */}
           <section className="host-editor-section">
             <h3 className="host-editor-section__title">
-              {lang === "zh" ? "基本信息" : "Basic information"}
+              {lang === "zh" ? "Basic information" : "Basic information"}
             </h3>
             <div className="host-editor-full__grid">
               <label>
@@ -88,11 +88,11 @@ export function HostEditorFull({
                 <input
                   value={draft.role || ""}
                   onChange={(e) => setDraft({ ...draft, role: e.target.value })}
-                  placeholder={lang === "zh" ? "例如: gateway, nas, web" : "e.g. gateway, nas, web"}
+                  placeholder={lang === "zh" ? "e.g. gateway, nas, web" : "e.g. gateway, nas, web"}
                 />
               </label>
               <label>
-                <span className="k">{lang === "zh" ? "设备类型/图标" : "Device type"}</span>
+                <span className="k">{lang === "zh" ? "Device type" : "Device type"}</span>
                 <input
                   value={(draft.tags || []).join(", ")}
                   onChange={(e) => setDraft({ ...draft, tags: e.target.value.split(",").map((s) => s.trim()).filter(Boolean) })}
@@ -100,25 +100,25 @@ export function HostEditorFull({
                 />
               </label>
               <label>
-                <span className="k">{lang === "zh" ? "备注" : "Notes"}</span>
+                <span className="k">{lang === "zh" ? "Notes" : "Notes"}</span>
                 <input
                   value={draft.notes || ""}
                   onChange={(e) => setDraft({ ...draft, notes: e.target.value })}
-                  placeholder={lang === "zh" ? "备注信息…" : "Notes..."}
+                  placeholder={lang === "zh" ? "Notes..." : "Notes..."}
                 />
               </label>
             </div>
           </section>
 
-          {/* SSH 连接信息 */}
+          {/* SSH connection information */}
           <section className="host-editor-section">
             <h3 className="host-editor-section__title">
-              {lang === "zh" ? "SSH 连接信息" : "SSH connection"}
+              {lang === "zh" ? "SSH connection" : "SSH connection"}
             </h3>
             <div className="host-editor-full__grid">
               {identities.length > 0 && (
                 <label style={{ gridColumn: "1 / -1" }}>
-                  <span className="k">{lang === "zh" ? "身份 / Profile" : "Identity / Profile"}</span>
+                  <span className="k">{lang === "zh" ? "Identity / Profile" : "Identity / Profile"}</span>
                   <select
                     defaultValue=""
                     onChange={(e) => {
@@ -131,7 +131,7 @@ export function HostEditorFull({
                       e.target.value = "";
                     }}
                   >
-                    <option value="">{lang === "zh" ? "选择身份自动填充…" : "Pick an identity to autofill…"}</option>
+                    <option value="">{lang === "zh" ? "Pick an identity to autofill..." : "Pick an identity to autofill..."}</option>
                     {identities.map((ident) => (
                       <option key={ident.id} value={ident.id}>
                         {ident.name} ({ident.user}){ident.identityFile ? ` — ${ident.identityFile.split(/[\\/]/).pop()}` : ""}
@@ -157,12 +157,12 @@ export function HostEditorFull({
                 />
               </label>
               <label>
-                <span className="k">{lang === "zh" ? "密码（本次会话有效，不持久化）" : "Password (ephemeral, never persisted)"}</span>
+                <span className="k">{lang === "zh" ? "Password (ephemeral, never persisted)" : "Password (ephemeral, never persisted)"}</span>
                 <input
                   type="password"
                   value={draft.ephemeralPassword || ""}
                   onChange={(e) => setDraft({ ...draft, ephemeralPassword: e.target.value || undefined })}
-                  placeholder={lang === "zh" ? "留空则使用密钥认证" : "Leave empty for key auth"}
+                  placeholder={lang === "zh" ? "Leave empty for key auth" : "Leave empty for key auth"}
                   autoComplete="off"
                 />
               </label>
@@ -184,17 +184,17 @@ export function HostEditorFull({
                 {portError && <span className="field-error">{portError}</span>}
               </label>
               <label>
-                <span className="k">{lang === "zh" ? "部署位置" : "Deploy scope"}</span>
+                <span className="k">{lang === "zh" ? "Deploy scope" : "Deploy scope"}</span>
                 <select
                   value={deployScope(draft) === "cloud" ? "cloud" : "local"}
                   onChange={(e) => setDraft({ ...draft, deployScope: e.target.value as DeployScope })}
                 >
-                  <option value="local">{lang === "zh" ? "本地" : "Local"}</option>
-                  <option value="cloud">{lang === "zh" ? "云端" : "Cloud"}</option>
+                  <option value="local">{lang === "zh" ? "Local" : "Local"}</option>
+                  <option value="cloud">{lang === "zh" ? "Cloud" : "Cloud"}</option>
                 </select>
               </label>
               <label>
-                <span className="k">{lang === "zh" ? "设备类型" : "Device type"}</span>
+                <span className="k">{lang === "zh" ? "Device type" : "Device type"}</span>
                 <select
                   value={draft.iconOverride || deviceTypeFromHost(draft)}
                   onChange={(e) => {
@@ -206,43 +206,43 @@ export function HostEditorFull({
                     }
                   }}
                 >
-                  <option value="auto">{lang === "zh" ? "自动识别" : "Auto detect"}</option>
-                  <option value="router">{lang === "zh" ? "路由器 / 网关" : "Router / Gateway"}</option>
+                  <option value="auto">{lang === "zh" ? "Auto detect" : "Auto detect"}</option>
+                  <option value="router">{lang === "zh" ? "Router / Gateway" : "Router / Gateway"}</option>
                   <option value="openwrt">OpenWrt</option>
                   <option value="istoreos">iStoreOS</option>
-                  <option value="nas">{lang === "zh" ? "NAS / 存储" : "NAS / Storage"}</option>
-                  <option value="zspace">ZSpace / {lang === "zh" ? "极空间" : "Zima"}</option>
+                  <option value="nas">{lang === "zh" ? "NAS / Storage" : "NAS / Storage"}</option>
+                  <option value="zspace">ZSpace / Zima</option>
                   <option value="raspberry">Raspberry Pi</option>
                   <option value="ubuntu">Ubuntu</option>
                   <option value="windows">{lang === "zh" ? "Windows" : "Windows"}</option>
                   <option value="macos">macOS</option>
                   <option value="linux">Linux</option>
-                  <option value="server">{lang === "zh" ? "服务器" : "Server"}</option>
+                  <option value="server">{lang === "zh" ? "Server" : "Server"}</option>
                 </select>
               </label>
               <label>
-                <span className="k">{lang === "zh" ? "云厂商" : "Cloud provider"}</span>
+                <span className="k">{lang === "zh" ? "Cloud provider" : "Cloud provider"}</span>
                 <select
                   value={draft.cloudProvider || ""}
                   onChange={(e) => setDraft({ ...draft, cloudProvider: (e.target.value || undefined) as Host["cloudProvider"] })}
                 >
-                  <option value="">{lang === "zh" ? "无" : "None"}</option>
+                  <option value="">{lang === "zh" ? "None" : "None"}</option>
                   <option value="aliyun">Aliyun</option>
                   <option value="tencent">Tencent</option>
                   <option value="aws">AWS</option>
                   <option value="azure">Azure</option>
                   <option value="gcp">GCP</option>
                   <option value="cloudflare">Cloudflare</option>
-                  <option value="other">{lang === "zh" ? "其他" : "Other"}</option>
+                  <option value="other">{lang === "zh" ? "Other" : "Other"}</option>
                 </select>
               </label>
             </div>
           </section>
 
-          {/* 站点 / 分组 */}
+          {/* Site / group */}
           <section className="host-editor-section">
             <h3 className="host-editor-section__title">
-              {lang === "zh" ? "站点 / 分组" : "Site / group"}
+              {lang === "zh" ? "Site / group" : "Site / group"}
             </h3>
             <div className="host-editor-full__grid">
               <label>
@@ -285,7 +285,7 @@ export function HostEditorFull({
           </section>
         </div>
 
-        {/* 固定底部操作栏 */}
+        {/* Fixed footer actions */}
         <div className="host-editor-full__foot">
           <button className="btn danger" onClick={onRemove}>
             {Icon.trash}

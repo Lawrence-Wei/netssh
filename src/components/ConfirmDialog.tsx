@@ -50,13 +50,13 @@ export function ConfirmProvider({ children }: { children: ReactNode }) {
             {state.message && <div className="confirm-card__message">{state.message}</div>}
             <div className="confirm-card__actions">
               <button className="btn ghost" onClick={() => close(false)} autoFocus>
-                {state.cancelLabel || "取消"}
+                {state.cancelLabel || "Cancel"}
               </button>
               <button
                 className={"btn" + (state.danger ? " danger" : "")}
                 onClick={() => close(true)}
               >
-                {state.confirmLabel || "确认"}
+                {state.confirmLabel || "Confirm"}
               </button>
             </div>
           </div>

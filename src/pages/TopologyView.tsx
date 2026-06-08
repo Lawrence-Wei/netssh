@@ -31,7 +31,7 @@ export function TopologyView({ lang, hosts, groups, onPickHost, onOpenHost }: To
     grouped.push({
       group: {
         id: "unassigned",
-        name: lang === "zh" ? "未分配" : "Unassigned",
+        name: lang === "zh" ? "Unassigned" : "Unassigned",
         color: "#897e6e",
       },
       nodes: orphans.map((host) => ({ host, kind: inferKind(host) })),
@@ -43,8 +43,8 @@ export function TopologyView({ lang, hosts, groups, onPickHost, onOpenHost }: To
   return (
     <section className="topology-panel">
       <div className="topology-panel__head">
-        <span className="eyebrow">{lang === "zh" ? "网络拓扑" : "Network topology"}</span>
-        <span>{lang === "zh" ? "按站点自动推断" : "Inferred by site"}</span>
+        <span className="eyebrow">{lang === "zh" ? "Network topology" : "Network topology"}</span>
+        <span>{lang === "zh" ? "Inferred by site" : "Inferred by site"}</span>
       </div>
       <div className="topology-sites">
         {grouped.map(({ group, nodes }) => {
@@ -59,9 +59,9 @@ export function TopologyView({ lang, hosts, groups, onPickHost, onOpenHost }: To
                 {group.subnet && <span className="topology-site__subnet">{group.subnet}</span>}
                 <small>{nodes.length}</small>
               </div>
-              <TopologyLayer label={lang === "zh" ? "路由器" : "Routers"} nodes={routers} onPickHost={onPickHost} onOpenHost={onOpenHost} />
-              <TopologyLayer label={lang === "zh" ? "交换机" : "Switches"} nodes={switches} onPickHost={onPickHost} onOpenHost={onOpenHost} />
-              <TopologyLayer label={lang === "zh" ? "设备 / 服务器" : "Devices / servers"} nodes={leaves} onPickHost={onPickHost} onOpenHost={onOpenHost} />
+              <TopologyLayer label={lang === "zh" ? "Routers" : "Routers"} nodes={routers} onPickHost={onPickHost} onOpenHost={onOpenHost} />
+              <TopologyLayer label={lang === "zh" ? "Switches" : "Switches"} nodes={switches} onPickHost={onPickHost} onOpenHost={onOpenHost} />
+              <TopologyLayer label={lang === "zh" ? "Devices / servers" : "Devices / servers"} nodes={leaves} onPickHost={onPickHost} onOpenHost={onOpenHost} />
             </article>
           );
         })}
@@ -110,7 +110,7 @@ function inferKind(host: Host): TopologyKind {
     .join(" ")
     .toLowerCase();
   if (/router|gateway|gw|openwrt|istore|lede|immortalwrt|friendlywrt|r[0-9]/.test(text)) return "router";
-  if (/switch|sw|交换机|h3c|cisco|huawei|s[0-9]{3,}/.test(text)) return "switch";
+  if (/switch|sw|h3c|cisco|huawei|s[0-9]{3,}/.test(text)) return "switch";
   if (/pc|win|windows|macbook|desktop|laptop|ubuntu/.test(text)) return "pc";
   return "server";
 }

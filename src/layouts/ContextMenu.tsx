@@ -21,7 +21,7 @@ export function ContextMenu({ lang, x, y, host, groups, onAction, onClose }: Con
 
   const left = Math.min(x, window.innerWidth - 260);
   const top = Math.min(y, window.innerHeight - 280);
-  /** 当右键菜单位于窗口右侧 40% 区域内时，子菜单改向左展开，避免溢出屏幕 */
+  /** Open submenus leftward when the context menu is near the right edge. */
   const submenuLeft = x < window.innerWidth * 0.6;
   const favorite = Boolean(host.favorite ?? host.pinned);
 
@@ -34,11 +34,11 @@ export function ContextMenu({ lang, x, y, host, groups, onAction, onClose }: Con
       id: "favorite",
       icon: Icon.bookmark,
       label: favorite
-        ? (lang === "zh" ? "取消收藏" : "Remove favorite")
-        : (lang === "zh" ? "收藏" : "Add favorite"),
+        ? (lang === "zh" ? "Remove favorite" : "Remove favorite")
+        : (lang === "zh" ? "Add favorite" : "Add favorite"),
     },
     { id: "edit", icon: Icon.edit, label: t("ctx.edit", lang) },
-    { id: "move", icon: Icon.chevron, label: lang === "zh" ? "移动到站点" : "Move to site", hasSub: true },
+    { id: "move", icon: Icon.chevron, label: lang === "zh" ? "Move to site" : "Move to site", hasSub: true },
     { divider: true },
     { id: "delete", icon: Icon.trash, label: t("ctx.delete", lang), danger: true },
   ];

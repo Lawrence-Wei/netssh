@@ -44,7 +44,7 @@ export function TitleBar({
       <button
         className="titlebar-brand"
         onClick={onGoHome}
-        title={lang === "zh" ? "回到首页" : "Go home"}
+        title={lang === "zh" ? "Go home" : "Go home"}
         type="button"
       >
         <span className="mark">
@@ -55,21 +55,21 @@ export function TitleBar({
         <span className="name">{t("app.name", lang)}</span>
       </button>
 
-      <nav className="app-menu" aria-label={lang === "zh" ? "会话菜单" : "Session menu"}>
-        <MenuButton label={lang === "zh" ? "会话" : "Session"}>
-          <MenuItem onClick={onNewTab} icon={Icon.plus} label={lang === "zh" ? "新建会话" : "New session"} />
-          <MenuItem onClick={onNewLocalShell} icon={Icon.shell} label={lang === "zh" ? "本地终端" : "Local shell"} />
+      <nav className="app-menu" aria-label={lang === "zh" ? "Session menu" : "Session menu"}>
+        <MenuButton label={lang === "zh" ? "Session" : "Session"}>
+          <MenuItem onClick={onNewTab} icon={Icon.plus} label={lang === "zh" ? "New session" : "New session"} />
+          <MenuItem onClick={onNewLocalShell} icon={Icon.shell} label={lang === "zh" ? "Local shell" : "Local shell"} />
           <MenuSeparator />
           <MenuItem
             onClick={onConnectActive}
             icon={Icon.power}
-            label={lang === "zh" ? "连接当前主机" : "Connect active host"}
+            label={lang === "zh" ? "Connect active host" : "Connect active host"}
             disabled={!canConnect}
           />
           <MenuItem
             onClick={onDisconnectActive}
             icon={Icon.close}
-            label={lang === "zh" ? "断开当前会话" : "Disconnect active session"}
+            label={lang === "zh" ? "Disconnect active session" : "Disconnect active session"}
             disabled={!canDisconnect}
           />
         </MenuButton>
@@ -100,7 +100,7 @@ export function TitleBar({
       </div>
 
       <div style={{ display: "flex", alignItems: "center", gap: 6, paddingRight: 8 }}>
-        <button className="icon-btn" onClick={onOpenSettings} title={lang === "zh" ? "偏好设置" : "Preferences"}>
+        <button className="icon-btn" onClick={onOpenSettings} title={lang === "zh" ? "Preferences" : "Preferences"}>
           {Icon.settings}
         </button>
       </div>
@@ -123,11 +123,11 @@ function tabIcon(tab: Tab, hosts: Host[], ephemeralHosts: Record<string, Host>) 
 }
 
 function displayTabTitle(tab: Tab, lang: Lang) {
-  if (tab.kind === "home" || tab.title === "Home") return lang === "zh" ? "首页" : "Home";
-  if (tab.title === "New session") return lang === "zh" ? "新会话" : "New session";
-  if (tab.kind === "settings" || tab.title === "Preferences") return lang === "zh" ? "偏好设置" : "Preferences";
-  if (tab.kind === "snippets" || tab.title === "Snippets") return lang === "zh" ? "命令片段" : "Snippets";
-  if (tab.kind === "local" && tab.title === "PowerShell") return lang === "zh" ? "PowerShell 本地终端" : "PowerShell";
+  if (tab.kind === "home" || tab.title === "Home") return lang === "zh" ? "Home" : "Home";
+  if (tab.title === "New session") return lang === "zh" ? "New session" : "New session";
+  if (tab.kind === "settings" || tab.title === "Preferences") return lang === "zh" ? "Preferences" : "Preferences";
+  if (tab.kind === "snippets" || tab.title === "Snippets") return lang === "zh" ? "Snippets" : "Snippets";
+  if (tab.kind === "local" && tab.title === "PowerShell") return lang === "zh" ? "PowerShell" : "PowerShell";
   return tab.title;
 }
 

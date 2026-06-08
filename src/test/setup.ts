@@ -1,6 +1,6 @@
 /**
- * 全局测试 setup — 注册所有 Tauri API 和浏览器 API 的 mock。
- * 每次测试运行前自动执行，确保组件可以在 Node.js 环境中渲染。
+ * Global test setup for Tauri and browser API mocks.
+ * Runs before each test file so components render in Node.js.
  */
 import { vi } from "vitest";
 
@@ -56,7 +56,7 @@ vi.mock("@tauri-apps/api/window", () => ({
 // ============================================================
 vi.mock("@tauri-apps/api/core", () => ({
   invoke: vi.fn((cmd: string) => {
-    /** 根据命令名返回合理的默认值，使组件正常渲染 */
+    /** Return practical defaults by command name so components can render. */
     switch (cmd) {
       case "config_parse":
         return Promise.resolve([]);
@@ -101,16 +101,16 @@ vi.mock("@tauri-apps/api/event", () => ({
 }));
 
 // ============================================================
-// Mock Tauri services — 防止 reachability / pty / ssh 等后端调用崩溃
+// Mock Tauri services so reachability / pty / ssh calls do not crash tests.
 // ============================================================
 vi.mock("../services/tauri", () => ({
-  /** TCP ping 返回 "未检测" 状态，让 Sidebar 正常渲染 */
+  /** TCP ping returns an unchecked state so Sidebar can render. */
   hostPing: vi.fn(() => Promise.resolve({ ok: false, latency_ms: null })),
   parseSshConfig: vi.fn(() => Promise.resolve([])),
   detectShells: vi.fn(() => Promise.resolve([])),
   listKeys: vi.fn(() => Promise.resolve([])),
   detectSystemLanguage: vi.fn(() => Promise.resolve("en")),
-  /** SSH / PTY 连接函数 — 返回一个模拟的 session ID */
+  /** SSH / PTY connection functions return a mock session ID. */
   sshOpen: vi.fn(() => Promise.resolve("mock-ssh-id")),
   sshClose: vi.fn(() => Promise.resolve()),
   sshSend: vi.fn(() => Promise.resolve()),
@@ -133,7 +133,7 @@ vi.mock("@tauri-apps/plugin-fs", () => ({
 }));
 
 // ============================================================
-// Mock xterm.js — 避免在测试中加载真实的 WebGL 终端
+// Mock xterm.js to avoid loading the real WebGL terminal in tests.
 // ============================================================
 vi.mock("@xterm/xterm", () => ({
   Terminal: vi.fn().mockImplementation(() => ({
@@ -204,7 +204,7 @@ window.ResizeObserver = vi.fn().mockImplementation(() => ({
 }));
 
 // ============================================================
-// Mock CSS 自定义属性 — 组件从 getComputedStyle 读取
+// Mock CSS custom properties read through getComputedStyle.
 // ============================================================
 const cssVars: Record<string, string> = {
   "--terminal-font-family": '"JetBrains Mono", monospace',
@@ -260,12 +260,12 @@ window.getComputedStyle = (elt: Element, pseudoElt?: string | null) => {
 };
 
 // ============================================================
-// 抑制 console 噪音（测试失败时 vi.fn() mock 的警告）
+// Suppress known console noise from test mocks.
 // ============================================================
 const originalWarn = console.warn;
 console.warn = (...args: unknown[]) => {
   const msg = String(args[0]);
-  /** 过滤掉 React 测试中的已知无害警告 */
+  /** Filter known harmless React test warnings. */
   if (msg.includes("ReactDOMTestUtils.act")) return;
   if (msg.includes("Not implemented: HTMLCanvasElement")) return;
   originalWarn.call(console, ...args);

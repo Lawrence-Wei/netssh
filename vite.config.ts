@@ -1,7 +1,7 @@
 import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
 
-// https://tauri.app/v1/guides/getting-started/setup/vite
+// Vite runs the React frontend during Tauri development.
 export default defineConfig({
   plugins: [react()],
   clearScreen: false,

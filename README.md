@@ -3,22 +3,22 @@
 > Personal SSH / device management app for Windows 11. Tauri 2 + React + xterm.js.
 > This package is the **engineering handoff** for the prototype at `../Netssh Prototype.html`.
 
-![Netssh app interface](docs/assets/netssh-app-screenshot.png)
+![Netssh multi-site network topology view](docs/assets/netssh-app-screenshot.png)
 
 ---
 
-## 1 · What this is
+## 1 - What this is
 
 A modern Windows desktop SSH client inspired by **Termius**, **MobaXterm**, **Xshell**, and **Windows Terminal**. The prototype defines the UX, this scaffold turns it real.
 
 - **Source of truth for hosts:** the user's existing `~/.ssh/config`. Netssh imports, never silently writes.
 - **Native shells:** PowerShell, Command Prompt, WSL, custom — opened via ConPTY.
 - **Remote shells:** `russh` (pure-Rust SSH2 client) with key-based auth; passphrases held in Windows Credential Manager.
-- **UI:** purple/blue/mica themes, frameless chrome, EN / 简体中文.
+- **UI:** purple/blue/mica themes and frameless chrome.
 
 ---
 
-## 2 · MVP feature list (v0.1)
+## 2 - MVP feature list (v0.1)
 
 Ship-or-cut for the first release.
 
@@ -30,7 +30,7 @@ Ship-or-cut for the first release.
 | **MUST** | Multiple tabs + the vertical session rail |
 | **MUST** | Local shell tabs (PowerShell / CMD / WSL) |
 | **MUST** | Theme switcher (purple / blue / Mica) |
-| **MUST** | EN ↔ 简体中文 toggle, follows Windows system language on first launch |
+| **MUST** | English UI defaults, follows Windows system language where supported |
 | **MUST** | Credentials in Windows Credential Manager — never in plaintext |
 | **MUST** | Right-click context menu on hosts (connect, pin, copy `ssh` cmd, edit) |
 | SHOULD | Snippet library + per-host quick commands |
@@ -43,7 +43,7 @@ Ship-or-cut for the first release.
 
 ---
 
-## 3 · Tech stack & why
+## 3 - Tech stack & why
 
 | Layer | Choice | Why |
 |---|---|---|
@@ -58,7 +58,7 @@ Ship-or-cut for the first release.
 
 ---
 
-## 4 · UI / UX design plan
+## 4 - UI / UX design plan
 
 The prototype is the spec. Highlights:
 
@@ -76,7 +76,7 @@ Eyebrow labels (uppercase 10px tracked-out Space Grotesk in `--text-eyebrow`) ar
 
 ---
 
-## 5 · Technical architecture
+## 5 - Technical architecture
 
 ```
 ┌──────────────────────────────────────────────────────────┐
@@ -126,7 +126,7 @@ cred_delete(account)
 
 ---
 
-## 6 · Folder structure
+## 6 - Folder structure
 
 ```
 netssh/
@@ -181,7 +181,7 @@ netssh/
 
 ---
 
-## 7 · Theme & localization strategy
+## 7 - Theme & localization strategy
 
 ### Themes
 
@@ -204,7 +204,7 @@ Effects toggles (`translucency`, `reduceMotion`) apply additional classes on `<b
 
 ---
 
-## 8 · Security considerations
+## 8 - Security considerations
 
 | Surface | Treatment |
 |---|---|
@@ -220,13 +220,13 @@ Effects toggles (`translucency`, `reduceMotion`) apply additional classes on `<b
 
 ---
 
-## 9 · Implementation plan (one-week sprint cadence)
+## 9 - Implementation plan (one-week sprint cadence)
 
 **Week 1 — Skeleton**
 - [ ] Tauri 2 scaffold + frontend mounts
 - [ ] Frameless window + custom titlebar (no controls yet)
 - [ ] Theme token system + theme switcher
-- [ ] i18n stub with EN + 简体中文
+- [ ] i18n stub with English strings
 - [ ] Port prototype CSS verbatim into `src/styles/`
 
 **Week 2 — Hosts & layout**
@@ -258,7 +258,7 @@ Effects toggles (`translucency`, `reduceMotion`) apply additional classes on `<b
 
 ---
 
-## 10 · Test plan
+## 10 - Test plan
 
 | Layer | Tooling | Targets |
 |---|---|---|
@@ -271,7 +271,7 @@ Effects toggles (`translucency`, `reduceMotion`) apply additional classes on `<b
 
 ---
 
-## 11 · Getting started
+## 11 - Getting started
 
 ```powershell
 # prerequisites
@@ -299,7 +299,7 @@ npm run dev  # vite only — opens in browser, sans Tauri APIs
 
 ---
 
-## 12 · Working with the prototype
+## 12 - Working with the prototype
 
 The HTML prototype (`../Netssh Prototype.html`) is the canonical visual spec. When in doubt:
 - Lift `styles.css` wholesale into `src/styles/tokens.css` + `themes.css`.
