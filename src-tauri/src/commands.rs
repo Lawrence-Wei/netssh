@@ -14,6 +14,7 @@ use crate::{credentials, pty, ssh, ssh_config, storage};
 pub struct AppState {
     pub ssh_sessions: Mutex<HashMap<String, ssh::SshSession>>,
     pub pty_sessions: Mutex<HashMap<String, pty::PtySession>>,
+    pub host_key_challenges: ssh::HostKeyChallengeRegistry,
 }
 
 // ─── ssh_config ────────────────────────────────────────────────────────────
@@ -43,7 +44,7 @@ pub async fn ssh_open(
     args: SshOpenArgs,
 ) -> Result<String, String> {
     let id = uuid::Uuid::new_v4().to_string();
-    let session = ssh::SshSession::connect(&app, &id, args)
+    let session = ssh::SshSession::connect(&app, &id, args, state.host_key_challenges.clone())
         .await
         .map_err(|e| e.to_string())?;
     state
@@ -52,6 +53,27 @@ pub async fn ssh_open(
         .unwrap_or_else(|e| e.into_inner())
         .insert(id.clone(), session);
     Ok(id)
+}
+
+#[tauri::command]
+pub fn ssh_host_key_decide(
+    state: State<'_, AppState>,
+    challenge_id: String,
+    decision: ssh::HostKeyDecision,
+) -> Result<(), String> {
+    let sender = state
+        .host_key_challenges
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .remove(&challenge_id);
+
+    let Some(sender) = sender else {
+        return Err("host_key_challenge_not_found".into());
+    };
+
+    sender
+        .send(decision)
+        .map_err(|_| "host_key_challenge_closed".to_string())
 }
 
 #[tauri::command]

@@ -4,6 +4,35 @@
  */
 import { vi } from "vitest";
 
+type TauriEventCallback = (event: { payload: unknown }) => void;
+
+const tauriEventMock = vi.hoisted(() => {
+  const listeners = new Map<string, Set<TauriEventCallback>>();
+  return {
+    listen: vi.fn((event: string, callback: TauriEventCallback) => {
+      const current = listeners.get(event) || new Set<TauriEventCallback>();
+      current.add(callback);
+      listeners.set(event, current);
+      return Promise.resolve(() => {
+        current.delete(callback);
+      });
+    }),
+    emitEvent(event: string, payload: unknown) {
+      for (const callback of listeners.get(event) || []) {
+        callback({ payload });
+      }
+    },
+    clear() {
+      listeners.clear();
+    },
+  };
+});
+
+Object.assign(globalThis, {
+  __netsshEmitTauriEvent: tauriEventMock.emitEvent,
+  __netsshClearTauriEvents: tauriEventMock.clear,
+});
+
 // ============================================================
 // Mock Tauri window API
 // ============================================================
@@ -31,12 +60,24 @@ vi.mock("@tauri-apps/api/core", () => ({
     switch (cmd) {
       case "config_parse":
         return Promise.resolve([]);
-      case "detect_shells":
+      case "shells_detect":
         return Promise.resolve([]);
-      case "list_keys":
+      case "keys_list":
         return Promise.resolve([]);
-      case "detect_system_language":
+      case "i18n_detect_system":
         return Promise.resolve("en");
+      case "ssh_open":
+        return Promise.resolve("mock-ssh-id");
+      case "pty_open":
+        return Promise.resolve("mock-pty-id");
+      case "ssh_host_key_decide":
+      case "ssh_send":
+      case "ssh_resize":
+      case "ssh_close":
+      case "pty_send":
+      case "pty_resize":
+      case "pty_close":
+        return Promise.resolve();
       case "host_ping":
         return Promise.resolve({ ok: false, latency_ms: null });
       case "app_state_get":
@@ -54,7 +95,7 @@ vi.mock("@tauri-apps/api/core", () => ({
 // Mock Tauri event system
 // ============================================================
 vi.mock("@tauri-apps/api/event", () => ({
-  listen: vi.fn(() => Promise.resolve(() => {})),
+  listen: tauriEventMock.listen,
   once: vi.fn(() => Promise.resolve(() => {})),
   emit: vi.fn(() => Promise.resolve()),
 }));

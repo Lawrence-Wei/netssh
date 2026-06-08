@@ -35,6 +35,7 @@ interface WorkspaceProps {
   onManualConnect: (host: Host) => void;
   onAddGroup: (name: string, subnet?: string) => Group;
   onOpenImport: () => void;
+  onOpenHost: (host: Host) => void;
 }
 
 export function Workspace({
@@ -64,6 +65,7 @@ export function Workspace({
   onManualConnect,
   onAddGroup,
   onOpenImport,
+  onOpenHost,
 }: WorkspaceProps) {
   const { splitTabIds, tabs, activeTabId, setActive, toggleSplit, openQuad } = useSessions(
     (s) => ({
@@ -204,7 +206,7 @@ export function Workspace({
             setEditingHostId(null);
             useSessions.getState().selectHost(host);
           }}
-          onOpenHost={(host) => useSessions.getState().openHost(host, true)}
+          onOpenHost={onOpenHost}
           onOpenQuad={openQuad}
           canOpenQuad={tabs.filter((item) => item.kind === "host" && item.connected && item.hostId).length >= 2}
         />
@@ -236,7 +238,7 @@ export function Workspace({
             setEditingHostId(null);
             useSessions.getState().selectHost(host);
           }}
-          onOpenHost={(host) => useSessions.getState().openHost(host, true)}
+          onOpenHost={onOpenHost}
           onOpenQuad={openQuad}
           canOpenQuad={tabs.filter((item) => item.kind === "host" && item.connected && item.hostId).length >= 2}
         />

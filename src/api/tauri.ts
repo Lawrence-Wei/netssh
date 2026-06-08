@@ -9,10 +9,13 @@ import type { Host, ShellInfo, SshKey } from "../config/types";
 
 interface HostEntry {
   alias: string;
+  aliases?: string[];
   hostname?: string;
   user?: string;
   port?: number;
   identity_file?: string;
+  group?: string;
+  source?: string;
   raw: string;
 }
 
@@ -21,11 +24,14 @@ export async function parseSshConfig(path?: string): Promise<Host[]> {
   return entries.map((e) => ({
     id: `cfg-${e.alias}`,
     alias: e.alias,
+    aliases: e.aliases,
     hostname: e.hostname ?? e.alias,
     user: e.user ?? "root",
     port: e.port ?? 22,
     identityFile: e.identity_file,
-    group: "homelab",
+    group: e.group ?? "unassigned",
+    connectionType: "ssh",
+    source: e.source === "known-hosts" ? "known-hosts" : "ssh-config",
   }));
 }
 
@@ -142,22 +148,32 @@ export async function onPtyExit(id: string, fn: ExitEventHandler): Promise<Unlis
   return listen(`pty:${id}:exit`, () => fn());
 }
 
-// ─── host key TOFU events ────────────────────────────────────────────────
+// ─── host key TOFU challenge ─────────────────────────────────────────────
 
-export interface HostKeyEvent {
+export type HostKeyDecision = "accept_once" | "accept_and_remember" | "reject";
+
+export interface HostKeyChallenge {
+  challenge_id: string;
   session_id: string;
+  alias: string;
   host: string;
   port: number;
   key_type: string;
   fingerprint: string;
   status: "unknown" | "mismatch";
+  known_fingerprints: string[];
+  can_remember: boolean;
 }
 
-export type HostKeyEventHandler = (event: HostKeyEvent) => void;
+export type HostKeyChallengeHandler = (event: HostKeyChallenge) => void;
 
-export async function onHostKeyUnknown(fn: HostKeyEventHandler): Promise<UnlistenFn> {
-  return listen<HostKeyEvent>("ssh:host-key-unknown", (e) => fn(e.payload));
+export async function onHostKeyChallenge(fn: HostKeyChallengeHandler): Promise<UnlistenFn> {
+  return listen<HostKeyChallenge>("ssh:host-key-challenge", (e) => fn(e.payload));
 }
-export async function onHostKeyMismatch(fn: HostKeyEventHandler): Promise<UnlistenFn> {
-  return listen<HostKeyEvent>("ssh:host-key-mismatch", (e) => fn(e.payload));
+
+export async function sshHostKeyDecide(
+  challengeId: string,
+  decision: HostKeyDecision
+): Promise<void> {
+  return invoke("ssh_host_key_decide", { challengeId, decision });
 }

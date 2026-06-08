@@ -81,6 +81,15 @@ fn migrate(conn: &Connection) -> Result<()> {
           exit_status INTEGER,
           error       TEXT
         );
+
+        CREATE TABLE IF NOT EXISTS trusted_host_keys (
+          host        TEXT NOT NULL,
+          port        INTEGER NOT NULL,
+          key_type    TEXT NOT NULL,
+          fingerprint TEXT NOT NULL,
+          trusted_at  INTEGER NOT NULL,
+          PRIMARY KEY (host, port, fingerprint)
+        );
         ",
     )?;
     Ok(())
@@ -111,4 +120,41 @@ pub fn get_app_state(conn: &Connection, key: &str) -> Result<Option<String>> {
 
 pub fn put_app_state(conn: &Connection, key: &str, value: &str) -> Result<()> {
     put_setting(conn, key, value)
+}
+
+pub fn list_trusted_host_fingerprints(
+    conn: &Connection,
+    host: &str,
+    port: u16,
+) -> Result<Vec<String>> {
+    let mut stmt = conn.prepare(
+        "SELECT fingerprint FROM trusted_host_keys WHERE host = ?1 AND port = ?2",
+    )?;
+    let rows = stmt.query_map(params![host, i64::from(port)], |row| row.get(0))?;
+    let mut out = Vec::new();
+    for row in rows {
+        out.push(row?);
+    }
+    Ok(out)
+}
+
+pub fn remember_trusted_host_key(
+    conn: &Connection,
+    host: &str,
+    port: u16,
+    key_type: &str,
+    fingerprint: &str,
+) -> Result<()> {
+    let trusted_at = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)?
+        .as_secs() as i64;
+    conn.execute(
+        "INSERT INTO trusted_host_keys (host, port, key_type, fingerprint, trusted_at)
+         VALUES (?1, ?2, ?3, ?4, ?5)
+         ON CONFLICT(host, port, fingerprint) DO UPDATE SET
+           key_type = excluded.key_type,
+           trusted_at = excluded.trusted_at",
+        params![host, i64::from(port), key_type, fingerprint, trusted_at],
+    )?;
+    Ok(())
 }

@@ -24,6 +24,8 @@ export default function App() {
     importHosts,
     updateHost,
     removeHost,
+    toggleFavorite,
+    markConnected,
     addGroup,
     renameGroup,
     removeGroup,
@@ -36,6 +38,8 @@ export default function App() {
       importHosts: s.importHosts,
       updateHost: s.updateHost,
       removeHost: s.removeHost,
+      toggleFavorite: s.toggleFavorite,
+      markConnected: s.markConnected,
       addGroup: s.addGroup,
       renameGroup: s.renameGroup,
       removeGroup: s.removeGroup,
@@ -154,6 +158,18 @@ export default function App() {
       : null;
   const activeQuickCommands = activeHost ? quickCommands[activeHost.id] || quickCommands[activeHost.alias] || [] : [];
 
+  const openManagedHost = (host: Host, connectNow = true) => {
+    if (connectNow) markConnected(host.id);
+    openHost(host, connectNow);
+  };
+
+  const connectActiveHost = () => {
+    if (activeTab?.kind === "host" && activeHost && !ephemeralHosts[activeHost.id]) {
+      markConnected(activeHost.id);
+    }
+    connectActive();
+  };
+
   const settingsSnapshot = useMemo(
     () => ({
       translucency,
@@ -195,7 +211,10 @@ export default function App() {
 
   const onCtxAction = (action: string, host: Host, extra?: string) => {
     if (action === "connect") {
-      openHost(host, true);
+      openManagedHost(host, true);
+    }
+    if (action === "favorite") {
+      toggleFavorite(host.id);
     }
     if (action === "edit") {
       useSessions.getState().clearSplit();
@@ -228,7 +247,7 @@ export default function App() {
       return;
     }
     if (activeTab?.kind === "host" && activeHost) {
-      connectActive();
+      connectActiveHost();
       queueTimerRef.current = window.setTimeout(() => setRunQueue((queue) => [...queue, queued]), 450);
     }
   };
@@ -254,7 +273,7 @@ export default function App() {
         onCloseTab={closeTab}
         onNewTab={newTab}
         onNewLocalShell={() => openLocalShell()}
-        onConnectActive={connectActive}
+        onConnectActive={connectActiveHost}
         onDisconnectActive={() => activeTab && disconnectTab(activeTab.id)}
         onGoHome={() => {
           setEditingHostId(null);
@@ -270,7 +289,7 @@ export default function App() {
           groups={groups}
           activeHostId={activeHost?.id}
           onPickHost={selectHost}
-          onDoubleClickHost={(host) => openHost(host, true)}
+          onDoubleClickHost={(host) => openManagedHost(host, true)}
           onContextMenu={(event, host) => setCtxMenu({ x: event.clientX, y: event.clientY, host })}
           onOpenImport={() => setImportOpen(true)}
           onAddGroup={addGroup}
@@ -278,6 +297,7 @@ export default function App() {
           onRemoveGroup={removeGroup}
           onMoveHostToGroup={moveHostToGroup}
           onRemoveHosts={(ids) => ids.forEach((id) => removeHost(id))}
+          onToggleFavorite={toggleFavorite}
           onAddHostQuick={() => {
             const created = addHost({
               alias: "new-host",
@@ -317,7 +337,7 @@ export default function App() {
           settings={settingsSnapshot}
           setSetting={updateSetting}
           setLang={setLang}
-          onConnect={connectActive}
+          onConnect={connectActiveHost}
           onDisconnect={() => activeTab && disconnectTab(activeTab.id)}
           onRunSnippet={queueCommand}
           runQueue={runQueue}
@@ -333,6 +353,7 @@ export default function App() {
           onManualConnect={openEphemeralHost}
           onAddGroup={addGroup}
           onOpenImport={() => setImportOpen(true)}
+          onOpenHost={(host) => openManagedHost(host, true)}
         />
 
       </div>
@@ -352,6 +373,7 @@ export default function App() {
       {importOpen && (
         <ImportDialog
           lang={lang}
+          existingHosts={hosts}
           onClose={() => setImportOpen(false)}
           onImport={(list) => importHosts(list)}
         />

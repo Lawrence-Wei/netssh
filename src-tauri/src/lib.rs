@@ -25,6 +25,7 @@ pub fn run() {
             commands::ssh_send,
             commands::ssh_resize,
             commands::ssh_close,
+            commands::ssh_host_key_decide,
             commands::pty_open,
             commands::pty_send,
             commands::pty_resize,

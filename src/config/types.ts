@@ -6,20 +6,55 @@ export type EnvTag = "prod" | "stage" | "dev" | string;
 export type HostStatus = "ok" | "warn" | "off";
 export type DeployScope = "local" | "cloud" | "hybrid" | "unknown";
 export type CloudProvider = "aws" | "azure" | "gcp" | "aliyun" | "tencent" | "cloudflare" | "other";
+export type ConnectionType = "ssh" | "serial";
+export type SerialParity = "none" | "odd" | "even" | "mark" | "space";
+export type SerialStopBits = 1 | 1.5 | 2;
+export type SerialFlowControl = "none" | "software" | "hardware";
+export type SerialLineEnding = "none" | "lf" | "cr" | "crlf";
+export type AssetType =
+  | "switch"
+  | "router"
+  | "firewall"
+  | "gateway"
+  | "nas"
+  | "openwrt"
+  | "linux-server"
+  | "cloud-server"
+  | "pve"
+  | "pc"
+  | "unknown";
+
+export interface SerialProfile {
+  portName?: string;
+  baudRate: number;
+  dataBits: 5 | 6 | 7 | 8;
+  parity: SerialParity;
+  stopBits: SerialStopBits;
+  flowControl: SerialFlowControl;
+  lineEnding: SerialLineEnding;
+  presetId?: string;
+}
 
 export interface Host {
   id: string;
   alias: string;
+  aliases?: string[];
   hostname: string;
   user: string;
   port: number;
   identityFile?: string;
   group: GroupId;
+  connectionType?: ConnectionType;
+  serialProfile?: SerialProfile;
+  assetType?: AssetType;
+  source?: "manual" | "ssh-config" | "csv" | "xlsx" | "json" | "known-hosts";
   role?: string;
   env?: EnvTag;
   tags?: string[];
   notes?: string;
+  favorite?: boolean;
   pinned?: boolean;
+  lastConnectedAt?: number;
   hue?: string;
   latency?: number | null;
   status?: HostStatus;

@@ -3,9 +3,9 @@
 // Handles: known_hosts verification, passphrase-protected keys,
 // password auth fallback, and channel I/O.
 
-use std::collections::HashSet;
-use std::io::BufRead;
-use std::sync::Arc;
+use std::collections::{HashMap, HashSet};
+use std::io::{BufRead, BufReader};
+use std::sync::{Arc, Mutex as StdMutex};
 
 use anyhow::{anyhow, Result};
 use async_trait::async_trait;
@@ -15,9 +15,13 @@ use russh::*;
 use russh_keys::key::PublicKey;
 use tauri::{AppHandle, Emitter};
 use tokio::sync::mpsc::{unbounded_channel, UnboundedSender};
-use tokio::sync::Mutex;
+use tokio::sync::{oneshot, Mutex};
 
 use crate::commands::{emit_data, SshKey, SshOpenArgs};
+use crate::storage;
+
+pub type HostKeyChallengeRegistry =
+    Arc<StdMutex<HashMap<String, oneshot::Sender<HostKeyDecision>>>>;
 
 pub struct SshSession {
     id: String,
@@ -28,19 +32,34 @@ pub struct SshSession {
 struct ClientHandler {
     app: AppHandle,
     session_id: String,
+    alias: String,
     host: String,
     port: u16,
     accepted_keys: HashSet<String>,
+    challenge_registry: HostKeyChallengeRegistry,
+    last_host_key_error: Arc<StdMutex<Option<String>>>,
 }
 
 #[derive(Debug, Clone, serde::Serialize)]
-pub struct HostKeyEvent {
+pub struct HostKeyChallenge {
+    pub challenge_id: String,
     pub session_id: String,
+    pub alias: String,
     pub host: String,
     pub port: u16,
     pub key_type: String,
     pub fingerprint: String,
-    pub status: String, // "unknown" | "mismatch"
+    pub status: String,
+    pub known_fingerprints: Vec<String>,
+    pub can_remember: bool,
+}
+
+#[derive(Debug, Clone, serde::Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum HostKeyDecision {
+    AcceptOnce,
+    AcceptAndRemember,
+    Reject,
 }
 
 enum SshCommand {
@@ -63,42 +82,89 @@ impl Handler for ClientHandler {
         }
 
         let key_type = key_type_name(server_public_key);
-
-        // Check if there's a different key for this host already.
-        if self.accepted_keys.is_empty() {
-            // No known_hosts entry → TOFU: accept and notify frontend.
-            let _ = self.app.emit(
-                "ssh:host-key-unknown",
-                HostKeyEvent {
-                    session_id: self.session_id.clone(),
-                    host: self.host.clone(),
-                    port: self.port,
-                    key_type,
-                    fingerprint: fingerprint.clone(),
-                    status: "unknown".into(),
-                },
-            );
-            Ok(true)
+        let known_fingerprints: Vec<String> = self.accepted_keys.iter().cloned().collect();
+        let status = if self.accepted_keys.is_empty() {
+            "unknown"
         } else {
-            // Host known but key doesn't match → REJECT.
-            let _ = self.app.emit(
-                "ssh:host-key-mismatch",
-                HostKeyEvent {
-                    session_id: self.session_id.clone(),
-                    host: self.host.clone(),
-                    port: self.port,
-                    key_type,
-                    fingerprint,
-                    status: "mismatch".into(),
-                },
-            );
-            Ok(false)
+            "mismatch"
+        };
+        let can_remember = status == "unknown";
+        let challenge_id = uuid::Uuid::new_v4().to_string();
+        let (tx, rx) = oneshot::channel::<HostKeyDecision>();
+
+        self.challenge_registry
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .insert(challenge_id.clone(), tx);
+
+        let _ = self.app.emit(
+            "ssh:host-key-challenge",
+            HostKeyChallenge {
+                challenge_id: challenge_id.clone(),
+                session_id: self.session_id.clone(),
+                alias: self.alias.clone(),
+                host: self.host.clone(),
+                port: self.port,
+                key_type: key_type.clone(),
+                fingerprint: fingerprint.clone(),
+                status: status.into(),
+                known_fingerprints,
+                can_remember,
+            },
+        );
+
+        let decision = tokio::time::timeout(std::time::Duration::from_secs(60), rx).await;
+        self.challenge_registry
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .remove(&challenge_id);
+
+        match decision {
+            Ok(Ok(HostKeyDecision::AcceptOnce)) if status == "unknown" => Ok(true),
+            Ok(Ok(HostKeyDecision::AcceptAndRemember)) if status == "unknown" => {
+                match storage::open().and_then(|conn| {
+                    storage::remember_trusted_host_key(
+                        &conn,
+                        &self.host,
+                        self.port,
+                        &key_type,
+                        &fingerprint,
+                    )
+                }) {
+                    Ok(()) => Ok(true),
+                    Err(_) => {
+                        set_host_key_error(&self.last_host_key_error, "host_key_store_failed");
+                        Ok(false)
+                    }
+                }
+            }
+            Ok(Ok(HostKeyDecision::Reject)) => {
+                set_host_key_error(&self.last_host_key_error, "host_key_rejected");
+                Ok(false)
+            }
+            Ok(Ok(_)) if status == "mismatch" => {
+                set_host_key_error(&self.last_host_key_error, "host_key_mismatch");
+                Ok(false)
+            }
+            Ok(Err(_)) | Err(_) => {
+                set_host_key_error(&self.last_host_key_error, "host_key_timeout");
+                Ok(false)
+            }
+            _ => {
+                set_host_key_error(&self.last_host_key_error, "host_key_rejected");
+                Ok(false)
+            }
         }
     }
 }
 
 impl SshSession {
-    pub async fn connect(app: &AppHandle, id: &str, args: SshOpenArgs) -> Result<Self> {
+    pub async fn connect(
+        app: &AppHandle,
+        id: &str,
+        args: SshOpenArgs,
+        challenge_registry: HostKeyChallengeRegistry,
+    ) -> Result<Self> {
         let config = Arc::new(client::Config::default());
         let addr = format!("{}:{}", args.host, args.port);
 
@@ -115,18 +181,37 @@ impl SshSession {
         }
 
         // Load known_hosts for this session.
-        let accepted_keys = load_known_hosts(&args.host, args.port);
+        let mut accepted_keys = load_known_hosts(&args.host, args.port);
+        if let Ok(conn) = storage::open() {
+            if let Ok(trusted) = storage::list_trusted_host_fingerprints(&conn, &args.host, args.port)
+            {
+                accepted_keys.extend(trusted);
+            }
+        }
+        let last_host_key_error = Arc::new(StdMutex::new(None));
 
         let handler = ClientHandler {
             app: app.clone(),
             session_id: id.to_string(),
+            alias: args.alias.clone(),
             host: args.host.clone(),
             port: args.port,
             accepted_keys,
+            challenge_registry,
+            last_host_key_error: last_host_key_error.clone(),
         };
         let mut handle = match client::connect(config, addr.clone(), handler).await {
             Ok(h) => h,
-            Err(e) => return Err(anyhow!("network_unreachable: {}", e)),
+            Err(e) => {
+                if let Some(host_key_error) = last_host_key_error
+                    .lock()
+                    .unwrap_or_else(|err| err.into_inner())
+                    .clone()
+                {
+                    return Err(anyhow!("{host_key_error}"));
+                }
+                return Err(anyhow!("network_unreachable: {}", e));
+            }
         };
 
         // Authenticate: try publickey first, then password.
@@ -285,11 +370,21 @@ fn known_hosts_path() -> Option<std::path::PathBuf> {
     dirs::home_dir().map(|d| d.join(".ssh").join("known_hosts"))
 }
 
-fn load_known_hosts(hostname: &str, _port: u16) -> HashSet<String> {
+fn load_known_hosts(hostname: &str, port: u16) -> HashSet<String> {
     let mut set = HashSet::new();
     let Some(path) = known_hosts_path() else { return set };
     let Ok(file) = std::fs::File::open(&path) else { return set };
-    for line in std::io::BufReader::new(file).lines().flatten() {
+    load_known_hosts_from_reader(BufReader::new(file), hostname, port, &mut set);
+    set
+}
+
+fn load_known_hosts_from_reader<R: BufRead>(
+    reader: R,
+    hostname: &str,
+    port: u16,
+    out: &mut HashSet<String>,
+) {
+    for line in reader.lines().map_while(|line| line.ok()) {
         let trimmed = line.trim();
         if trimmed.is_empty() || trimmed.starts_with('#') || trimmed.starts_with('@') {
             continue;
@@ -300,7 +395,7 @@ fn load_known_hosts(hostname: &str, _port: u16) -> HashSet<String> {
         }
         // Check if this line matches our hostname.
         let hosts = parts[0];
-        if !host_matches(hosts, hostname) {
+        if !host_matches(hosts, hostname, port) {
             continue;
         }
         // Decode the base64 key and compute its fingerprint.
@@ -309,14 +404,22 @@ fn load_known_hosts(hostname: &str, _port: u16) -> HashSet<String> {
             continue;
         };
         // Store fingerprint for fast comparison.
-        set.insert(bytes.fingerprint());
+        out.insert(bytes.fingerprint());
     }
-    set
 }
 
-fn host_matches(pattern: &str, hostname: &str) -> bool {
+fn host_matches(patterns: &str, hostname: &str, port: u16) -> bool {
+    patterns
+        .split(',')
+        .any(|pattern| single_host_matches(pattern.trim(), hostname, port))
+}
+
+fn single_host_matches(pattern: &str, hostname: &str, port: u16) -> bool {
     if pattern == hostname {
-        return true;
+        return port == 22;
+    }
+    if let Some((pattern_host, pattern_port)) = parse_bracketed_host_port(pattern) {
+        return pattern_host == hostname && pattern_port == port;
     }
     // Handle hashed hosts (starts with '|1|' = HMAC-SHA1).
     if let Some(rest) = pattern.strip_prefix("|1|") {
@@ -334,11 +437,27 @@ fn host_matches(pattern: &str, hostname: &str) -> bool {
         use sha1::Sha1;
         let mut mac = Hmac::<Sha1>::new_from_slice(&salt)
             .expect("HMAC can take key of any size");
-        mac.update(hostname.as_bytes());
+        let hashed_target = if port == 22 {
+            hostname.to_string()
+        } else {
+            format!("[{}]:{}", hostname, port)
+        };
+        mac.update(hashed_target.as_bytes());
         let result = mac.finalize();
         return result.into_bytes().as_slice() == expected.as_slice();
     }
     false
+}
+
+fn parse_bracketed_host_port(pattern: &str) -> Option<(&str, u16)> {
+    let rest = pattern.strip_prefix('[')?;
+    let (host, port_raw) = rest.split_once("]:")?;
+    let port = port_raw.parse::<u16>().ok()?;
+    Some((host, port))
+}
+
+fn set_host_key_error(slot: &Arc<StdMutex<Option<String>>>, value: &str) {
+    *slot.lock().unwrap_or_else(|e| e.into_inner()) = Some(value.to_string());
 }
 
 // ─── key_type_name helper ────────────────────────────────────────────────
@@ -425,4 +544,26 @@ fn expand_tilde(s: &str) -> String {
         }
     }
     s.to_string()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn host_matches_default_port_only_for_plain_hosts() {
+        assert!(host_matches("example.com", "example.com", 22));
+        assert!(!host_matches("example.com", "example.com", 2222));
+    }
+
+    #[test]
+    fn host_matches_bracketed_nonstandard_port() {
+        assert!(host_matches("[example.com]:2222", "example.com", 2222));
+        assert!(!host_matches("[example.com]:2222", "example.com", 22));
+    }
+
+    #[test]
+    fn host_matches_comma_separated_entries() {
+        assert!(host_matches("example.com,192.0.2.1", "192.0.2.1", 22));
+    }
 }

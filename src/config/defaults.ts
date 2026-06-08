@@ -1,4 +1,4 @@
-import type { Group, Host, ShellInfo, Snippet, SshKey } from "./types";
+import type { Group, Host, SerialProfile, ShellInfo, Snippet, SshKey } from "./types";
 
 export interface SnippetCategory {
   id: string;
@@ -10,6 +10,86 @@ export interface QuickCommand {
   name: string;
   cmd: string;
 }
+
+export interface SerialPreset {
+  id: string;
+  label: string;
+  vendor: "cisco" | "huawei" | "h3c" | "openwrt" | "generic";
+  profile: SerialProfile;
+}
+
+export const SERIAL_PRESETS: SerialPreset[] = [
+  {
+    id: "cisco-9600-8n1",
+    label: "Cisco console 9600 8N1",
+    vendor: "cisco",
+    profile: {
+      baudRate: 9600,
+      dataBits: 8,
+      parity: "none",
+      stopBits: 1,
+      flowControl: "none",
+      lineEnding: "cr",
+      presetId: "cisco-9600-8n1",
+    },
+  },
+  {
+    id: "huawei-9600-8n1",
+    label: "Huawei console 9600 8N1",
+    vendor: "huawei",
+    profile: {
+      baudRate: 9600,
+      dataBits: 8,
+      parity: "none",
+      stopBits: 1,
+      flowControl: "none",
+      lineEnding: "cr",
+      presetId: "huawei-9600-8n1",
+    },
+  },
+  {
+    id: "h3c-9600-8n1",
+    label: "H3C console 9600 8N1",
+    vendor: "h3c",
+    profile: {
+      baudRate: 9600,
+      dataBits: 8,
+      parity: "none",
+      stopBits: 1,
+      flowControl: "none",
+      lineEnding: "cr",
+      presetId: "h3c-9600-8n1",
+    },
+  },
+  {
+    id: "openwrt-115200-8n1",
+    label: "OpenWRT/Linux SBC 115200 8N1",
+    vendor: "openwrt",
+    profile: {
+      baudRate: 115200,
+      dataBits: 8,
+      parity: "none",
+      stopBits: 1,
+      flowControl: "none",
+      lineEnding: "lf",
+      presetId: "openwrt-115200-8n1",
+    },
+  },
+  {
+    id: "generic-9600-8n1",
+    label: "Generic console 9600 8N1",
+    vendor: "generic",
+    profile: {
+      baudRate: 9600,
+      dataBits: 8,
+      parity: "none",
+      stopBits: 1,
+      flowControl: "none",
+      lineEnding: "crlf",
+      presetId: "generic-9600-8n1",
+    },
+  },
+];
 
 // Bundled mock hosts are intentionally empty: netssh now starts with a clean
 // slate and asks the user to import from .xlsx / .json / .csv / ~/.ssh.

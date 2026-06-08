@@ -23,6 +23,7 @@ interface SidebarProps {
   onMoveHostToGroup: (hostId: string, groupId: GroupId) => void;
   onAddHostQuick: () => void;
   onRemoveHosts: (ids: string[]) => void;
+  onToggleFavorite: (hostId: string) => void;
 }
 
 export function Sidebar({
@@ -40,11 +41,12 @@ export function Sidebar({
   onMoveHostToGroup,
   onAddHostQuick,
   onRemoveHosts,
+  onToggleFavorite,
 }: SidebarProps) {
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
   const [dragOverGroup, setDragOverGroup] = useState<GroupId | null>(null);
   const [query, setQuery] = useState("");
-  const [filter, setFilter] = useState<"all" | "recent" | "local" | "cloud">("all");
+  const [filter, setFilter] = useState<"all" | "favorite" | "recent" | "local" | "cloud">("all");
   const [siteEditor, setSiteEditor] = useState(false);
   const [newSite, setNewSite] = useState("");
   const [newSiteSubnet, setNewSiteSubnet] = useState("");
@@ -57,8 +59,9 @@ export function Sidebar({
   const confirm = useConfirm();
 
   const filtered = useMemo(() => {
-    let list = hosts;
-    if (filter === "recent") list = list.filter((host) => host.status === "ok" || host.status === "warn");
+    let list = [...hosts];
+    if (filter === "favorite") list = list.filter(isFavoriteHost);
+    if (filter === "recent") list = list.filter((host) => Boolean(host.lastConnectedAt));
     if (filter === "local") list = list.filter((host) => deployScope(host) === "local");
     if (filter === "cloud") list = list.filter((host) => deployScope(host) === "cloud");
     if (query.trim()) {
@@ -70,7 +73,7 @@ export function Sidebar({
           .includes(q)
       );
     }
-    return list;
+    return sortHostsForSidebar(list, filter);
   }, [filter, hosts, query]);
 
   const filteredIds = useMemo(() => new Set(filtered.map((h) => h.id)), [filtered]);
@@ -151,6 +154,7 @@ export function Sidebar({
         <div className="sidebar-filters">
           {[
             ["all", t("sidebar.filter.all", lang)],
+            ["favorite", t("sidebar.filter.pinned", lang)],
             ["recent", t("sidebar.filter.recent", lang)],
             ["local", lang === "zh" ? "本地" : "Local"],
             ["cloud", lang === "zh" ? "云端" : "Cloud"],
@@ -336,6 +340,7 @@ export function Sidebar({
                   const effLatency = live?.latency ?? host.latency;
                   const scope = deployScope(host);
                   const isSelected = selectedIds.has(host.id);
+                  const favorite = isFavoriteHost(host);
                   return (
                   <div
                     key={host.id}
@@ -345,7 +350,7 @@ export function Sidebar({
                       event.dataTransfer.setData("text/netssh-host", host.id);
                       event.dataTransfer.effectAllowed = "move";
                     }}
-                    title={`${host.alias} - ${host.user}@${host.hostname}${host.port !== 22 ? `:${host.port}` : ""} - ${statusTooltip(effLatency, effStatus, lang)}`}
+                    title={`${host.alias} - ${host.user}@${host.hostname}${host.port !== 22 ? `:${host.port}` : ""} - ${statusTooltip(effLatency, effStatus, lang)} - ${recentTooltip(host.lastConnectedAt, lang)}`}
                     className={
                       "host-row" +
                       (host.id === activeHostId ? " active" : "") +
@@ -387,10 +392,26 @@ export function Sidebar({
                       <div className="host-tags">
                         <span className={"deploy-chip deploy-chip--" + scope}>{deployScopeLabel(scope, lang)}</span>
                         {host.cloudProvider && <span className="deploy-chip deploy-chip--provider">{host.cloudProvider}</span>}
+                        {host.lastConnectedAt && <span className="deploy-chip deploy-chip--recent">{formatRecent(host.lastConnectedAt, lang)}</span>}
                       </div>
                     </span>
                     <span className="row-flex gap-tight">
-                      {host.pinned && <span className="pin">{Icon.pin}</span>}
+                      <button
+                        type="button"
+                        className={"host-favorite" + (favorite ? " active" : "")}
+                        title={favorite
+                          ? (lang === "zh" ? "取消收藏" : "Remove from favorites")
+                          : (lang === "zh" ? "收藏" : "Add to favorites")}
+                        aria-label={favorite
+                          ? (lang === "zh" ? "取消收藏" : "Remove from favorites")
+                          : (lang === "zh" ? "收藏" : "Add to favorites")}
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          onToggleFavorite(host.id);
+                        }}
+                      >
+                        {Icon.bookmark}
+                      </button>
                       <span
                         className={"latency " + latencyClass(effLatency, effStatus)}
                         data-tooltip={statusTooltip(effLatency, effStatus, lang)}
@@ -427,4 +448,43 @@ function latencyClass(latency?: number | null, status?: Host["status"]) {
   if (latency < 20) return "ok";
   if (latency < 60) return "warn";
   return "bad";
+}
+
+function isFavoriteHost(host: Host) {
+  return Boolean(host.favorite ?? host.pinned);
+}
+
+function sortHostsForSidebar(
+  hosts: Host[],
+  filter: "all" | "favorite" | "recent" | "local" | "cloud"
+) {
+  return [...hosts].sort((a, b) => {
+    if (filter === "recent") {
+      return (b.lastConnectedAt || 0) - (a.lastConnectedAt || 0);
+    }
+    const favoriteDelta = Number(isFavoriteHost(b)) - Number(isFavoriteHost(a));
+    if (favoriteDelta !== 0) return favoriteDelta;
+    const recentDelta = (b.lastConnectedAt || 0) - (a.lastConnectedAt || 0);
+    if (recentDelta !== 0) return recentDelta;
+    return a.alias.localeCompare(b.alias);
+  });
+}
+
+function formatRecent(timestamp: number, lang: Lang) {
+  const diffMs = Math.max(0, Date.now() - timestamp);
+  const minutes = Math.max(1, Math.floor(diffMs / 60000));
+  if (minutes < 60) {
+    return lang === "zh" ? `${minutes}分钟前` : `${minutes}m ago`;
+  }
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) {
+    return lang === "zh" ? `${hours}小时前` : `${hours}h ago`;
+  }
+  const days = Math.floor(hours / 24);
+  return lang === "zh" ? `${days}天前` : `${days}d ago`;
+}
+
+function recentTooltip(timestamp: number | undefined, lang: Lang) {
+  if (!timestamp) return lang === "zh" ? "从未连接" : "Never connected";
+  return lang === "zh" ? `上次连接：${formatRecent(timestamp, lang)}` : `Last connected: ${formatRecent(timestamp, lang)}`;
 }

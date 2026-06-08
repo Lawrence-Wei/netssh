@@ -1,5 +1,5 @@
 // Hosts store. Combines ssh_config (read-only source of truth) with
-// Netssh-managed metadata (tags, notes, pinned, hue) from SQLite.
+// Netssh-managed metadata (tags, notes, favorite, lastConnectedAt, hue) from SQLite.
 
 import { create } from "zustand";
 import { createJSONStorage, persist } from "zustand/middleware";
@@ -14,6 +14,8 @@ interface HostsState {
   groups: Group[];
   loadFromSshConfig: () => Promise<void>;
   togglePin: (id: string) => void;
+  toggleFavorite: (id: string) => void;
+  markConnected: (id: string, at?: number) => void;
   setTags: (id: string, tags: string[]) => void;
   addHost: (host: Omit<Host, "id"> & { id?: string }) => Host;
   importHosts: (list: Omit<Host, "id">[]) => Host[];
@@ -54,6 +56,7 @@ export const useHosts = create<HostsState>()(
               hue: host.hue || nextHue(existing.length + index),
               status: host.status || "off",
               latency: host.latency ?? null,
+              favorite: host.favorite ?? host.pinned ?? false,
             });
           });
           set({ hosts: merged });
@@ -65,7 +68,23 @@ export const useHosts = create<HostsState>()(
       togglePin: (id) => {
         set({
           hosts: get().hosts.map((h) =>
-            h.id === id ? { ...h, pinned: !h.pinned } : h
+            h.id === id ? { ...h, favorite: !(h.favorite ?? h.pinned), pinned: !(h.favorite ?? h.pinned) } : h
+          ),
+        });
+      },
+
+      toggleFavorite: (id) => {
+        set({
+          hosts: get().hosts.map((h) =>
+            h.id === id ? { ...h, favorite: !(h.favorite ?? h.pinned), pinned: !(h.favorite ?? h.pinned) } : h
+          ),
+        });
+      },
+
+      markConnected: (id, at = Date.now()) => {
+        set({
+          hosts: get().hosts.map((h) =>
+            h.id === id ? { ...h, lastConnectedAt: at, status: "ok" } : h
           ),
         });
       },
@@ -82,6 +101,7 @@ export const useHosts = create<HostsState>()(
           port: raw.port ?? 22,
           status: raw.status ?? "off",
           hue: raw.hue ?? nextHue(get().hosts.length),
+          favorite: raw.favorite ?? raw.pinned ?? false,
         };
         set({ hosts: [...get().hosts, host] });
         return host;
@@ -117,6 +137,7 @@ export const useHosts = create<HostsState>()(
             status: raw.status ?? "off",
             latency: raw.latency ?? null,
             hue: raw.hue ?? nextHue(existing.length + created.length),
+            favorite: raw.favorite ?? raw.pinned ?? false,
           };
           existingAliases.add(host.alias.toLowerCase());
           created.push(host);
@@ -181,7 +202,7 @@ export const useHosts = create<HostsState>()(
       name: "netssh.hosts",
       storage: createJSONStorage(() => appStorage),
       partialize: (state) => ({
-        hosts: state.hosts.map(({ ephemeralPassword, ...rest }) => rest),
+        hosts: state.hosts.map(({ ephemeralPassword: _ephemeralPassword, ...rest }) => rest),
         groups: state.groups,
       }),
     }

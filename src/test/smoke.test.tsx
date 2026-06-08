@@ -131,9 +131,9 @@ describe("3. Sidebar", () => {
     expect((input as HTMLInputElement).value).toBe("prod-server-01");
   });
 
-  it("4 filter chips: All, Recent, Local, Cloud", () => {
+  it("5 filter chips: All, Favorites, Recent, Local, Cloud", () => {
     renderApp();
-    ["All", "Recent", "Local", "Cloud"].forEach((l) => {
+    ["All", "Favorites", "Recent", "Local", "Cloud"].forEach((l) => {
       expect(within(sidebar()).getByText(l)).toBeTruthy();
     });
   });

@@ -23,12 +23,20 @@ export function ContextMenu({ lang, x, y, host, groups, onAction, onClose }: Con
   const top = Math.min(y, window.innerHeight - 280);
   /** 当右键菜单位于窗口右侧 40% 区域内时，子菜单改向左展开，避免溢出屏幕 */
   const submenuLeft = x < window.innerWidth * 0.6;
+  const favorite = Boolean(host.favorite ?? host.pinned);
 
   const items: Array<
     | { id: string; icon: ReactNode; label: string; shortcut?: string; danger?: boolean; hasSub?: boolean }
     | { divider: true }
   > = [
     { id: "connect", icon: Icon.power, label: t("ctx.connect", lang), shortcut: "Enter" },
+    {
+      id: "favorite",
+      icon: Icon.bookmark,
+      label: favorite
+        ? (lang === "zh" ? "取消收藏" : "Remove favorite")
+        : (lang === "zh" ? "收藏" : "Add favorite"),
+    },
     { id: "edit", icon: Icon.edit, label: t("ctx.edit", lang) },
     { id: "move", icon: Icon.chevron, label: lang === "zh" ? "移动到站点" : "Move to site", hasSub: true },
     { divider: true },

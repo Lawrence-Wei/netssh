@@ -7,6 +7,7 @@ import { Terminal as XTerm, type IDisposable } from "@xterm/xterm";
 import {
   onPtyData,
   onPtyExit,
+  onHostKeyChallenge,
   onSshData,
   onSshExit,
   ptyClose,
@@ -14,6 +15,7 @@ import {
   ptyResize,
   ptySend,
   sshClose,
+  sshHostKeyDecide,
   sshOpen,
   sshResize,
   sshSend,
@@ -25,6 +27,7 @@ import type { Host, Lang } from "../config/types";
 import { Icon } from "../components/Icons";
 import { createDemoShell } from "../utils/demoShell";
 import { brandIcon } from "../components/BrandIcons";
+import type { HostKeyChallenge, HostKeyDecision } from "../api/tauri";
 
 export interface QueuedCommand {
   cmd: string;
@@ -44,6 +47,12 @@ interface TerminalPaneProps {
 
 type LiveMode = "ssh" | "pty" | "demo" | "error";
 
+interface HostKeyChallengeState {
+  event: HostKeyChallenge;
+  submitting: boolean;
+  error?: string;
+}
+
 export function TerminalPane({ lang, host, shellId, shellTitle, onClose, onRetry, onEditHost, runQueue }: TerminalPaneProps) {
   const mountRef = useRef<HTMLDivElement>(null);
   const termRef = useRef<XTerm | null>(null);
@@ -54,6 +63,7 @@ export function TerminalPane({ lang, host, shellId, shellTitle, onClose, onRetry
   const lastRunLengthRef = useRef(0);
   const [liveMode, setLiveMode] = useState<LiveMode>(host ? "ssh" : shellId ? "pty" : "demo");
   const [connectionError, setConnectionError] = useState<string | null>(null);
+  const [hostKeyChallenge, setHostKeyChallenge] = useState<HostKeyChallengeState | null>(null);
   const [retryNonce, setRetryNonce] = useState(0);
   const [clock, setClock] = useState(() => new Date());
   const onCloseRef = useRef(onClose);
@@ -92,6 +102,7 @@ export function TerminalPane({ lang, host, shellId, shellTitle, onClose, onRetry
     fitRef.current = fit;
 
     let dataSub: IDisposable | null = null;
+    let unlistenHostKeyChallenge: (() => void) | null = null;
     let unlistenData: (() => void) | null = null;
     let unlistenExit: (() => void) | null = null;
     let disposed = false;
@@ -127,6 +138,7 @@ export function TerminalPane({ lang, host, shellId, shellTitle, onClose, onRetry
     });
 
     setConnectionError(null);
+    setHostKeyChallenge(null);
 
     const startDemo = (reason?: unknown) => {
       if (disposed) return;
@@ -163,6 +175,10 @@ export function TerminalPane({ lang, host, shellId, shellTitle, onClose, onRetry
         if (host) {
           modeRef.current = "ssh";
           setLiveMode("ssh");
+          unlistenHostKeyChallenge = await onHostKeyChallenge((event) => {
+            if (event.host !== host.hostname || event.port !== host.port) return;
+            setHostKeyChallenge({ event, submitting: false });
+          });
           const id = await sshOpen({
             alias: host.alias,
             host: host.hostname,
@@ -200,6 +216,7 @@ export function TerminalPane({ lang, host, shellId, shellTitle, onClose, onRetry
       window.removeEventListener("resize", queueResize);
       dataSub?.dispose();
       ro.disconnect();
+      unlistenHostKeyChallenge?.();
       unlistenData?.();
       unlistenExit?.();
       const id = sessionIdRef.current;
@@ -234,9 +251,24 @@ export function TerminalPane({ lang, host, shellId, shellTitle, onClose, onRetry
   const hasError = liveMode === "error" && !!connectionError;
   const handleRetry = () => {
     setConnectionError(null);
+    setHostKeyChallenge(null);
     setLiveMode(host ? "ssh" : shellId ? "pty" : "demo");
     setRetryNonce((n) => n + 1);
     onRetry?.();
+  };
+  const decideHostKey = async (decision: HostKeyDecision) => {
+    if (!hostKeyChallenge || hostKeyChallenge.submitting) return;
+    setHostKeyChallenge({ ...hostKeyChallenge, submitting: true, error: undefined });
+    try {
+      await sshHostKeyDecide(hostKeyChallenge.event.challenge_id, decision);
+      setHostKeyChallenge(null);
+    } catch (error) {
+      setHostKeyChallenge({
+        ...hostKeyChallenge,
+        submitting: false,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
   };
 
   return (
@@ -269,6 +301,15 @@ export function TerminalPane({ lang, host, shellId, shellTitle, onClose, onRetry
           } as CSSProperties}
         >
           <div ref={mountRef} className="xterm-mount" />
+          {hostKeyChallenge && (
+            <HostKeyChallengeOverlay
+              lang={lang}
+              challenge={hostKeyChallenge.event}
+              submitting={hostKeyChallenge.submitting}
+              error={hostKeyChallenge.error}
+              onDecide={decideHostKey}
+            />
+          )}
           {hasError && host && (
             <div className="connection-error">
               <span className="eyebrow">{t("conn.error.eyebrow", lang)}</span>
@@ -313,6 +354,61 @@ export function TerminalPane({ lang, host, shellId, shellTitle, onClose, onRetry
         </span>
       </div>
     </>
+  );
+}
+
+function HostKeyChallengeOverlay({
+  lang,
+  challenge,
+  submitting,
+  error,
+  onDecide,
+}: {
+  lang: Lang;
+  challenge: HostKeyChallenge;
+  submitting: boolean;
+  error?: string;
+  onDecide: (decision: HostKeyDecision) => void;
+}) {
+  const isMismatch = challenge.status === "mismatch";
+  return (
+    <div className={"host-key-challenge" + (isMismatch ? " host-key-challenge--danger" : "")}>
+      <span className="eyebrow">{t("hostkey.eyebrow", lang)}</span>
+      <h2>{t(isMismatch ? "hostkey.mismatch.title" : "hostkey.unknown.title", lang)}</h2>
+      <p>{t(isMismatch ? "hostkey.mismatch.body" : "hostkey.unknown.body", lang)}</p>
+      <div className="host-key-challenge__grid">
+        <span className="k">{t("hostkey.field.host", lang)}</span>
+        <span className="v">{challenge.host}:{challenge.port}</span>
+        <span className="k">{t("hostkey.field.type", lang)}</span>
+        <span className="v">{challenge.key_type}</span>
+        <span className="k">{t("hostkey.field.fingerprint", lang)}</span>
+        <span className="v host-key-challenge__fingerprint">{challenge.fingerprint}</span>
+        {challenge.known_fingerprints.length > 0 && (
+          <>
+            <span className="k">{t("hostkey.field.known", lang)}</span>
+            <span className="v host-key-challenge__fingerprint">
+              {challenge.known_fingerprints.join(", ")}
+            </span>
+          </>
+        )}
+      </div>
+      {error && <div className="host-key-challenge__error">{error}</div>}
+      <div className="host-key-challenge__actions">
+        <button className="btn ghost" disabled={submitting} onClick={() => onDecide("reject")}>
+          {t("hostkey.action.reject", lang)}
+        </button>
+        {!isMismatch && (
+          <>
+            <button className="btn ghost" disabled={submitting} onClick={() => onDecide("accept_once")}>
+              {t("hostkey.action.acceptOnce", lang)}
+            </button>
+            <button className="btn" disabled={submitting} onClick={() => onDecide("accept_and_remember")}>
+              {t("hostkey.action.trust", lang)}
+            </button>
+          </>
+        )}
+      </div>
+    </div>
   );
 }
 
@@ -371,18 +467,37 @@ function hexToRgba(hex: string, alpha: number) {
 }
 
 function errorMessage(error: unknown) {
+  return describeConnectionError(error);
+}
+
+export function describeConnectionError(error: unknown) {
   const raw = (error instanceof Error ? error.message : String(error || "")).toLowerCase();
   if (!raw) return "Live session could not be opened.";
 
   // Categorize common SSH errors
-  if (/dns|resolve|host.?name|getaddrinfo|name or service not known|no address associated/i.test(raw)) {
-    return `DNS resolution failed — cannot resolve hostname. Check the hostname/IP is correct.`;
+  if (/host_key_mismatch/i.test(raw)) {
+    return `Host key mismatch — the server fingerprint changed. The connection was blocked to protect this session.`;
   }
-  if (/connection refused|refused/i.test(raw)) {
-    return `Connection refused — target rejected the connection. Check that SSH service is running and the port is correct.`;
+  if (/host_key_rejected/i.test(raw)) {
+    return `Host key rejected — connection cancelled before authentication.`;
+  }
+  if (/host_key_timeout/i.test(raw)) {
+    return `Host key confirmation timed out — reconnect and choose whether to trust this host.`;
+  }
+  if (/host_key_store_failed/i.test(raw)) {
+    return `Host key could not be stored locally. Try accepting once or check Netssh's local data permissions.`;
+  }
+  if (/dns|resolve|could not resolve|lookup|host.?name|getaddrinfo|name or service not known|no address associated|nodename nor servname/i.test(raw)) {
+    return `DNS resolution failed — Netssh cannot resolve this hostname. Check the asset hostname/IP, local DNS suffix, VPN DNS, or hosts file.`;
+  }
+  if (/no route|network is unreachable|network unreachable|host unreachable|enetunreach|ehostunreach/i.test(raw)) {
+    return `Route unavailable — there is no network path to the target. Check VPN, site routing, gateway, VLAN, or firewall policy.`;
+  }
+  if (/connection refused|actively refused|econnrefused|refused/i.test(raw)) {
+    return `SSH service or port rejected the connection — verify the SSH daemon is running and the configured port is open.`;
   }
   if (/timeout|timed out|no response/i.test(raw)) {
-    return `Connection timed out — no response from target. Check IP address, routing, firewall, or VPN.`;
+    return `Connection timed out — no response from the target port. Check IP address, routing, firewall, security group, or VPN.`;
   }
   if (/no_credentials/i.test(raw)) {
     return `No credentials provided — edit this host to set a password or SSH identity file, then reconnect.`;
@@ -390,14 +505,11 @@ function errorMessage(error: unknown) {
   if (/username_invalid/i.test(raw)) {
     return `Invalid username — username contains whitespace or special characters (: or @).`;
   }
-  if (/key_passphrase_needed/i.test(raw)) {
-    return `SSH key is protected by a passphrase — add the passphrase in host settings.`;
+  if (/key_passphrase_needed|passphrase|encrypted private key|unable to decrypt|bad decrypt|invalid passphrase/i.test(raw)) {
+    return `SSH key passphrase required — this private key is encrypted or the passphrase is wrong. Add the correct passphrase and reconnect.`;
   }
-  if (/auth|permission denied|password|publickey|no supported auth/i.test(raw)) {
-    return `Authentication failed — check username, key, or password. The server rejected the credentials.`;
-  }
-  if (/no route|network|unreachable|host unreachable/i.test(raw)) {
-    return `Network unreachable — no route to the target. Check VPN, network connectivity, or firewall.`;
+  if (/auth|permission denied|password|publickey|keyboard-interactive|no supported auth|all authentication methods failed/i.test(raw)) {
+    return `Authentication failed — the server rejected the username, password, or SSH key. Check account policy, AD/TACACS login, and allowed auth methods.`;
   }
   if (/reset|broken pipe|connection reset|disconnect/i.test(raw)) {
     return `Connection reset — the session was unexpectedly closed. Server may have dropped the connection.`;

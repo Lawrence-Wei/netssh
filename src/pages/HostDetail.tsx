@@ -280,7 +280,7 @@ export function HostDetail({
             </div>
             <div className="panel-body dense">
               <span style={{ color: "var(--text-dim)", fontSize: 13 }}>
-                {host.status === "off" ? t("host.lastseen.never", lang) : t("host.lastseen.minutes", lang, { n: 17 })}
+                {formatLastConnected(host.lastConnectedAt, lang)}
               </span>
             </div>
           </div>
@@ -559,4 +559,14 @@ function statusClass(host: Host) {
   if (host.latency < 20) return "ok";
   if (host.latency < 60) return "warn";
   return "bad";
+}
+
+function formatLastConnected(timestamp: number | undefined, lang: Lang) {
+  if (!timestamp) return t("host.lastseen.never", lang);
+  const diffMs = Math.max(0, Date.now() - timestamp);
+  const minutes = Math.max(1, Math.floor(diffMs / 60000));
+  if (minutes < 60) return t("host.lastseen.minutes", lang, { n: minutes });
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return t("host.lastseen.hours", lang, { n: hours });
+  return t("host.lastseen.days", lang, { n: Math.floor(hours / 24) });
 }
