@@ -17,6 +17,18 @@ Download from [GitHub Releases](https://github.com/team-gabage/netssh/releases):
 - **NSIS installer** (recommended) — best for most Windows users
 - **MSI package** — suited for enterprise deployment
 
+If you use the npm package, install the latest tagged release:
+
+```bash
+npm install @lawrence-wei/netssh@latest --registry=https://npm.pkg.github.com
+```
+
+You can also omit `@latest` because npm defaults to that tag:
+
+```bash
+npm install @lawrence-wei/netssh --registry=https://npm.pkg.github.com
+```
+
 ---
 
 ## Quick Start
