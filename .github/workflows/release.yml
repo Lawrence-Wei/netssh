@@ -245,8 +245,6 @@ jobs:
 
       - name: Install ARM64 cross-compile packages
         run: |
-          # 把 ubuntu-latest 默认 amd64 源的 arch 限制为 amd64，防止 apt 尝试拉 arm64 索引
-          sudo sed -i 's/Types: deb$/Types: deb\nArchitectures: amd64/' /etc/apt/sources.list.d/ubuntu.sources
           sudo dpkg --add-architecture arm64
           # 新建独立的 arm64 源指向 ports.ubuntu.com
           cat <<EOF | sudo tee /etc/apt/sources.list.d/arm64-cross.sources
@@ -258,6 +256,16 @@ jobs:
           Signed-By: /usr/share/keyrings/ubuntu-archive-keyring.gpg
           EOF
           sudo apt-get update
+          # 先把 amd64 的 dev 包更新到最新，避免和 arm64 版本不一致导致文件冲突
+          sudo apt-get install -y \
+            libwebkit2gtk-4.1-dev:amd64 \
+            libgtk-3-dev:amd64 \
+            libsoup-3.0-dev:amd64 \
+            libjavascriptcoregtk-4.1-dev:amd64 \
+            libayatana-appindicator3-dev:amd64 \
+            librsvg2-dev:amd64 \
+            libssl-dev:amd64
+          # 然后安装 arm64 交叉编译依赖
           sudo apt-get install -y \
             libwebkit2gtk-4.1-dev:arm64 \
             libgtk-3-dev:arm64 \
