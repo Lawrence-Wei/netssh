@@ -377,6 +377,7 @@ pub fn connection_log_close(args: ConnectionLogClose) -> Result<(), String> {
         args.exit_status,
         args.error.as_deref(),
     )
+    .map(|_| ())
     .map_err(|e| e.to_string())
 }
 
