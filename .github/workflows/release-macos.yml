@@ -1,0 +1,80 @@
+name: release-macos
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build-macos:
+    runs-on: macos-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install dependencies
+        run: npm install
+
+      - name: Install Rust (stable)
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install Rust target aarch64-apple-darwin
+        run: rustup target add aarch64-apple-darwin
+
+      - name: Install Rust target x86_64-apple-darwin
+        run: rustup target add x86_64-apple-darwin
+
+      - name: Build x86_64 dmg
+        run: npm run tauri:build -- --target x86_64-apple-darwin
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build aarch64 dmg
+        run: npm run tauri:build -- --target aarch64-apple-darwin
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build universal dmg
+        run: npm run tauri:build -- --target universal-apple-darwin
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: netssh-macos-artifacts
+          path: |
+            src-tauri/target/universal-apple-darwin/release/bundle/dmg/
+            src-tauri/target/x86_64-apple-darwin/release/bundle/dmg/
+            src-tauri/target/aarch64-apple-darwin/release/bundle/dmg/
+
+  publish-release:
+    needs: build-macos
+    if: github.ref_type == 'tag'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Download artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: netssh-macos-artifacts
+          path: release-artifacts
+
+      - name: Create or update Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            release-artifacts/**
+          fail_on_unmatched_files: true
+          generate_release_notes: true
