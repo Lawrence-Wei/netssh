@@ -39,6 +39,16 @@
   "host.field.env": "Env",
   "host.field.group": "Site",
   "host.field.notes": "Notes",
+  "host.field.connectionType": "Connection type",
+  "host.field.identityProfile": "Identity / Profile",
+  "host.field.identityProfilePlaceholder": "Pick an identity to autofill...",
+  "host.field.serialPort": "COM port",
+  "host.field.serialProfile": "Console profile",
+  "host.connection.ssh": "SSH",
+  "host.connection.serial": "Serial",
+  "host.connection.sshSection": "SSH connection",
+  "host.connection.serialSection": "Serial connection",
+  "host.editor.serialHint": "Serial editing starts with the COM port here. Detailed baud, parity, and line-ending controls land in the next serial iteration.",
   "host.action.edit": "Edit",
   "host.action.add": "Add host",
   "host.action.remove": "Remove",
@@ -243,3 +253,4 @@
   "groups.field": "Field & IoT",
   "groups.unassigned": "Unassigned"
 }
+

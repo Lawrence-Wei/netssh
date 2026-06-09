@@ -39,6 +39,16 @@
   "host.field.env": "Env",
   "host.field.group": "Site",
   "host.field.notes": "Notes",
+  "host.field.connectionType": "连接类型",
+  "host.field.identityProfile": "身份 / 配置文件",
+  "host.field.identityProfilePlaceholder": "选择身份以自动填充...",
+  "host.field.serialPort": "COM 端口",
+  "host.field.serialProfile": "串口配置文件",
+  "host.connection.ssh": "SSH",
+  "host.connection.serial": "串口",
+  "host.connection.sshSection": "SSH 连接",
+  "host.connection.serialSection": "串口连接",
+  "host.editor.serialHint": "串口编辑从这里的 COM 端口开始。详细的波特率、校验位和行结束符控制将在下一版本串口迭代中实现。",
   "host.action.edit": "Edit",
   "host.action.add": "Add host",
   "host.action.remove": "Remove",
@@ -243,3 +253,4 @@
   "groups.field": "Field & IoT",
   "groups.unassigned": "Unassigned"
 }
+

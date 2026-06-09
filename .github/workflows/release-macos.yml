@@ -47,15 +47,14 @@ jobs:
           for target in x86_64-apple-darwin aarch64-apple-darwin universal-apple-darwin; do
             target_dir="src-tauri/target/${target}/release/bundle/dmg"
             if [ -d "${target_dir}" ]; then
-              mkdir -p "release-artifacts/${target}"
-              cp -v ${target_dir}/* release-artifacts/${target}/
+              cp -v ${target_dir}/*.dmg release-artifacts/
             fi
           done
           if [ ! "$(find release-artifacts -type f | head -n 1)" ]; then
             echo "No dmg files were produced"
             exit 1
           fi
-          find release-artifacts -maxdepth 3 -type f -print
+          find release-artifacts -type f -print
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4

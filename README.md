@@ -1,127 +1,97 @@
 # Netssh
 
-Netssh is a local-first Windows SSH and serial console workstation for infrastructure, network, SRE, ops, IT admin, and lab users.
-
-It is an asset and connection workbench, not a generic chat terminal or a marketing shell. The app is designed around daily network operations: find an asset, inspect its metadata, connect safely, and keep credentials private on the local machine.
-
 ![Netssh app screenshot](docs/assets/netssh-app-screenshot.png)
 
-## Current Release
+**Netssh** is a Windows desktop SSH & serial console workstation for ops, network engineers, SREs, and IT admins. Manage your assets locally and connect to devices fast.
 
-Latest release: `v0.0.7`
+---
 
-Download the Windows installers from GitHub Releases:
+## Installation
 
-- NSIS setup: best default installer for most Windows users
-- MSI package: useful for managed installation workflows
+Current release: **v1.1.9**
 
-## What Works
+Download from [GitHub Releases](https://github.com/team-gabage/netssh/releases):
 
-- Asset inventory with sites, groups, tags, aliases, notes, and favorites
-- Read-only SSH config import from `~/.ssh/config`
-- Import preview and diagnostics before hosts are added
-- Duplicate alias and duplicate target diagnostics
-- Missing identity file diagnostics
-- Quick SSH connection tabs backed by Tauri and Rust
-- Local shell tabs through Windows ConPTY
-- Unknown host key TOFU confirmation before trust is stored
-- Host key mismatch blocking with high-risk warning behavior
-- Netssh-managed trusted host keys stored in local SQLite
-- Favorites and recent connection timestamps
-- Connection error explanations for DNS, routing, port, auth, and key passphrase failures
-- Command snippets and per-host quick command surfaces
-- English-only repository surface and GitHub documentation
+- **NSIS installer** (recommended) — best for most Windows users
+- **MSI package** — suited for enterprise deployment
 
-Serial console profile foundations are present in the data model. Live serial backend support is still planned work.
+---
 
-## Security Model
+## Quick Start
 
-- Passwords, passphrases, private keys, and ephemeral passwords must not be persisted in frontend state or local storage.
-- Credentials are stored through the operating system credential manager / keyring.
-- SSH config import is read-only unless the user explicitly confirms writes.
-- Netssh does not silently modify OpenSSH `known_hosts`.
-- Unknown host keys require user-confirmed TOFU.
-- Host key mismatches block the connection.
-- Netssh-trusted host keys are stored in local SQLite, not in the user's OpenSSH files.
-- Logs must not record user command text.
+### 1. Add a Host
 
-## Tech Stack
+Click **"+ New host"** at the bottom of the left panel and fill in connection details:
 
-- Frontend: React 18, Vite, TypeScript, Zustand, xterm.js
-- Desktop shell: Tauri 2
-- Backend: Rust
-- SSH: `russh`
-- Local PTY: `portable-pty` / Windows ConPTY
-- Storage: SQLite through `rusqlite`
-- Credentials: OS keyring through `keyring`
-- Tests: Vitest, React Testing Library, Rust unit tests
+| Field | Description |
+|-------|-------------|
+| Alias | Display name, e.g. "core-switch" |
+| Hostname | IP address or domain, e.g. `192.168.1.1` |
+| User | SSH login username, e.g. `root` |
+| Port | SSH port, default `22` |
+| Site | Site group (e.g. Shanghai, Cloud) for organization |
+| Notes | Free-form notes |
 
-## Repository Layout
+Click **Save**. Two connection types are supported:
 
-```text
-src/
-  api/          Tauri API wrappers
-  assets/       CSS and localization catalogs
-  components/   Shared React components
-  config/       Types and defaults
-  hooks/        React hooks
-  layouts/      App shell layouts
-  pages/        Main app pages and panes
-  store/        Zustand state stores
-  test/         Frontend tests and mocks
-  utils/        Shared frontend utilities
+- **SSH** — standard remote connection
+- **Serial** — console access via COM port for switches/routers
 
-src-tauri/src/
-  commands.rs     Thin Tauri command handlers
-  credentials.rs  OS credential manager integration
-  pty.rs          Local PTY sessions
-  ssh.rs          SSH session handling and host key checks
-  ssh_config.rs   OpenSSH config parsing
-  storage.rs      SQLite app state and host key storage
+### 2. Connect to a Host
 
-.ai/
-  Product vision, backlog, iteration rules, and checkpoint reports
+- **Single-click** a host in the sidebar → detail panel on the right
+- **Double-click** a host → open SSH connection immediately
+- **Right-click** a host → connect, edit, favorite, delete, and more
 
-tools/
-  Validation and development helper scripts
-```
+On first connection to a host, a host-key confirmation dialog appears — verify the fingerprint before trusting.
 
-## Development
+### 3. Import from SSH Config
 
-Use npm for frontend package management.
+Click **"Import config"** at the bottom left, then choose **"Read ~/.ssh"** to bulk-import hosts from your `~/.ssh/config`. Excel, JSON, and CSV files are also supported.
 
-```powershell
-npm install
-npm run dev
-npm test -- --run
-npm run build
-```
+A preview with diagnostics (duplicates, missing keys) is shown before anything is written.
 
-Run the full validation gate before publishing development work:
+### 4. Manual Connect (one-off)
 
-```powershell
-tools\ai-loop\run-validation.ps1
-```
+Don't want to save a host? Use the manual connect panel — enter IP/hostname, port, username, and password to open a one-off SSH session without adding it to your inventory.
 
-The validation gate runs:
+---
 
-- `npm run lint`
-- `npm test -- --run`
-- `npm run build`
-- `cargo test --manifest-path src-tauri\Cargo.toml`
+## Features
 
-## Desktop Build
+### Host Management
+- **Site groups** — organize hosts by location or purpose (Shanghai, Cloud, Homelab, etc.)
+- **Tags & favorites** — mark commonly used hosts for quick filtering
+- **Search & filter** — search by alias, IP, or tag; filter by All / Favorites / Recent
+- **SSH config import** — read-only import from `~/.ssh/config`; never modifies the original file
 
-Build the Windows desktop application with:
+### Terminal Sessions
+- **Multi-tab** — open multiple SSH / local shell tabs simultaneously
+- **Quad split** — split the terminal area into up to 4 panes
+- **Local shell** — embedded PowerShell, CMD, or WSL via Windows ConPTY
+- **Command snippets** — preloaded useful commands (system, network, Docker, monitoring); drag or double-click to run
+- **Status bar** — shows latency, cipher, session uptime per connection
 
-```powershell
-npm run tauri:build
-```
+### Security
+- **Credential protection** — passwords and key passphrases are stored in Windows Credential Manager / keyring, never in local files
+- **Host key verification** — TOFU (Trust On First Use) confirmation required; mismatched keys block the connection
+- **No command logging** — operation logs exclude user command text
 
-Successful Windows builds create installer artifacts under:
+### Appearance & Preferences
+- **Themes** — Aurora Purple, Cobalt Blue, Windows Mica
+- **Language** — English / Chinese UI switch; terminal LC_ALL/LANG follows
+- **Acrylic translucency** — follows your Windows transparency preference
+- **Font & cursor** — customizable terminal font, size, and cursor style
 
-```text
-src-tauri/target/release/bundle/
-```
+---
 
-Expected bundle outputs include NSIS and MSI installers when the required Windows build tooling is installed.
+## System Requirements
+
+| Item | Minimum |
+|------|---------|
+| OS | Windows 10 / Windows 11 |
+| Architecture | x64 or ARM64 |
+
+---
+
+[中文版本](README_ZH.md)
