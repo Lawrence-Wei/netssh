@@ -94,6 +94,41 @@ jobs:
           rustup target add x86_64-pc-windows-msvc
           rustup target add aarch64-pc-windows-msvc
 
+      - name: Sync release version into tauri metadata
+        if: ${{ github.ref_type == 'tag' || (github.event_name == 'workflow_dispatch' && github.event.inputs.tag != '') }}
+        shell: bash
+        run: |
+          VERSION="${{ github.event_name == 'workflow_dispatch' && github.event.inputs.tag || github.ref_name }}"
+          VERSION="${VERSION#v}"
+          export VERSION
+          if [ -z "$VERSION" ] || [ "$VERSION" = "main" ]; then
+            echo "skip: non-tag build"
+            exit 0
+          fi
+          node - <<'EOF'
+          const fs = require("fs");
+
+          const version = (() => {
+            const value = process.env.VERSION || "";
+            return value.replace(/^v/, "");
+          })();
+          if (!version) {
+            process.exit(0);
+          }
+
+          const confPath = "src-tauri/tauri.conf.json";
+          const conf = JSON.parse(fs.readFileSync(confPath, "utf8"));
+          conf.version = version;
+          fs.writeFileSync(confPath, JSON.stringify(conf, null, 2) + "\n", "utf8");
+
+          const cargoPath = "src-tauri/Cargo.toml";
+          const cargo = fs.readFileSync(cargoPath, "utf8").replace(
+            /^version\s*=\s*".*?"/m,
+            `version = "${version}"`
+          );
+          fs.writeFileSync(cargoPath, `${cargo}\n`, "utf8");
+          EOF
+
       - name: Build Windows x64
         run: npm run tauri:build -- --target x86_64-pc-windows-msvc
 
@@ -143,6 +178,41 @@ jobs:
 
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
+
+      - name: Sync release version into tauri metadata
+        if: ${{ github.ref_type == 'tag' || (github.event_name == 'workflow_dispatch' && github.event.inputs.tag != '') }}
+        shell: bash
+        run: |
+          VERSION="${{ github.event_name == 'workflow_dispatch' && github.event.inputs.tag || github.ref_name }}"
+          VERSION="${VERSION#v}"
+          export VERSION
+          if [ -z "$VERSION" ] || [ "$VERSION" = "main" ]; then
+            echo "skip: non-tag build"
+            exit 0
+          fi
+          node - <<'EOF'
+          const fs = require("fs");
+
+          const version = (() => {
+            const value = process.env.VERSION || "";
+            return value.replace(/^v/, "");
+          })();
+          if (!version) {
+            process.exit(0);
+          }
+
+          const confPath = "src-tauri/tauri.conf.json";
+          const conf = JSON.parse(fs.readFileSync(confPath, "utf8"));
+          conf.version = version;
+          fs.writeFileSync(confPath, JSON.stringify(conf, null, 2) + "\n", "utf8");
+
+          const cargoPath = "src-tauri/Cargo.toml";
+          const cargo = fs.readFileSync(cargoPath, "utf8").replace(
+            /^version\s*=\s*".*?"/m,
+            `version = "${version}"`
+          );
+          fs.writeFileSync(cargoPath, `${cargo}\n`, "utf8");
+          EOF
 
       - name: Install Apple targets
         run: |
@@ -264,3 +334,16 @@ jobs:
             release-artifacts/**
           fail_on_unmatched_files: true
           generate_release_notes: true
+
+  # ── 发布到 WinGet ──
+  publish-winget:
+    needs: create-release
+    runs-on: ubuntu-latest
+    if: ${{ github.ref_type == 'tag' || (github.event_name == 'workflow_dispatch' && github.event.inputs.tag != '') }}
+    steps:
+      - name: Submit to WinGet
+        uses: vedantmgoyal2009/winget-releaser@v2
+        with:
+          identifier: LawrenceWei.Netssh
+          token: ${{ secrets.WINGET_TOKEN }}
+          release-tag: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.tag || github.ref_name }}
