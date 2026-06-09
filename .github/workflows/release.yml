@@ -179,162 +179,6 @@ jobs:
           name: netssh-macos
           path: release-artifacts/
 
-  # ── Linux x64 构建 ──
-  build-linux-x64:
-    needs: test
-    if: ${{ github.ref_type == 'tag' || (github.event_name == 'workflow_dispatch' && github.event.inputs.tag != '') }}
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Setup Node
-        uses: actions/setup-node@v4
-        with:
-          node-version: 'lts/*'
-
-      - name: Install system dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y \
-            libwebkit2gtk-4.1-dev \
-            libayatana-appindicator3-dev \
-            librsvg2-dev \
-            patchelf \
-            libgtk-3-dev \
-            libsoup-3.0-dev \
-            libudev-dev \
-            libjavascriptcoregtk-4.1-dev
-
-      - name: Install dependencies
-        run: npm install
-
-      - name: Install Rust
-        uses: dtolnay/rust-toolchain@stable
-
-      - name: Build Linux x64
-        run: npm run tauri:build -- --target x86_64-unknown-linux-gnu
-
-      - name: Collect artifacts
-        run: |
-          mkdir -p release-artifacts/linux-x64
-          src_dir="src-tauri/target/x86_64-unknown-linux-gnu/release/bundle"
-          if [ -d "${src_dir}/deb" ]; then
-            cp -v ${src_dir}/deb/*.deb release-artifacts/linux-x64/
-          fi
-          if [ -d "${src_dir}/appimage" ]; then
-            cp -v ${src_dir}/appimage/*.AppImage release-artifacts/linux-x64/
-          fi
-          if [ ! "$(find release-artifacts/linux-x64 -type f | head -n 1)" ]; then
-            echo "No linux-x64 packages were produced"
-            exit 1
-          fi
-          find release-artifacts -type f -print
-
-      - name: Upload artifacts
-        uses: actions/upload-artifact@v4
-        with:
-          name: netssh-linux-x64
-          path: release-artifacts/
-
-  # ── Linux ARM64 (树莓派) 构建 ──
-  build-linux-arm64:
-    needs: test
-    if: ${{ github.ref_type == 'tag' || (github.event_name == 'workflow_dispatch' && github.event.inputs.tag != '') }}
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Setup Node
-        uses: actions/setup-node@v4
-        with:
-          node-version: 'lts/*'
-
-      - name: Install system dependencies (amd64 host + arm64 cross)
-        run: |
-          set -euxo pipefail
-          sudo dpkg --add-architecture arm64
-          # Build a dedicated source list so apt won't pull arm64 packages from
-          # ubuntu mirrors that do not host arm64 (security.ubuntu.com in this runner)
-          sudo cat <<'EOF' > /tmp/arm64-ci.list
-          deb [arch=amd64] http://azure.archive.ubuntu.com/ubuntu noble main restricted universe multiverse
-          deb [arch=amd64] http://azure.archive.ubuntu.com/ubuntu noble-updates main restricted universe multiverse
-          deb [arch=amd64] http://azure.archive.ubuntu.com/ubuntu noble-security main restricted universe multiverse
-          deb [arch=amd64] http://azure.archive.ubuntu.com/ubuntu noble-backports main restricted universe multiverse
-          deb [arch=arm64]  http://ports.ubuntu.com/ubuntu-ports noble main restricted universe multiverse
-          deb [arch=arm64]  http://ports.ubuntu.com/ubuntu-ports noble-updates main restricted universe multiverse
-          deb [arch=arm64]  http://ports.ubuntu.com/ubuntu-ports noble-security main restricted universe multiverse
-          deb [arch=arm64]  http://ports.ubuntu.com/ubuntu-ports noble-backports main restricted universe multiverse
-          EOF
-          sudo apt-get update \
-            -o Dir::Etc::sourcelist=/tmp/arm64-ci.list \
-            -o Dir::Etc::sourceparts=- \
-            -o APT::Get::List-Cleanup=0
-          sudo apt-get install -y \
-            -o Dir::Etc::sourcelist=/tmp/arm64-ci.list \
-            -o Dir::Etc::sourceparts=- \
-            -o APT::Get::List-Cleanup=0 \
-            gcc-aarch64-linux-gnu \
-            pkg-config \
-            libglib2.0-dev:amd64 \
-            libwebkit2gtk-4.1-dev:amd64 \
-            libayatana-appindicator3-dev:amd64 \
-            librsvg2-dev:amd64 \
-            libgtk-3-dev:amd64 \
-            libsoup-3.0-dev:amd64 \
-            libjavascriptcoregtk-4.1-dev:amd64 \
-            libudev-dev:amd64 \
-            libssl-dev:amd64 \
-            libglib2.0-dev:arm64 \
-            libwebkit2gtk-4.1-dev:arm64 \
-            libayatana-appindicator3-dev:arm64 \
-            librsvg2-dev:arm64 \
-            libgtk-3-dev:arm64 \
-            libsoup-3.0-dev:arm64 \
-            libjavascriptcoregtk-4.1-dev:arm64 \
-            libudev-dev:arm64 \
-            libssl-dev:arm64
-
-      - name: Install dependencies
-        run: npm install
-
-      - name: Install Rust
-        uses: dtolnay/rust-toolchain@stable
-
-      - name: Install ARM64 target
-        run: rustup target add aarch64-unknown-linux-gnu
-
-      - name: Build Linux ARM64
-        env:
-          PKG_CONFIG_PATH: /usr/lib/aarch64-linux-gnu/pkgconfig
-          PKG_CONFIG_ALLOW_CROSS: "1"
-          CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER: aarch64-linux-gnu-gcc
-          CC: aarch64-linux-gnu-gcc
-        run: npm run tauri:build -- --target aarch64-unknown-linux-gnu
-
-      - name: Collect artifacts
-        run: |
-          mkdir -p release-artifacts/linux-arm64
-          src_dir="src-tauri/target/aarch64-unknown-linux-gnu/release/bundle"
-          if [ -d "${src_dir}/deb" ]; then
-            cp -v ${src_dir}/deb/*.deb release-artifacts/linux-arm64/
-          fi
-          if [ -d "${src_dir}/appimage" ]; then
-            cp -v ${src_dir}/appimage/*.AppImage release-artifacts/linux-arm64/
-          fi
-          if [ ! "$(find release-artifacts/linux-arm64 -type f | head -n 1)" ]; then
-            echo "No linux-arm64 packages were produced"
-            exit 1
-          fi
-          find release-artifacts -type f -print
-
-      - name: Upload artifacts
-        uses: actions/upload-artifact@v4
-        with:
-          name: netssh-linux-arm64
-          path: release-artifacts/
-
   # ── npm 包发布 ──
   publish-npm:
     needs: test
@@ -395,7 +239,7 @@ jobs:
 
   # ── 合并产物并发布 GitHub Release ──
   create-release:
-    needs: [build-windows, build-macos, build-linux-x64, build-linux-arm64, publish-npm]
+    needs: [build-windows, build-macos, publish-npm]
     runs-on: ubuntu-latest
     if: ${{ github.ref_type == 'tag' || (github.event_name == 'workflow_dispatch' && github.event.inputs.tag != '') }}
     steps:
@@ -409,18 +253,6 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           name: netssh-macos
-          path: release-artifacts/
-
-      - name: Download Linux x64 artifacts
-        uses: actions/download-artifact@v4
-        with:
-          name: netssh-linux-x64
-          path: release-artifacts/
-
-      - name: Download Linux ARM64 artifacts
-        uses: actions/download-artifact@v4
-        with:
-          name: netssh-linux-arm64
           path: release-artifacts/
 
       - name: Publish GitHub Release
