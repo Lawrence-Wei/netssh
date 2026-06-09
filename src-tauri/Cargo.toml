@@ -1,6 +1,6 @@
 [package]
 name = "netssh"
-version = "0.0.7"
+version = "1.1.9"
 description = "Modern SSH / infrastructure device manager"
 authors = ["you"]
 edition = "2021"

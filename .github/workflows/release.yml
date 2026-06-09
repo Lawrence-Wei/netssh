@@ -149,6 +149,118 @@ jobs:
           name: netssh-macos
           path: release-artifacts/
 
+  # ── Linux x64 构建 ──
+  build-linux-x64:
+    needs: test
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf libgtk-3-dev libsoup-3.0-dev libjavascriptcoregtk-4.1-dev
+
+      - name: Install dependencies
+        run: npm install
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Build Linux x64
+        run: npm run tauri:build -- --target x86_64-unknown-linux-gnu
+
+      - name: Collect artifacts
+        run: |
+          mkdir -p release-artifacts/linux-x64
+          src_dir="src-tauri/target/x86_64-unknown-linux-gnu/release/bundle"
+          if [ -d "${src_dir}/deb" ]; then
+            cp -v ${src_dir}/deb/*.deb release-artifacts/linux-x64/
+          fi
+          if [ -d "${src_dir}/appimage" ]; then
+            cp -v ${src_dir}/appimage/*.AppImage release-artifacts/linux-x64/
+          fi
+          if [ ! "$(find release-artifacts/linux-x64 -type f | head -n 1)" ]; then
+            echo "No linux-x64 packages were produced"
+            exit 1
+          fi
+          find release-artifacts -type f -print
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: netssh-linux-x64
+          path: release-artifacts/
+
+  # ── Linux ARM64 (树莓派) 构建 ──
+  build-linux-arm64:
+    needs: test
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install system dependencies (amd64 host for cross)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf libgtk-3-dev libsoup-3.0-dev libjavascriptcoregtk-4.1-dev
+
+      - name: Install ARM64 cross-compile packages
+        run: |
+          sudo dpkg --add-architecture arm64
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev:arm64 libgtk-3-dev:arm64 libsoup-3.0-dev:arm64 libjavascriptcoregtk-4.1-dev:arm64 libappindicator3-dev:arm64 librsvg2-dev:arm64 libssl-dev:arm64 gcc-aarch64-linux-gnu
+
+      - name: Install dependencies
+        run: npm install
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install ARM64 target
+        run: rustup target add aarch64-unknown-linux-gnu
+
+      - name: Build Linux ARM64
+        env:
+          PKG_CONFIG_PATH: /usr/lib/aarch64-linux-gnu/pkgconfig
+          PKG_CONFIG_ALLOW_CROSS: "1"
+          CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER: aarch64-linux-gnu-gcc
+          CC: aarch64-linux-gnu-gcc
+        run: npm run tauri:build -- --target aarch64-unknown-linux-gnu
+
+      - name: Collect artifacts
+        run: |
+          mkdir -p release-artifacts/linux-arm64
+          src_dir="src-tauri/target/aarch64-unknown-linux-gnu/release/bundle"
+          if [ -d "${src_dir}/deb" ]; then
+            cp -v ${src_dir}/deb/*.deb release-artifacts/linux-arm64/
+          fi
+          if [ -d "${src_dir}/appimage" ]; then
+            cp -v ${src_dir}/appimage/*.AppImage release-artifacts/linux-arm64/
+          fi
+          if [ ! "$(find release-artifacts/linux-arm64 -type f | head -n 1)" ]; then
+            echo "No linux-arm64 packages were produced"
+            exit 1
+          fi
+          find release-artifacts -type f -print
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: netssh-linux-arm64
+          path: release-artifacts/
+
   # ── npm 包发布 ──
   publish-npm:
     needs: test
@@ -208,7 +320,7 @@ jobs:
 
   # ── 合并产物并发布 GitHub Release ──
   create-release:
-    needs: [build-windows, build-macos, publish-npm]
+    needs: [build-windows, build-macos, build-linux-x64, build-linux-arm64, publish-npm]
     runs-on: ubuntu-latest
     if: github.ref_type == 'tag'
     steps:
@@ -222,6 +334,18 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           name: netssh-macos
+          path: release-artifacts/
+
+      - name: Download Linux x64 artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: netssh-linux-x64
+          path: release-artifacts/
+
+      - name: Download Linux ARM64 artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: netssh-linux-arm64
           path: release-artifacts/
 
       - name: Publish GitHub Release
