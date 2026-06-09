@@ -17,6 +17,18 @@
 - **NSIS 安装包**（推荐）— 适合大多数 Windows 用户
 - **MSI 安装包** — 适用于企业批量部署
 
+如果你使用 npm 包，安装 latest 标记版本：
+
+```bash
+npm install @lawrence-wei/netssh@latest --registry=https://npm.pkg.github.com
+```
+
+也可以直接省略版本号（npm 默认取 latest）：
+
+```bash
+npm install @lawrence-wei/netssh --registry=https://npm.pkg.github.com
+```
+
 ---
 
 ## 快速开始
