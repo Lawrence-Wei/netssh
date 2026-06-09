@@ -1,0 +1,233 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  packages: write
+
+jobs:
+  # ── 测试闸门 ── 任何一步失败都不会触发后续构建，避免浪费 runner 资源 ──
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Type check
+        run: npx tsc --noEmit
+
+      - name: Frontend tests
+        run: npm test -- --run
+
+      - name: Rust tests
+        run: cargo test --manifest-path src-tauri/Cargo.toml
+
+  # ── Windows 构建 ──
+  build-windows:
+    needs: test
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install dependencies
+        run: npm install
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install Windows targets
+        run: |
+          rustup target add x86_64-pc-windows-msvc
+          rustup target add aarch64-pc-windows-msvc
+
+      - name: Build Windows x64
+        run: npm run tauri:build -- --target x86_64-pc-windows-msvc
+
+      - name: Build Windows arm64
+        run: npm run tauri:build -- --target aarch64-pc-windows-msvc
+
+      - name: Collect artifacts
+        shell: bash
+        run: |
+          mkdir -p release-artifacts
+          for target in x86_64-pc-windows-msvc aarch64-pc-windows-msvc; do
+            for pkg in msi nsis; do
+              src_dir="src-tauri/target/${target}/release/bundle/${pkg}"
+              if [ -d "${src_dir}" ]; then
+                mkdir -p "release-artifacts/${target}/${pkg}"
+                cp -v ${src_dir}/* release-artifacts/${target}/${pkg}/
+              fi
+            done
+          done
+          if [ ! "$(find release-artifacts -type f | head -n 1)" ]; then
+            echo "No installer files were produced"
+            exit 1
+          fi
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: netssh-windows
+          path: release-artifacts/
+
+  # ── macOS 构建 ──
+  build-macos:
+    needs: test
+    runs-on: macos-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install dependencies
+        run: npm install
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install Apple targets
+        run: |
+          rustup target add x86_64-apple-darwin
+          rustup target add aarch64-apple-darwin
+
+      - name: Build macOS x86_64
+        run: npm run tauri:build -- --target x86_64-apple-darwin
+
+      - name: Build macOS aarch64
+        run: npm run tauri:build -- --target aarch64-apple-darwin
+
+      - name: Build macOS universal
+        run: npm run tauri:build -- --target universal-apple-darwin
+
+      - name: Collect artifacts
+        run: |
+          mkdir -p release-artifacts
+          for target in x86_64-apple-darwin aarch64-apple-darwin universal-apple-darwin; do
+            target_dir="src-tauri/target/${target}/release/bundle/dmg"
+            if [ -d "${target_dir}" ]; then
+              cp -v ${target_dir}/*.dmg release-artifacts/
+            fi
+          done
+          if [ ! "$(find release-artifacts -type f | head -n 1)" ]; then
+            echo "No dmg files were produced"
+            exit 1
+          fi
+          find release-artifacts -type f -print
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: netssh-macos
+          path: release-artifacts/
+
+  # ── npm 包发布 ──
+  publish-npm:
+    needs: test
+    runs-on: ubuntu-latest
+    if: github.ref_type == 'tag'
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Prepare package metadata
+        env:
+          TAG_NAME: ${{ github.ref_name }}
+          OWNER_NAME: ${{ github.repository_owner }}
+        run: |
+          OWNER="${OWNER_NAME,,}"
+          VERSION="${TAG_NAME#v}"
+          export OWNER VERSION
+          if [ -z "$VERSION" ] || [ "$VERSION" = "$TAG_NAME" ]; then
+            VERSION="$(node -p "require('./package.json').version")"
+          fi
+
+          node -e "
+            const fs = require('fs');
+            const path = './package.json';
+            const pkg = JSON.parse(fs.readFileSync(path, 'utf8'));
+            pkg.private = false;
+            pkg.name = '@${process.env.OWNER}/netssh';
+            pkg.version = process.env.VERSION;
+            fs.writeFileSync(path, JSON.stringify(pkg, null, 2) + '\n');
+          "
+
+          echo "PACKAGE_NAME=@${OWNER}/netssh" >> "$GITHUB_ENV"
+          echo "PACKAGE_VERSION=$VERSION" >> "$GITHUB_ENV"
+
+      - name: Configure npm for GitHub Packages
+        run: |
+          PACKAGE_SCOPE="${PACKAGE_NAME%@*}"
+          PACKAGE_SCOPE="${PACKAGE_SCOPE#@}"
+          npm config set "@${PACKAGE_SCOPE}:registry" https://npm.pkg.github.com
+          npm config set //npm.pkg.github.com/:_authToken "${{ secrets.GITHUB_TOKEN }}"
+
+      - name: Publish package to GitHub Packages
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          if npm view "${{ env.PACKAGE_NAME }}@${{ env.PACKAGE_VERSION }}" --registry https://npm.pkg.github.com >/dev/null 2>&1; then
+            echo "Package ${PACKAGE_NAME}@${PACKAGE_VERSION} already exists; skip publish."
+            exit 0
+          fi
+
+          npm publish --registry https://npm.pkg.github.com --access restricted --ignore-scripts
+
+  # ── 合并产物并发布 GitHub Release ──
+  create-release:
+    needs: [build-windows, build-macos, publish-npm]
+    runs-on: ubuntu-latest
+    if: github.ref_type == 'tag'
+    steps:
+      - name: Download Windows artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: netssh-windows
+          path: release-artifacts/
+
+      - name: Download macOS artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: netssh-macos
+          path: release-artifacts/
+
+      - name: Publish GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            release-artifacts/**
+          fail_on_unmatched_files: true
+          generate_release_notes: true
