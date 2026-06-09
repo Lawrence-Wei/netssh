@@ -167,6 +167,7 @@ impl SshSession {
     ) -> Result<Self> {
         let config = Arc::new(client::Config::default());
         let addr = format!("{}:{}", args.host, args.port);
+        let password = args.password.clone().filter(|p| !p.trim().is_empty());
 
         // TCP probe first so we can return a clean "network_unreachable" code.
         let probe = tokio::time::timeout(
@@ -216,13 +217,22 @@ impl SshSession {
 
         // Authenticate: try publickey first, then password.
         let authed = if let Some(ref identity_file) = args.identity_file {
-            try_publickey_auth(&mut handle, &args.user, identity_file, &args.passphrase).await?
+            match try_publickey_auth(&mut handle, &args.user, identity_file, &args.passphrase).await {
+                Ok(ok) => ok,
+                Err(_err) if password.is_some() => {
+                    // Fall back to password auth when password is explicitly configured.
+                    // This avoids hard failures when the identity path is stale / missing
+                    // but a valid password is available.
+                    false
+                }
+                Err(err) => return Err(err),
+            }
         } else {
             false
         };
 
         if !authed {
-            if let Some(ref password) = args.password {
+            if let Some(ref password) = password {
                 // Validate the username locally; servers usually answer "auth failed"
                 // identically whether the user exists or not, so we catch the obvious
                 // cases (empty / whitespace / disallowed chars) up front.
@@ -230,7 +240,7 @@ impl SshSession {
                     || args
                         .user
                         .chars()
-                        .any(|c| c.is_whitespace() || c == ':' || c == '@')
+                        .any(|c| c.is_whitespace() || c == ':')
                 {
                     return Err(anyhow!(
                         "username_invalid: \"{}\" is not a valid SSH username",
@@ -416,7 +426,10 @@ fn host_matches(patterns: &str, hostname: &str, port: u16) -> bool {
 
 fn single_host_matches(pattern: &str, hostname: &str, port: u16) -> bool {
     if pattern == hostname {
-        return port == 22;
+        return true;
+    }
+    if pattern == "*" {
+        return true;
     }
     if let Some((pattern_host, pattern_port)) = parse_bracketed_host_port(pattern) {
         return pattern_host == hostname && pattern_port == port;
@@ -551,9 +564,9 @@ mod tests {
     use super::*;
 
     #[test]
-    fn host_matches_default_port_only_for_plain_hosts() {
+    fn host_matches_plain_host_matches_all_ports() {
         assert!(host_matches("example.com", "example.com", 22));
-        assert!(!host_matches("example.com", "example.com", 2222));
+        assert!(host_matches("example.com", "example.com", 2222));
     }
 
     #[test]
