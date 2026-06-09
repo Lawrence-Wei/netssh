@@ -10,7 +10,7 @@
 
 ## Installation
 
-Current release: **v1.1.9**
+Current release: **Latest**
 
 Download from [GitHub Releases](https://github.com/team-gabage/netssh/releases):
 
