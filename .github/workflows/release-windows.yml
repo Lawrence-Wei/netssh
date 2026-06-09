@@ -1,0 +1,73 @@
+name: release-windows
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build-and-release-windows:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install dependencies
+        run: npm install
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install Windows targets
+        run: |
+          rustup target add x86_64-pc-windows-msvc
+          rustup target add aarch64-pc-windows-msvc
+
+      - name: Build Windows x64
+        run: npm run tauri:build -- --target x86_64-pc-windows-msvc
+
+      - name: Build Windows arm64
+        run: npm run tauri:build -- --target aarch64-pc-windows-msvc
+
+      - name: Collect artifacts
+        shell: bash
+        run: |
+          mkdir -p release-artifacts
+          for target in x86_64-pc-windows-msvc aarch64-pc-windows-msvc; do
+            for pkg in msi nsis; do
+              src_dir="src-tauri/target/${target}/release/bundle/${pkg}"
+              if [ -d "${src_dir}" ]; then
+                mkdir -p "release-artifacts/${target}/${pkg}"
+                cp -v ${src_dir}/* release-artifacts/${target}/${pkg}/
+              fi
+            done
+          done
+
+          if [ ! "$(find release-artifacts -type f | head -n 1)" ]; then
+            echo "No installer files were produced"
+            exit 1
+          fi
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: netssh-windows-artifacts
+          path: release-artifacts/
+
+      - name: Publish release (tag)
+        if: github.ref_type == 'tag'
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            release-artifacts/**
+          fail_on_unmatched_files: true
+          generate_release_notes: true
