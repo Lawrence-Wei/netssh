@@ -245,12 +245,17 @@ jobs:
 
       - name: Install ARM64 cross-compile packages
         run: |
+          # 把 ubuntu-latest 默认 amd64 源的 arch 限制为 amd64，防止 apt 尝试拉 arm64 索引
+          sudo sed -i 's/Types: deb$/Types: deb\nArchitectures: amd64/' /etc/apt/sources.list.d/ubuntu.sources
           sudo dpkg --add-architecture arm64
-          # ubuntu-latest (24.04) 默认源不包含 arm64 架构，需要添加 ports.ubuntu.com
-          cat <<EOF | sudo tee /etc/apt/sources.list.d/arm64-cross.list
-          deb [arch=arm64] http://ports.ubuntu.com/ubuntu-ports noble main restricted universe multiverse
-          deb [arch=arm64] http://ports.ubuntu.com/ubuntu-ports noble-updates main restricted universe multiverse
-          deb [arch=arm64] http://ports.ubuntu.com/ubuntu-ports noble-security main restricted universe multiverse
+          # 新建独立的 arm64 源指向 ports.ubuntu.com
+          cat <<EOF | sudo tee /etc/apt/sources.list.d/arm64-cross.sources
+          Types: deb
+          Architectures: arm64
+          Suites: noble noble-updates noble-security
+          Components: main restricted universe multiverse
+          URIs: http://ports.ubuntu.com/ubuntu-ports
+          Signed-By: /usr/share/keyrings/ubuntu-archive-keyring.gpg
           EOF
           sudo apt-get update
           sudo apt-get install -y \
