@@ -39,9 +39,9 @@
 
 ## Phase 3: Credential and Safety
 
-- [ ] Consolidate credentials and identities into one clear credential profile model.
-- [ ] Bind assets to credential profiles instead of duplicating login data everywhere.
-- [ ] Add production asset markers.
-- [ ] Add dangerous command confirmation.
-- [ ] Add local operation log metadata without storing command bodies.
+- [x] Consolidate credentials and identities into one clear credential profile model.
+- [x] Bind assets to credential profiles instead of duplicating login data everywhere.
+- [x] Add production asset markers.
+- [x] Add dangerous command confirmation.
+- [x] Add local operation log metadata without storing command bodies.
 
