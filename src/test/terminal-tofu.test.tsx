@@ -65,7 +65,7 @@ describe("TerminalPane TOFU host key challenge", () => {
     });
   });
 
-  it("shows mismatch as dangerous and does not offer trust buttons", async () => {
+  it("shows mismatch as dangerous without trust-and-remember but has accept-once", async () => {
     render(<TerminalPane lang="en" host={host} />);
 
     await waitFor(() => {
@@ -86,8 +86,8 @@ describe("TerminalPane TOFU host key challenge", () => {
     }));
 
     expect(await screen.findByText("Host key changed")).toBeTruthy();
-    expect(screen.queryByText("Trust and connect")).toBeFalsy();
-    expect(screen.queryByText("Accept once")).toBeFalsy();
-    expect(screen.getByText("Cancel connection")).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Trust and connect" })).toBeFalsy();
+    expect(screen.getByRole("button", { name: "Accept once" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Cancel connection" })).toBeTruthy();
   });
 });
