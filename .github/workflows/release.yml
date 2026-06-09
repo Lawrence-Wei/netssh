@@ -246,6 +246,9 @@ jobs:
       - name: Install ARM64 cross-compile packages
         run: |
           sudo dpkg --add-architecture arm64
+          # ARM64 包在 ports.ubuntu.com，security.ubuntu.com 不提供 arm64
+          sudo sed -i 's|http://security.ubuntu.com/ubuntu|http://ports.ubuntu.com/ubuntu-ports|g' /etc/apt/sources.list.d/ubuntu.sources 2>/dev/null || true
+          sudo sed -i 's|http://archive.ubuntu.com/ubuntu|http://ports.ubuntu.com/ubuntu-ports|g' /etc/apt/sources.list.d/ubuntu.sources 2>/dev/null || true
           sudo apt-get update
           sudo apt-get install -y \
             libwebkit2gtk-4.1-dev:arm64 \
@@ -322,15 +325,15 @@ jobs:
             VERSION="$(node -p "require('./package.json').version")"
           fi
 
-          node -e "
-            const fs = require('fs');
-            const path = './package.json';
-            const pkg = JSON.parse(fs.readFileSync(path, 'utf8'));
+          node -e '
+            const fs = require("fs");
+            const path = "./package.json";
+            const pkg = JSON.parse(fs.readFileSync(path, "utf8"));
             pkg.private = false;
-            pkg.name = '@${process.env.OWNER}/netssh';
-            pkg.version = process.env.VERSION;
-            fs.writeFileSync(path, JSON.stringify(pkg, null, 2) + '\n');
-          "
+            pkg.name = "@'"${OWNER}"'/netssh";
+            pkg.version = "'"${VERSION}"'";
+            fs.writeFileSync(path, JSON.stringify(pkg, null, 2) + "\n");
+          '
 
           echo "PACKAGE_NAME=@${OWNER}/netssh" >> "$GITHUB_ENV"
           echo "PACKAGE_VERSION=$VERSION" >> "$GITHUB_ENV"
