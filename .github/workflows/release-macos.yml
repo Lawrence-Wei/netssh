@@ -10,7 +10,7 @@ permissions:
   contents: write
 
 jobs:
-  build-macos:
+  build-and-release-macos:
     runs-on: macos-latest
     steps:
       - name: Checkout
@@ -24,54 +24,47 @@ jobs:
       - name: Install dependencies
         run: npm install
 
-      - name: Install Rust (stable)
+      - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
 
-      - name: Install Rust target aarch64-apple-darwin
-        run: rustup target add aarch64-apple-darwin
+      - name: Install Apple targets
+        run: |
+          rustup target add x86_64-apple-darwin
+          rustup target add aarch64-apple-darwin
 
-      - name: Install Rust target x86_64-apple-darwin
-        run: rustup target add x86_64-apple-darwin
-
-      - name: Build x86_64 dmg
+      - name: Build macOS x86_64
         run: npm run tauri:build -- --target x86_64-apple-darwin
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Build aarch64 dmg
+      - name: Build macOS aarch64
         run: npm run tauri:build -- --target aarch64-apple-darwin
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Build universal dmg
+      - name: Build macOS universal
         run: npm run tauri:build -- --target universal-apple-darwin
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Collect artifacts
+        run: |
+          mkdir -p release-artifacts
+          for target in x86_64-apple-darwin aarch64-apple-darwin universal-apple-darwin; do
+            target_dir="src-tauri/target/${target}/release/bundle/dmg"
+            if [ -d "${target_dir}" ]; then
+              mkdir -p "release-artifacts/${target}"
+              cp -v ${target_dir}/* release-artifacts/${target}/
+            fi
+          done
+          if [ ! "$(find release-artifacts -type f | head -n 1)" ]; then
+            echo "No dmg files were produced"
+            exit 1
+          fi
+          find release-artifacts -maxdepth 3 -type f -print
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
           name: netssh-macos-artifacts
-          path: |
-            src-tauri/target/universal-apple-darwin/release/bundle/dmg/
-            src-tauri/target/x86_64-apple-darwin/release/bundle/dmg/
-            src-tauri/target/aarch64-apple-darwin/release/bundle/dmg/
+          path: release-artifacts/
 
-  publish-release:
-    needs: build-macos
-    if: github.ref_type == 'tag'
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Download artifacts
-        uses: actions/download-artifact@v4
-        with:
-          name: netssh-macos-artifacts
-          path: release-artifacts
-
-      - name: Create or update Release
+      - name: Publish release (tag)
+        if: github.ref_type == 'tag'
         uses: softprops/action-gh-release@v2
         with:
           files: |
