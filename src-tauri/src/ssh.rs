@@ -121,6 +121,7 @@ impl Handler for ClientHandler {
 
         match decision {
             Ok(Ok(HostKeyDecision::AcceptOnce)) if status == "unknown" => Ok(true),
+            Ok(Ok(HostKeyDecision::AcceptOnce)) if status == "mismatch" => Ok(true),
             Ok(Ok(HostKeyDecision::AcceptAndRemember)) if status == "unknown" => {
                 match storage::open().and_then(|conn| {
                     storage::remember_trusted_host_key(
@@ -168,6 +169,17 @@ impl SshSession {
         let config = Arc::new(client::Config::default());
         let addr = format!("{}:{}", args.host, args.port);
         let password = args.password.clone().filter(|p| !p.trim().is_empty());
+        let identity_file = args
+            .identity_file
+            .as_ref()
+            .and_then(|v| {
+                let v = v.trim();
+                if v.is_empty() {
+                    None
+                } else {
+                    Some(v.to_string())
+                }
+            });
 
         // TCP probe first so we can return a clean "network_unreachable" code.
         let probe = tokio::time::timeout(
@@ -216,7 +228,7 @@ impl SshSession {
         };
 
         // Authenticate: try publickey first, then password.
-        let authed = if let Some(ref identity_file) = args.identity_file {
+        let authed = if let Some(ref identity_file) = identity_file {
             match try_publickey_auth(&mut handle, &args.user, identity_file, &args.passphrase).await {
                 Ok(ok) => ok,
                 Err(_err) if password.is_some() => {

@@ -531,15 +531,13 @@ function HostKeyChallengeOverlay({
         <button className="btn ghost" disabled={submitting} onClick={() => onDecide("reject")}>
           {t("hostkey.action.reject", lang)}
         </button>
-        {!isMismatch && (
-          <>
-            <button className="btn ghost" disabled={submitting} onClick={() => onDecide("accept_once")}>
-              {t("hostkey.action.acceptOnce", lang)}
-            </button>
-            <button className="btn" disabled={submitting} onClick={() => onDecide("accept_and_remember")}>
-              {t("hostkey.action.trust", lang)}
-            </button>
-          </>
+        <button className="btn ghost" disabled={submitting} onClick={() => onDecide("accept_once")}>
+          {t("hostkey.action.acceptOnce", lang)}
+        </button>
+        {challenge.can_remember && (
+          <button className="btn" disabled={submitting} onClick={() => onDecide("accept_and_remember")}>
+            {t("hostkey.action.trust", lang)}
+          </button>
         )}
       </div>
     </div>
