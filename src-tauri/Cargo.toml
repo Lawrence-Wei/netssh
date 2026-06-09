@@ -29,7 +29,7 @@ russh-keys = "0.46"
 portable-pty = "0.8"
 
 # Serial ports (for console serial backends)
-serialport = "4.4"
+serialport = "=4.9.0"
 
 # SSH config parsing
 ssh2-config = "0.6"

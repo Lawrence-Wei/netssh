@@ -159,7 +159,7 @@ pub fn close_connection_log(
     bytes_out: i64,
     exit_status: Option<i32>,
     error: Option<&str>,
-) -> Result<usize> {
+) -> Result<()> {
     let closed_at = SystemTime::now()
         .duration_since(UNIX_EPOCH)?
         .as_secs() as i64;
@@ -168,7 +168,8 @@ pub fn close_connection_log(
          SET closed_at = ?1, bytes_in = ?2, bytes_out = ?3, exit_status = ?4, error = ?5
          WHERE id = ?6",
         params![closed_at, bytes_in, bytes_out, exit_status, error, log_id],
-    )
+    )?;
+    Ok(())
 }
 
 pub fn remember_trusted_host_key(

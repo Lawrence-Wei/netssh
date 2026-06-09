@@ -43,7 +43,7 @@ pub struct SerialSession {
     app: AppHandle,
     id: String,
     line_ending: String,
-    writer: Arc<Mutex<Box<dyn SerialPort + Send>>,
+    writer: Arc<Mutex<Box<dyn SerialPort + Send>>>,
     stop_tx: mpsc::Sender<()>,
     stop_handle: Option<thread::JoinHandle<()>>,
 }
@@ -178,8 +178,8 @@ fn parse_parity(raw: &Option<String>) -> Result<Parity> {
         "none" => Ok(Parity::None),
         "odd" => Ok(Parity::Odd),
         "even" => Ok(Parity::Even),
-        "mark" => Ok(Parity::Mark),
-        "space" => Ok(Parity::Space),
+        "mark" => Err(anyhow::anyhow!("serial_parity_mark_not_supported")),
+        "space" => Err(anyhow::anyhow!("serial_parity_space_not_supported")),
         got => anyhow::bail!("serial_invalid_parity: {got}"),
     }
 }
@@ -187,8 +187,10 @@ fn parse_parity(raw: &Option<String>) -> Result<Parity> {
 fn parse_stop_bits(raw: Option<f32>) -> Result<StopBits> {
     match raw.unwrap_or(DEFAULT_STOP_BITS) {
         v if (v - 1.0).abs() < f32::EPSILON => Ok(StopBits::One),
-        v if (v - 1.5).abs() < f32::EPSILON => Ok(StopBits::OnePointFive),
         v if (v - 2.0).abs() < f32::EPSILON => Ok(StopBits::Two),
+        v if (v - 1.5).abs() < f32::EPSILON => {
+            anyhow::bail!("serial_stop_bits_1_5_not_supported")
+        }
         got => anyhow::bail!("serial_invalid_stop_bits: {got}"),
     }
 }
@@ -223,18 +225,17 @@ fn port_metadata(
             let product_id = info.pid;
             (
                 "usb".into(),
-                Some(info.manufacturer.clone()),
-                Some(info.product.clone()),
-                Some(info.serial_number.clone()),
+                info.manufacturer.clone(),
+                info.product.clone(),
+                info.serial_number.clone(),
                 Some(vendor_id),
                 Some(product_id),
             )
         }
-        serialport::SerialPortType::BluetoothPort(info) => {
-            ("bluetooth".into(), None, Some(info.address.clone()), None, None, None)
+        serialport::SerialPortType::BluetoothPort => {
+            ("bluetooth".into(), None, None, None, None, None)
         }
         serialport::SerialPortType::PciPort => ("pci".into(), None, None, None, None, None),
-        serialport::SerialPortType::PnpPort => ("pnp".into(), None, None, None, None, None),
         serialport::SerialPortType::Unknown => ("unknown".into(), None, None, None, None, None),
     }
 }

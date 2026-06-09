@@ -8,7 +8,7 @@ use base64::{engine::general_purpose::STANDARD, Engine};
 use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Emitter, State};
 
-use crate::{credentials, pty, ssh, ssh_config, storage};
+use crate::{credentials, pty, serial, ssh, ssh_config, storage};
 
 #[derive(Default)]
 pub struct AppState {
