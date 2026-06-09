@@ -70,6 +70,10 @@ vi.mock("@tauri-apps/api/core", () => ({
         return Promise.resolve("mock-ssh-id");
       case "pty_open":
         return Promise.resolve("mock-pty-id");
+      case "serial_list_ports":
+        return Promise.resolve([]);
+      case "serial_open":
+        return Promise.resolve("mock-serial-id");
       case "ssh_host_key_decide":
       case "ssh_send":
       case "ssh_resize":
@@ -77,12 +81,19 @@ vi.mock("@tauri-apps/api/core", () => ({
       case "pty_send":
       case "pty_resize":
       case "pty_close":
+      case "serial_send":
+      case "serial_resize":
+      case "serial_close":
         return Promise.resolve();
       case "host_ping":
         return Promise.resolve({ ok: false, latency_ms: null });
+      case "connection_log_open":
+        return Promise.resolve(`log-${Date.now()}`);
       case "app_state_get":
         return Promise.resolve(null);
       case "app_state_put":
+        return Promise.resolve();
+      case "connection_log_close":
         return Promise.resolve();
       default:
         return Promise.resolve(null);
@@ -107,6 +118,8 @@ vi.mock("../services/tauri", () => ({
   /** TCP ping returns an unchecked state so Sidebar can render. */
   hostPing: vi.fn(() => Promise.resolve({ ok: false, latency_ms: null })),
   parseSshConfig: vi.fn(() => Promise.resolve([])),
+  connectionLogOpen: vi.fn(() => Promise.resolve(`log-${Date.now()}`)),
+  connectionLogClose: vi.fn(() => Promise.resolve()),
   detectShells: vi.fn(() => Promise.resolve([])),
   listKeys: vi.fn(() => Promise.resolve([])),
   detectSystemLanguage: vi.fn(() => Promise.resolve("en")),
@@ -115,6 +128,11 @@ vi.mock("../services/tauri", () => ({
   sshClose: vi.fn(() => Promise.resolve()),
   sshSend: vi.fn(() => Promise.resolve()),
   sshResize: vi.fn(() => Promise.resolve()),
+  serialOpen: vi.fn(() => Promise.resolve("mock-serial-id")),
+  serialClose: vi.fn(() => Promise.resolve()),
+  serialSend: vi.fn(() => Promise.resolve()),
+  serialResize: vi.fn(() => Promise.resolve()),
+  listSerialPorts: vi.fn(() => Promise.resolve([])),
   onSshData: vi.fn(() => Promise.resolve(() => {})),
   onSshExit: vi.fn(() => Promise.resolve(() => {})),
   ptyOpen: vi.fn(() => Promise.resolve("mock-pty-id")),
@@ -123,6 +141,8 @@ vi.mock("../services/tauri", () => ({
   ptyResize: vi.fn(() => Promise.resolve()),
   onPtyData: vi.fn(() => Promise.resolve(() => {})),
   onPtyExit: vi.fn(() => Promise.resolve(() => {})),
+  onSerialData: vi.fn(() => Promise.resolve(() => {})),
+  onSerialExit: vi.fn(() => Promise.resolve(() => {})),
   configParse: vi.fn(() => Promise.resolve([])),
 }));
 vi.mock("@tauri-apps/plugin-fs", () => ({

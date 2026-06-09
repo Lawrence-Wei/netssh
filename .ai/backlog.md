@@ -30,12 +30,12 @@
 - [x] Define `SerialProfile` and attach it to `Host.serialProfile`.
 - [x] Add serial preset constants for Cisco, Huawei, H3C, OpenWRT/Linux SBC, and Generic.
 - [x] Update Host editor to switch between SSH and Serial connection fields.
-- [ ] Add Rust serial backend commands: list ports, open, send, resize/no-op, close.
-- [ ] Add frontend serial API wrappers and serial event listeners.
-- [ ] Add TerminalPane serial live mode.
-- [ ] Add console profile editor fields: COM port, baud rate, data bits, parity, stop bits, flow control, line ending.
-- [ ] Add presets for Cisco/Huawei/H3C 9600 8N1.
-- [ ] Add presets for OpenWRT/Linux/SBC 115200 8N1.
+- [x] Add Rust serial backend commands: list ports, open, send, resize/no-op, close.
+- [x] Add frontend serial API wrappers and serial event listeners.
+- [x] Add TerminalPane serial live mode.
+- [x] Add console profile editor fields: COM port, baud rate, data bits, parity, stop bits, flow control, line ending.
+- [x] Add presets for Cisco/Huawei/H3C 9600 8N1.
+- [x] Add presets for OpenWRT/Linux/SBC 115200 8N1.
 
 ## Phase 3: Credential and Safety
 

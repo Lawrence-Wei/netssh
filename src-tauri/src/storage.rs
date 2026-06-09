@@ -16,6 +16,7 @@
 use anyhow::Result;
 use rusqlite::{params, Connection};
 use std::path::PathBuf;
+use std::time::{SystemTime, UNIX_EPOCH};
 
 pub fn db_path() -> Result<PathBuf> {
     let dir = dirs::data_dir()
@@ -136,6 +137,38 @@ pub fn list_trusted_host_fingerprints(
         out.push(row?);
     }
     Ok(out)
+}
+
+pub fn open_connection_log(conn: &Connection, host_alias: &str) -> Result<String> {
+    let id = uuid::Uuid::new_v4().to_string();
+    let opened_at = SystemTime::now()
+        .duration_since(UNIX_EPOCH)?
+        .as_secs() as i64;
+    conn.execute(
+        "INSERT INTO connection_log (id, host_alias, opened_at, bytes_in, bytes_out)
+         VALUES (?1, ?2, ?3, 0, 0)",
+        params![id, host_alias, opened_at],
+    )?;
+    Ok(id)
+}
+
+pub fn close_connection_log(
+    conn: &Connection,
+    log_id: &str,
+    bytes_in: i64,
+    bytes_out: i64,
+    exit_status: Option<i32>,
+    error: Option<&str>,
+) -> Result<usize> {
+    let closed_at = SystemTime::now()
+        .duration_since(UNIX_EPOCH)?
+        .as_secs() as i64;
+    conn.execute(
+        "UPDATE connection_log
+         SET closed_at = ?1, bytes_in = ?2, bytes_out = ?3, exit_status = ?4, error = ?5
+         WHERE id = ?6",
+        params![closed_at, bytes_in, bytes_out, exit_status, error, log_id],
+    )
 }
 
 pub fn remember_trusted_host_key(

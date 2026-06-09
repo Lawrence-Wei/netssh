@@ -6,7 +6,7 @@ import { useEffect, useState, type CSSProperties } from "react";
 import { SERIAL_PRESETS } from "../config/defaults";
 import { t } from "../utils/i18n";
 import { Icon } from "./Icons";
-import { useIdentities } from "../store/identities";
+import { useCredentials } from "../store/credentials";
 import { deployScope, deviceTypeFromHost } from "../utils/deployScope";
 import type { ConnectionType, DeployScope, Group, GroupId, Host, Lang, SerialProfile } from "../config/types";
 
@@ -36,27 +36,42 @@ export function HostEditorFull({
   const [draft, setDraft] = useState<Host>(host);
   const [port, setPort] = useState(String(host.port || 22));
   const [portError, setPortError] = useState("");
+  const [serialError, setSerialError] = useState("");
   const [newSite, setNewSite] = useState("");
-  const { identities } = useIdentities();
+  const { credentials } = useCredentials();
   const connectionType = draft.connectionType || "ssh";
   const connectionSectionTitle = connectionType === "serial"
     ? t("host.connection.serialSection", lang)
     : t("host.connection.sshSection", lang);
+  const serialProfile = normalizeSerialProfile(draft.serialProfile);
 
   useEffect(() => {
     setDraft(host);
     setPort(String(host.port || 22));
     setPortError("");
+    setSerialError("");
   }, [host]);
 
   /** Save after port validation. */
   const validateAndSave = () => {
     if (connectionType === "serial") {
+      const serialProfile = normalizeSerialProfile(draft.serialProfile);
+      if (!serialProfile.portName?.trim()) {
+        setSerialError(lang === "zh" ? "Serial port is required" : "Serial port is required");
+        return;
+      }
+      if (!Number.isFinite(serialProfile.baudRate) || serialProfile.baudRate <= 0 || serialProfile.baudRate > 1152000) {
+        setSerialError("Baud rate must be between 75 and 1152000");
+        return;
+      }
+      setSerialError("");
       onSave({
         ...draft,
         connectionType: "serial",
         serialProfile: normalizeSerialProfile(draft.serialProfile),
+        credentialProfileId: undefined,
         ephemeralPassword: undefined,
+        identityFile: undefined,
       });
       return;
     }
@@ -71,6 +86,7 @@ export function HostEditorFull({
       ...draft,
       connectionType: "ssh",
       port: portNum,
+      credentialProfileId: draft.credentialProfileId,
       ephemeralPassword: undefined,
     });
   };
@@ -84,6 +100,7 @@ export function HostEditorFull({
         : current.serialProfile,
     }));
     setPortError("");
+    setSerialError("");
   };
 
   return (
@@ -158,27 +175,45 @@ export function HostEditorFull({
               {connectionSectionTitle}
             </h3>
             <div className="host-editor-full__grid">
+              <label>
+                <span className="k">{t("host.field.env", lang)}</span>
+                <select
+                  value={draft.env || ""}
+                  onChange={(e) => setDraft({ ...draft, env: e.target.value || undefined })}
+                >
+                  <option value="">--</option>
+                  <option value="prod">{lang === "zh" ? "Production" : "Production"}</option>
+                  <option value="stage">{lang === "zh" ? "Staging" : "Staging"}</option>
+                  <option value="dev">{lang === "zh" ? "Development" : "Development"}</option>
+                </select>
+              </label>
               {connectionType === "ssh" ? (
                 <>
-                  {identities.length > 0 && (
+                  {credentials.length > 0 && (
                     <label style={{ gridColumn: "1 / -1" }}>
-                      <span className="k">{t("host.field.identityProfile", lang)}</span>
+                      <span className="k">{t("host.field.credentialProfile", lang)}</span>
                       <select
-                        defaultValue=""
+                        value={draft.credentialProfileId || ""}
                         onChange={(e) => {
                           const id = e.target.value;
-                          if (!id) return;
-                          const ident = identities.find((i) => i.id === id);
-                          if (ident) {
-                            setDraft({ ...draft, user: ident.user, identityFile: ident.identityFile });
+                          if (!id) {
+                            setDraft({ ...draft, credentialProfileId: undefined });
+                            return;
                           }
-                          e.target.value = "";
+                          const cred = credentials.find((i) => i.id === id);
+                          if (!cred) return;
+                          setDraft({
+                            ...draft,
+                            credentialProfileId: cred.id,
+                            user: cred.user,
+                            identityFile: cred.identityFile,
+                          });
                         }}
                       >
-                        <option value="">{t("host.field.identityProfilePlaceholder", lang)}</option>
-                        {identities.map((ident) => (
-                          <option key={ident.id} value={ident.id}>
-                            {ident.name} ({ident.user}){ident.identityFile ? ` - ${ident.identityFile.split(/[\\/]/).pop()}` : ""}
+                        <option value="">{t("host.field.credentialProfilePlaceholder", lang)}</option>
+                        {credentials.map((cred) => (
+                          <option key={cred.id} value={cred.id}>
+                            {cred.group} · {cred.name} ({cred.user}){cred.identityFile ? ` - ${cred.identityFile.split(/[\\/]/).pop()}` : ""}
                           </option>
                         ))}
                       </select>
@@ -218,45 +253,180 @@ export function HostEditorFull({
                     {portError && <span className="field-error">{portError}</span>}
                   </label>
                 </>
-              ) : (
-                <>
-                  <label>
-                    <span className="k">{t("host.field.serialPort", lang)}</span>
-                    <input
-                      value={draft.serialProfile?.portName || ""}
-                      onChange={(e) => setDraft({
-                        ...draft,
-                        serialProfile: {
-                          ...normalizeSerialProfile(draft.serialProfile),
-                          portName: e.target.value,
-                        },
-                      })}
-                      placeholder="COM3"
-                    />
-                  </label>
-                  <label>
-                    <span className="k">{t("host.field.serialProfile", lang)}</span>
-                    <input
-                      value={formatSerialSummary(draft.serialProfile)}
-                      readOnly
-                    />
-                  </label>
-                  <div
-                    style={{
-                      gridColumn: "1 / -1",
-                      padding: "10px 12px",
-                      borderRadius: "var(--radius-sm)",
-                      border: "1px solid var(--glass-stroke)",
-                      background: "rgba(255, 255, 255, 0.03)",
-                      color: "var(--text-dim)",
-                      fontSize: 12,
-                      lineHeight: 1.5,
-                    }}
-                  >
-                    {t("host.editor.serialHint", lang)}
-                  </div>
-                </>
-              )}
+                ) : (
+                  <>
+                    <label style={{ gridColumn: "1 / -1" }}>
+                      <span className="k">{t("host.field.serialPreset", lang)}</span>
+                      <select
+                        value={draft.serialProfile?.presetId ?? "custom"}
+                        onChange={(e) => {
+                          const presetId = e.target.value;
+                          if (presetId === "custom") {
+                            setDraft({ ...draft, serialProfile: { ...serialProfile } });
+                            setSerialError("");
+                            return;
+                          }
+                          const preset = SERIAL_PRESETS.find((item) => item.id === presetId);
+                          if (!preset) return;
+                          setDraft({
+                            ...draft,
+                            serialProfile: {
+                              ...preset.profile,
+                              portName: serialProfile.portName,
+                              presetId,
+                            },
+                          });
+                          setSerialError("");
+                        }}
+                      >
+                        <option value="custom">{t("host.field.serialPresetCustom", lang)}</option>
+                        {SERIAL_PRESETS.map((preset) => (
+                          <option key={preset.id} value={preset.id}>
+                            {preset.label}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                    <label>
+                      <span className="k">{t("host.field.serialPort", lang)}</span>
+                      <input
+                        value={serialProfile.portName || ""}
+                        onChange={(e) => setDraft({
+                          ...draft,
+                          serialProfile: {
+                            ...serialProfile,
+                            portName: e.target.value,
+                          },
+                        })}
+                        onBlur={() => setSerialError("")}
+                      />
+                    </label>
+                    <label>
+                      <span className="k">{t("host.field.serialBaudRate", lang)}</span>
+                      <input
+                        type="text"
+                        inputMode="numeric"
+                        value={String(serialProfile.baudRate)}
+                        onChange={(e) => {
+                          const value = e.target.value.replace(/[^\d]/g, "");
+                          setDraft({
+                            ...draft,
+                            serialProfile: {
+                              ...serialProfile,
+                              baudRate: value ? Number(value) : 0,
+                            },
+                          });
+                          setSerialError("");
+                        }}
+                      />
+                      {serialError && <span className="field-error">{serialError}</span>}
+                    </label>
+                    <label>
+                      <span className="k">{t("host.field.serialDataBits", lang)}</span>
+                      <select
+                        value={serialProfile.dataBits}
+                        onChange={(e) => {
+                          setSerialError("");
+                          setDraft({
+                            ...draft,
+                            serialProfile: {
+                              ...serialProfile,
+                              dataBits: Number(e.target.value) as 5 | 6 | 7 | 8,
+                            },
+                          });
+                        }}
+                      >
+                        <option value={5}>5</option>
+                        <option value={6}>6</option>
+                        <option value={7}>7</option>
+                        <option value={8}>8</option>
+                      </select>
+                    </label>
+                    <label>
+                      <span className="k">{t("host.field.serialParity", lang)}</span>
+                      <select
+                        value={serialProfile.parity}
+                        onChange={(e) => {
+                          setSerialError("");
+                          setDraft({
+                            ...draft,
+                            serialProfile: {
+                              ...serialProfile,
+                              parity: e.target.value as SerialProfile["parity"],
+                            },
+                          });
+                        }}
+                      >
+                        <option value="none">None</option>
+                        <option value="odd">Odd</option>
+                        <option value="even">Even</option>
+                        <option value="mark">Mark</option>
+                        <option value="space">Space</option>
+                      </select>
+                    </label>
+                    <label>
+                      <span className="k">{t("host.field.serialStopBits", lang)}</span>
+                      <select
+                        value={serialProfile.stopBits}
+                        onChange={(e) => {
+                          setSerialError("");
+                          setDraft({
+                            ...draft,
+                            serialProfile: {
+                              ...serialProfile,
+                              stopBits: Number(e.target.value) as SerialProfile["stopBits"],
+                            },
+                          });
+                        }}
+                      >
+                        <option value={1}>1</option>
+                        <option value={1.5}>1.5</option>
+                        <option value={2}>2</option>
+                      </select>
+                    </label>
+                    <label>
+                      <span className="k">{t("host.field.serialFlowControl", lang)}</span>
+                      <select
+                        value={serialProfile.flowControl}
+                        onChange={(e) => {
+                          setSerialError("");
+                          setDraft({
+                            ...draft,
+                            serialProfile: {
+                              ...serialProfile,
+                              flowControl: e.target.value as SerialProfile["flowControl"],
+                            },
+                          });
+                        }}
+                      >
+                        <option value="none">None</option>
+                        <option value="software">Software</option>
+                        <option value="hardware">Hardware</option>
+                      </select>
+                    </label>
+                    <label>
+                      <span className="k">{t("host.field.serialLineEnding", lang)}</span>
+                      <select
+                        value={serialProfile.lineEnding}
+                        onChange={(e) => {
+                          setSerialError("");
+                          setDraft({
+                            ...draft,
+                            serialProfile: {
+                              ...serialProfile,
+                              lineEnding: e.target.value as SerialProfile["lineEnding"],
+                            },
+                          });
+                        }}
+                      >
+                        <option value="none">None</option>
+                        <option value="lf">LF</option>
+                        <option value="cr">CR</option>
+                        <option value="crlf">CRLF</option>
+                      </select>
+                    </label>
+                  </>
+                )}
               <label>
                 <span className="k">{lang === "zh" ? "Deploy scope" : "Deploy scope"}</span>
                 <select
@@ -385,10 +555,4 @@ function normalizeSerialProfile(profile?: SerialProfile): SerialProfile {
     ...fallback,
     ...profile,
   };
-}
-
-function formatSerialSummary(profile?: SerialProfile) {
-  const resolved = normalizeSerialProfile(profile);
-  const parity = resolved.parity === "none" ? "N" : resolved.parity.slice(0, 1).toUpperCase();
-  return `${resolved.baudRate} ${resolved.dataBits}${parity}${resolved.stopBits}`;
 }

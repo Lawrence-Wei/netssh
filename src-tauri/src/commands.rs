@@ -14,6 +14,7 @@ use crate::{credentials, pty, ssh, ssh_config, storage};
 pub struct AppState {
     pub ssh_sessions: Mutex<HashMap<String, ssh::SshSession>>,
     pub pty_sessions: Mutex<HashMap<String, pty::PtySession>>,
+    pub serial_sessions: Mutex<HashMap<String, serial::SerialSession>>,
     pub host_key_challenges: ssh::HostKeyChallengeRegistry,
 }
 
@@ -166,6 +167,68 @@ pub fn pty_close(state: State<'_, AppState>, id: String) -> Result<(), String> {
     Ok(())
 }
 
+// ─── serial backend ───────────────────────────────────────────────────────
+
+#[tauri::command]
+pub fn serial_list_ports() -> Result<Vec<serial::SerialPortInfo>, String> {
+    serial::list_ports().map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn serial_open(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    args: serial::SerialOpenArgs,
+) -> Result<String, String> {
+    let id = uuid::Uuid::new_v4().to_string();
+    let session = serial::SerialSession::open(&app, &id, args).map_err(|e| e.to_string())?;
+    state
+        .serial_sessions
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .insert(id.clone(), session);
+    Ok(id)
+}
+
+#[tauri::command]
+pub fn serial_send(state: State<'_, AppState>, id: String, data: Vec<u8>) -> Result<(), String> {
+    if let Some(s) = state
+        .serial_sessions
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .get(&id)
+    {
+        s.send(&data).map_err(|e| e.to_string())?;
+    }
+    Ok(())
+}
+
+#[tauri::command]
+pub fn serial_resize(state: State<'_, AppState>, id: String, cols: u16, rows: u16) -> Result<(), String> {
+    if let Some(s) = state
+        .serial_sessions
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .get(&id)
+    {
+        s.resize(cols, rows).map_err(|e| e.to_string())?;
+    }
+    Ok(())
+}
+
+#[tauri::command]
+pub fn serial_close(state: State<'_, AppState>, id: String) -> Result<(), String> {
+    if let Some(s) = state
+        .serial_sessions
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .remove(&id)
+    {
+        let _ = s.close();
+    }
+    Ok(())
+}
+
 // ─── shell detection ───────────────────────────────────────────────────────
 
 #[derive(Serialize)]
@@ -284,6 +347,37 @@ pub fn app_state_get(key: String) -> Result<Option<String>, String> {
 pub fn app_state_put(key: String, value: String) -> Result<(), String> {
     let conn = storage::open().map_err(|e| e.to_string())?;
     storage::put_app_state(&conn, &key, &value).map_err(|e| e.to_string())
+}
+
+// ─── local operation log ────────────────────────────────────────────────────
+
+#[tauri::command]
+pub fn connection_log_open(host_alias: String) -> Result<String, String> {
+    let conn = storage::open().map_err(|e| e.to_string())?;
+    storage::open_connection_log(&conn, &host_alias).map_err(|e| e.to_string())
+}
+
+#[derive(serde::Deserialize)]
+pub struct ConnectionLogClose {
+    pub log_id: String,
+    pub bytes_in: i64,
+    pub bytes_out: i64,
+    pub exit_status: Option<i32>,
+    pub error: Option<String>,
+}
+
+#[tauri::command]
+pub fn connection_log_close(args: ConnectionLogClose) -> Result<(), String> {
+    let conn = storage::open().map_err(|e| e.to_string())?;
+    storage::close_connection_log(
+        &conn,
+        &args.log_id,
+        args.bytes_in,
+        args.bytes_out,
+        args.exit_status,
+        args.error.as_deref(),
+    )
+    .map_err(|e| e.to_string())
 }
 
 // Used by ssh + pty modules to push bytes back to JS.
