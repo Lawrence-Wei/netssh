@@ -246,15 +246,19 @@ jobs:
       - name: Install ARM64 cross-compile packages
         run: |
           sudo dpkg --add-architecture arm64
+          # 默认源仅拉 amd64，避免 arm64 在非 ports 源（如 security.ubuntu.com）上 404
+          if [ -f /etc/apt/sources.list.d/ubuntu.sources ]; then
+            sudo sed -i '/^Suites: /a Architectures: amd64' /etc/apt/sources.list.d/ubuntu.sources
+          fi
           # 新建独立的 arm64 源指向 ports.ubuntu.com
-          cat <<EOF | sudo tee /etc/apt/sources.list.d/arm64-cross.sources
-          Types: deb
-          Architectures: arm64
-          Suites: noble noble-updates noble-security
-          Components: main restricted universe multiverse
-          URIs: http://ports.ubuntu.com/ubuntu-ports
-          Signed-By: /usr/share/keyrings/ubuntu-archive-keyring.gpg
-          EOF
+          cat <<'EOF' | sudo tee /etc/apt/sources.list.d/arm64-cross.sources >/dev/null
+Types: deb
+Architectures: arm64
+URIs: http://ports.ubuntu.com/ubuntu-ports
+Suites: noble noble-updates noble-security noble-backports
+Components: main restricted universe multiverse
+Signed-By: /usr/share/keyrings/ubuntu-archive-keyring.gpg
+EOF
           sudo apt-get update
           # 先把 amd64 的 dev 包更新到最新，避免和 arm64 版本不一致导致文件冲突
           sudo apt-get install -y \
