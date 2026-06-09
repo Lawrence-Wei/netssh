@@ -1,5 +1,7 @@
 # Netssh
 
+[中文版本](README_ZH.md)
+
 ![Netssh app screenshot](docs/assets/netssh-app-screenshot.png)
 
 **Netssh** is a Windows desktop SSH & serial console workstation for ops, network engineers, SREs, and IT admins. Manage your assets locally and connect to devices fast.
@@ -91,7 +93,3 @@ Don't want to save a host? Use the manual connect panel — enter IP/hostname, p
 |------|---------|
 | OS | Windows 10 / Windows 11 |
 | Architecture | x64 or ARM64 |
-
----
-
-[中文版本](README_ZH.md)

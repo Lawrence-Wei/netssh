@@ -1,5 +1,7 @@
 # Netssh
 
+[English version](README.md)
+
 ![Netssh 应用截图](docs/assets/netssh-app-screenshot.png)
 
 **Netssh** 是一款 Windows 桌面 SSH 与串口控制台工作站，面向运维、网络工程师、SRE 和 IT 管理员，帮助您在本地管理资产并快速连接设备。
@@ -91,7 +93,3 @@
 |------|---------|
 | 操作系统 | Windows 10 / Windows 11 |
 | 架构 | x64 或 ARM64 |
-
----
-
-[English version](README.md)
