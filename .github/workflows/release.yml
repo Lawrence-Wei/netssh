@@ -371,10 +371,11 @@ EOF
         run: |
           if npm view "${{ env.PACKAGE_NAME }}@${{ env.PACKAGE_VERSION }}" --registry https://npm.pkg.github.com >/dev/null 2>&1; then
             echo "Package ${PACKAGE_NAME}@${PACKAGE_VERSION} already exists; skip publish."
-            exit 0
+          else
+            npm publish --registry https://npm.pkg.github.com --access restricted --ignore-scripts
           fi
 
-          npm publish --registry https://npm.pkg.github.com --access restricted --ignore-scripts
+          npm dist-tag add "${{ env.PACKAGE_NAME }}@${{ env.PACKAGE_VERSION }}" latest --registry https://npm.pkg.github.com
 
   # ── 合并产物并发布 GitHub Release ──
   create-release:
