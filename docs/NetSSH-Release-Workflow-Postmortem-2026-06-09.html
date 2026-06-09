@@ -1,0 +1,78 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>NetSSH Release Workflow 复盘总结（2026-06-09）</title>
+  <style>
+    body { font-family: "Segoe UI", "Helvetica Neue", Arial, sans-serif; line-height: 1.7; margin: 24px; color: #1f2937; }
+    h1, h2, h3 { color: #111827; }
+    pre { background: #111827; color: #d1d5db; padding: 12px; overflow: auto; border-radius: 8px; }
+    code { font-family: "Consolas", "Courier New", monospace; }
+    .tip { border-left: 4px solid #2563eb; padding: 8px 12px; background: #eff6ff; }
+    ul { margin-top: 0.4rem; }
+  </style>
+</head>
+<body>
+  <h1>NetSSH Release Workflow 复盘总结（2026-06-09）</h1>
+  <p><strong>目标</strong>：把 <code>Release</code> 工作流从“经常失败”调整为“可稳定自动产出发布文件到 GitHub Release”。</p>
+
+  <h2>1. 背景</h2>
+  <p>仓库在 Release 工作流运行时，Linux 构建和依赖解析问题频发，导致上传环节无法完成。用户要求能自动编译并上传，且要求后续可控。</p>
+
+  <h2>2. 问题与根因</h2>
+  <h3>问题 A：Linux arm64 apt 404</h3>
+  <ul>
+    <li>现象：<code>security.ubuntu.com</code> 上出现 arm64 package 404。</li>
+    <li>根因：runner 的源组合与架构匹配不一致。</li>
+    <li>影响：arm64 job 失败，release 链路被阻塞。</li>
+  </ul>
+
+  <h3>问题 B：源文件格式导致 apt 解析错误</h3>
+  <ul>
+    <li>现象：<code>Malformed stanza ... (type)</code></li>
+    <li>根因：自定义源文件写法与解析格式不匹配。</li>
+    <li>影响：即便重试也会被源解析阶段直接终止。</li>
+  </ul>
+
+  <h3>问题 C：create-release 依赖过于严格</h3>
+  <ul>
+    <li>现象：Linux job 失败时，<code>create-release</code> 被跳过。</li>
+    <li>根因：<code>needs</code> 同时依赖了已移除/高风险平台。</li>
+    <li>影响：用户看到“前面都成功”但发布没发生。</li>
+  </ul>
+
+  <h2>3. 实施方案与结果</h2>
+  <ul>
+    <li>先尝试修复 arm64 依赖与源配置，但在格式兼容上仍有难点。</li>
+    <li>按用户要求：移除 Linux 版本构建。</li>
+    <li>删除 <code>build-linux-x64</code> 与 <code>build-linux-arm64</code>。</li>
+    <li>将 <code>create-release</code> 的依赖改为：Windows + macOS + npm publish。</li>
+    <li>移除 Linux artifact 下载步骤。</li>
+  </ul>
+
+  <h2>4. 验证</h2>
+  <ul>
+    <li>工作流 run（手动触发）：<code>v1.1.12</code></li>
+    <li>Run ID：<code>27195070216</code></li>
+    <li>最终状态：<strong>success</strong>，且 Release 已创建。</li>
+  </ul>
+
+  <h2>5. 关键教训</h2>
+  <ol>
+    <li>发布链的关键依赖要谨慎。不可让“可选/不稳定平台”阻塞全部流水线。</li>
+    <li>Linux cross build 的源配置要先在隔离环境验证，避免在主发布链里反复试错。</li>
+    <li>工作流改完后先看 <code>jobs</code> 状态树，若 <code>create-release</code> skipped，直接回看上游 needs。</li>
+  </ol>
+
+  <h2>6. 未来建议</h2>
+  <ul>
+    <li>若需要恢复 Linux，建议新建独立可选 workflow，不作为主 release 的硬依赖。</li>
+    <li>保留当前主流程的高稳定平台：Windows/macOS/npm。</li>
+  </ul>
+
+  <div class="tip">
+    <strong>提交记录</strong>：<code>ci(release): remove linux build jobs from release workflow</code>（<code>2eb75f2</code>）
+  </div>
+</body>
+</html>

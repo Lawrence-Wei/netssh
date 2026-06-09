@@ -16,6 +16,7 @@ use russh_keys::key::PublicKey;
 use tauri::{AppHandle, Emitter};
 use tokio::sync::mpsc::{unbounded_channel, UnboundedSender};
 use tokio::sync::{oneshot, Mutex};
+use tracing::{debug, error, info, warn};
 
 use crate::commands::{emit_data, SshKey, SshOpenArgs};
 use crate::storage;
@@ -77,17 +78,30 @@ impl Handler for ClientHandler {
         server_public_key: &PublicKey,
     ) -> std::result::Result<bool, Self::Error> {
         let fingerprint = server_public_key.fingerprint();
+        let key_type = key_type_name(server_public_key);
+        info!(
+            host = %self.host,
+            port = self.port,
+            key_type = %key_type,
+            fingerprint = %fingerprint,
+            known_count = self.accepted_keys.len(),
+            "Server host key received"
+        );
         if self.accepted_keys.contains(&fingerprint) {
+            info!(fingerprint = %fingerprint, "Host key already trusted");
             return Ok(true);
         }
 
-        let key_type = key_type_name(server_public_key);
         let known_fingerprints: Vec<String> = self.accepted_keys.iter().cloned().collect();
         let status = if self.accepted_keys.is_empty() {
             "unknown"
         } else {
             "mismatch"
         };
+        info!(
+            status = %status,
+            "Emitting host key challenge to frontend"
+        );
         let can_remember = status == "unknown";
         let challenge_id = uuid::Uuid::new_v4().to_string();
         let (tx, rx) = oneshot::channel::<HostKeyDecision>();
@@ -120,9 +134,16 @@ impl Handler for ClientHandler {
             .remove(&challenge_id);
 
         match decision {
-            Ok(Ok(HostKeyDecision::AcceptOnce)) if status == "unknown" => Ok(true),
-            Ok(Ok(HostKeyDecision::AcceptOnce)) if status == "mismatch" => Ok(true),
+            Ok(Ok(HostKeyDecision::AcceptOnce)) if status == "unknown" => {
+                info!("Host key accepted (once)");
+                Ok(true)
+            }
+            Ok(Ok(HostKeyDecision::AcceptOnce)) if status == "mismatch" => {
+                info!("Key mismatch — user accepted once");
+                Ok(true)
+            }
             Ok(Ok(HostKeyDecision::AcceptAndRemember)) if status == "unknown" => {
+                info!("Host key accepted and will be remembered");
                 match storage::open().and_then(|conn| {
                     storage::remember_trusted_host_key(
                         &conn,
@@ -132,8 +153,12 @@ impl Handler for ClientHandler {
                         &fingerprint,
                     )
                 }) {
-                    Ok(()) => Ok(true),
-                    Err(_) => {
+                    Ok(()) => {
+                        info!("Host key stored in trusted_host_keys");
+                        Ok(true)
+                    }
+                    Err(e) => {
+                        error!(error = %e, "Failed to store host key");
                         set_host_key_error(&self.last_host_key_error, "host_key_store_failed");
                         Ok(false)
                     }
@@ -181,16 +206,36 @@ impl SshSession {
                 }
             });
 
+        info!(
+            host = %args.host,
+            port = args.port,
+            user = %args.user,
+            has_password = password.is_some(),
+            has_identity = identity_file.is_some(),
+            "SSH connect starting"
+        );
+
         // TCP probe first so we can return a clean "network_unreachable" code.
+        // 注意：这个 TCP 探针会打开再丢弃一条 TCP 连接，某些服务器
+        // fail2ban / MaxStartups 限制可能把第二次真实连接踢掉。
+        // 如果探针成功但后继连接失败，请检查服务器端日志。
         let probe = tokio::time::timeout(
             std::time::Duration::from_secs(4),
             tokio::net::TcpStream::connect(&addr),
         )
         .await;
         match probe {
-            Err(_) => return Err(anyhow!("network_unreachable: timeout connecting to {}", addr)),
-            Ok(Err(e)) => return Err(anyhow!("network_unreachable: {}", e)),
-            Ok(Ok(_)) => {}
+            Err(_) => {
+                error!(%addr, "TCP probe timed out");
+                return Err(anyhow!("network_unreachable: timeout connecting to {}", addr));
+            }
+            Ok(Err(e)) => {
+                error!(%addr, error = %e, "TCP probe failed");
+                return Err(anyhow!("network_unreachable: {}", e));
+            }
+            Ok(Ok(_)) => {
+                debug!(%addr, "TCP probe succeeded");
+            }
         }
 
         // Load known_hosts for this session.
@@ -198,9 +243,16 @@ impl SshSession {
         if let Ok(conn) = storage::open() {
             if let Ok(trusted) = storage::list_trusted_host_fingerprints(&conn, &args.host, args.port)
             {
+                if !trusted.is_empty() {
+                    debug!(count = trusted.len(), "Loaded persisted trusted host keys");
+                }
                 accepted_keys.extend(trusted);
             }
         }
+        debug!(
+            known_count = accepted_keys.len(),
+            "Accepted host key fingerprints loaded"
+        );
         let last_host_key_error = Arc::new(StdMutex::new(None));
 
         let handler = ClientHandler {
@@ -213,16 +265,22 @@ impl SshSession {
             challenge_registry,
             last_host_key_error: last_host_key_error.clone(),
         };
+        info!("Starting SSH handshake and key exchange");
         let mut handle = match client::connect(config, addr.clone(), handler).await {
-            Ok(h) => h,
+            Ok(h) => {
+                info!("SSH handshake + key exchange completed");
+                h
+            }
             Err(e) => {
                 if let Some(host_key_error) = last_host_key_error
                     .lock()
                     .unwrap_or_else(|err| err.into_inner())
                     .clone()
                 {
+                    error!(error = %host_key_error, "SSH handshake failed due to host key");
                     return Err(anyhow!("{host_key_error}"));
                 }
+                error!(error = %e, "SSH handshake / key exchange error");
                 return Err(anyhow!("network_unreachable: {}", e));
             }
         };
@@ -230,14 +288,24 @@ impl SshSession {
         // Authenticate: try publickey first, then password.
         let authed = if let Some(ref identity_file) = identity_file {
             match try_publickey_auth(&mut handle, &args.user, identity_file, &args.passphrase).await {
-                Ok(ok) => ok,
-                Err(_err) if password.is_some() => {
-                    // Fall back to password auth when password is explicitly configured.
-                    // This avoids hard failures when the identity path is stale / missing
-                    // but a valid password is available.
+                Ok(true) => {
+                    info!(user = %args.user, key = %identity_file, "Public-key auth succeeded");
+                    true
+                }
+                Ok(false) => false,
+                Err(err) if password.is_some() => {
+                    warn!(
+                        user = %args.user,
+                        key = %identity_file,
+                        error = %err,
+                        "Public-key auth failed, falling back to password"
+                    );
                     false
                 }
-                Err(err) => return Err(err),
+                Err(err) => {
+                    error!(user = %args.user, key = %identity_file, error = %err, "Public-key auth fatal");
+                    return Err(err);
+                }
             }
         } else {
             false
@@ -254,23 +322,35 @@ impl SshSession {
                         .chars()
                         .any(|c| c.is_whitespace() || c == ':')
                 {
+                    warn!(user = %args.user, "Username validation failed locally");
                     return Err(anyhow!(
                         "username_invalid: \"{}\" is not a valid SSH username",
                         args.user
                     ));
                 }
+                info!(user = %args.user, host = %args.host, "Attempting password auth");
                 let ok = handle
                     .authenticate_password(&args.user, password)
                     .await
-                    .map_err(|e| anyhow!("auth_error: {}", e))?;
+                    .map_err(|e| {
+                        error!(error = %e, "Password auth protocol error");
+                        anyhow!("auth_error: {}", e)
+                    })?;
                 if !ok {
+                    warn!(user = %args.user, host = %args.host, "Password rejected by server");
                     return Err(anyhow!(
                         "password_incorrect: password rejected for {}@{}",
                         args.user,
                         args.host
                     ));
                 }
+                info!(user = %args.user, "Password auth succeeded");
             } else {
+                warn!(
+                    alias = %args.alias,
+                    host = %args.host,
+                    "No credentials available — connection aborted"
+                );
                 return Err(anyhow!(
                     "no_credentials: no IdentityFile or password provided for {}@{}",
                     args.alias,
@@ -280,11 +360,25 @@ impl SshSession {
         }
 
         // Open a session channel and request a PTY.
-        let channel = handle.channel_open_session().await?;
+        info!("Opening SSH session channel");
+        let channel = handle.channel_open_session().await.map_err(|e| {
+            error!(error = %e, "Failed to open session channel");
+            anyhow!("channel_open_failed: {}", e)
+        })?;
+        debug!("Requesting PTY (xterm-256color, 80x24)");
         channel
             .request_pty(true, "xterm-256color", 80, 24, 0, 0, &[])
-            .await?;
-        channel.request_shell(true).await?;
+            .await
+            .map_err(|e| {
+                error!(error = %e, "PTY request failed");
+                anyhow!("pty_request_failed: {}", e)
+            })?;
+        debug!("Requesting shell");
+        channel.request_shell(true).await.map_err(|e| {
+            error!(error = %e, "Shell request failed");
+            anyhow!("shell_request_failed: {}", e)
+        })?;
+        info!("SSH session fully established");
 
         let (tx, mut rx) = unbounded_channel::<SshCommand>();
 

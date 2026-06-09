@@ -40,8 +40,10 @@ pub struct SerialOpenArgs {
 }
 
 pub struct SerialSession {
-    app: AppHandle,
-    id: String,
+    /// 应用句柄，预留给将来 reconnect / 状态事件发送等场景使用
+    _app: AppHandle,
+    /// 会话标识符，预留给将来日志 / 诊断等场景使用
+    _id: String,
     line_ending: String,
     writer: Arc<Mutex<Box<dyn SerialPort + Send>>>,
     stop_tx: mpsc::Sender<()>,
@@ -55,7 +57,7 @@ impl SerialSession {
             return Err(anyhow::anyhow!("serial_port_name_required"));
         }
 
-        let mut writer = serialport::new(&port_name, parse_baud_rate(args.baud_rate)?)
+        let writer = serialport::new(&port_name, parse_baud_rate(args.baud_rate)?)
             .data_bits(parse_data_bits(args.data_bits)?)
             .parity(parse_parity(&args.parity)?)
             .stop_bits(parse_stop_bits(args.stop_bits)?)
@@ -95,8 +97,8 @@ impl SerialSession {
         });
 
         Ok(Self {
-            app: app.clone(),
-            id: id.to_string(),
+            _app: app.clone(),
+            _id: id.to_string(),
             line_ending,
             writer: Arc::new(Mutex::new(writer)),
             stop_tx,
