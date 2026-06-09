@@ -29,7 +29,7 @@
 - [x] Add serial connection profile types.
 - [x] Define `SerialProfile` and attach it to `Host.serialProfile`.
 - [x] Add serial preset constants for Cisco, Huawei, H3C, OpenWRT/Linux SBC, and Generic.
-- [ ] Update Host editor to switch between SSH and Serial connection fields.
+- [x] Update Host editor to switch between SSH and Serial connection fields.
 - [ ] Add Rust serial backend commands: list ports, open, send, resize/no-op, close.
 - [ ] Add frontend serial API wrappers and serial event listeners.
 - [ ] Add TerminalPane serial live mode.
@@ -44,3 +44,4 @@
 - [ ] Add production asset markers.
 - [ ] Add dangerous command confirmation.
 - [ ] Add local operation log metadata without storing command bodies.
+
