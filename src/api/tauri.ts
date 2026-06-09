@@ -3,7 +3,7 @@
 
 import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
-import type { Host, ShellInfo, SshKey } from "../config/types";
+import type { Host, ShellInfo, SerialFlowControl, SerialLineEnding, SerialParity, SerialStopBits, SshKey } from "../config/types";
 
 // ─── ssh_config ────────────────────────────────────────────────────────────
 
@@ -85,6 +85,55 @@ export async function ptyClose(id: string): Promise<void> {
   return invoke("pty_close", { id });
 }
 
+// ─── serial ─────────────────────────────────────────────────────────────
+
+export interface SerialPortInfo {
+  port_name: string;
+  transport: string;
+  manufacturer?: string;
+  product?: string;
+  serial_number?: string;
+  vendor_id?: number;
+  product_id?: number;
+}
+
+export interface SerialOpenArgs {
+  portName: string;
+  baudRate?: number;
+  dataBits?: number;
+  parity?: SerialParity;
+  stopBits?: SerialStopBits;
+  flowControl?: SerialFlowControl;
+  lineEnding?: SerialLineEnding;
+}
+
+export async function listSerialPorts(): Promise<SerialPortInfo[]> {
+  return invoke<SerialPortInfo[]>("serial_list_ports");
+}
+
+export async function serialOpen(args: SerialOpenArgs): Promise<string> {
+  return invoke<string>("serial_open", {
+    args: {
+      port_name: args.portName,
+      baud_rate: args.baudRate,
+      data_bits: args.dataBits,
+      parity: args.parity,
+      stop_bits: args.stopBits,
+      flow_control: args.flowControl,
+      line_ending: args.lineEnding,
+    },
+  });
+}
+export async function serialSend(id: string, data: Uint8Array): Promise<void> {
+  return invoke("serial_send", { id, data: Array.from(data) });
+}
+export async function serialResize(id: string, cols: number, rows: number): Promise<void> {
+  return invoke("serial_resize", { id, cols, rows });
+}
+export async function serialClose(id: string): Promise<void> {
+  return invoke("serial_close", { id });
+}
+
 // ─── shells, keys, credentials ─────────────────────────────────────────────
 
 export async function detectShells(): Promise<ShellInfo[]> {
@@ -146,6 +195,30 @@ export async function onPtyData(id: string, fn: DataEventHandler): Promise<Unlis
 }
 export async function onPtyExit(id: string, fn: ExitEventHandler): Promise<UnlistenFn> {
   return listen(`pty:${id}:exit`, () => fn());
+}
+export async function onSerialData(id: string, fn: DataEventHandler): Promise<UnlistenFn> {
+  return listen<string>(`serial:${id}:data`, (e) => fn(e.payload));
+}
+export async function onSerialExit(id: string, fn: ExitEventHandler): Promise<UnlistenFn> {
+  return listen(`serial:${id}:exit`, () => fn());
+}
+
+// ─── connection logs ─────────────────────────────────────────────────────
+
+export interface ConnectionLogCloseArgs {
+  logId: string;
+  bytesIn: number;
+  bytesOut: number;
+  exitStatus?: number | null;
+  error?: string | null;
+}
+
+export async function connectionLogOpen(hostAlias: string): Promise<string> {
+  return invoke("connection_log_open", { hostAlias });
+}
+
+export async function connectionLogClose(args: ConnectionLogCloseArgs): Promise<void> {
+  return invoke("connection_log_close", { args });
 }
 
 // ─── host key TOFU challenge ─────────────────────────────────────────────

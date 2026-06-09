@@ -10,7 +10,7 @@
 
 ## 安装
 
-当前版本：**v1.1.9**
+当前版本：**Latest（发布页最新）**
 
 从 [GitHub Releases](https://github.com/team-gabage/netssh/releases) 下载安装包：
 

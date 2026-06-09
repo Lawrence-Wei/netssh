@@ -41,6 +41,7 @@ export interface Host {
   aliases?: string[];
   hostname: string;
   user: string;
+  credentialProfileId?: string;
   port: number;
   identityFile?: string;
   group: GroupId;

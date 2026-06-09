@@ -11,7 +11,7 @@ import { useHosts } from "../store/hosts";
 import { useSessions } from "../store/sessions";
 import { useSettings } from "../store/settings";
 import { useSnippets } from "../store/snippets";
-import { detectSystemLang } from "../utils/i18n";
+import { detectSystemLang, t } from "../utils/i18n";
 import type { Host, Snippet } from "../config/types";
 import type { QueuedCommand } from "./TerminalPane";
 import { useConfirm } from "../components/ConfirmDialog";
@@ -242,7 +242,25 @@ export default function App() {
 
   const queueCommand = (item: Snippet | QuickCommand) => {
     const queued = { cmd: item.cmd, name: item.name };
-    if (activeTab?.kind === "local" || (activeTab?.kind === "host" && activeTab.connected)) {
+    if (isDangerousCommand(item.cmd)) {
+      void confirm({
+        title: t("terminal.command.danger.title", lang),
+        message: t("terminal.command.danger.message", lang, { command: item.cmd }),
+        confirmLabel: t("terminal.command.danger.confirm", lang),
+        cancelLabel: t("common.cancel", lang),
+        danger: true,
+      }).then((ok) => {
+        if (ok) {
+          queueCommandAfterConfirm(queued);
+        }
+      });
+      return;
+    }
+    queueCommandAfterConfirm(queued);
+  };
+
+  const queueCommandAfterConfirm = (queued: { cmd: string; name?: string }) => {
+    if (activeTab?.kind === "local" || (activeTab?.kind === "host" && activeHost && activeTab.connected)) {
       setRunQueue((queue) => [...queue, queued]);
       return;
     }
@@ -380,4 +398,25 @@ export default function App() {
       )}
     </div>
   );
+}
+
+const dangerousCommandPatterns: RegExp[] = [
+  /^\s*rm\s+/i,
+  /^\s*dd\s+/i,
+  /^\s*mkfs\b/i,
+  /^\s*fdisk\b/i,
+  /^\s*mkfs\.ext\d*\b/i,
+  /^\s*:\s*>\s*/i,
+  /^\s*shutdown\s+/i,
+  /^\s*reboot\b/i,
+  /^\s*halt\b/i,
+  /^\s*poweroff\b/i,
+  /^\s*mv\s+.*\s+\/?(root|etc|usr|bin|opt|var)\b/i,
+  /^\s*chmod\s+777\b/i,
+  /^\s*chown\s+/i,
+];
+
+function isDangerousCommand(command: string) {
+  const normalized = command.trim();
+  return dangerousCommandPatterns.some((pattern) => pattern.test(normalized));
 }

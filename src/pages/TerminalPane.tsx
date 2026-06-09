@@ -10,6 +10,10 @@ import {
   onHostKeyChallenge,
   onSshData,
   onSshExit,
+  onSerialData,
+  onSerialExit,
+  connectionLogClose,
+  connectionLogOpen,
   ptyClose,
   ptyOpen,
   ptyResize,
@@ -19,11 +23,16 @@ import {
   sshOpen,
   sshResize,
   sshSend,
+  serialClose,
+  serialOpen,
+  serialResize,
+  serialSend,
 } from "../api/tauri";
 import { t } from "../utils/i18n";
+import { SERIAL_PRESETS } from "../config/defaults";
+import { useCredentials } from "../store/credentials";
 
-
-import type { Host, Lang } from "../config/types";
+import type { Host, Lang, SerialProfile } from "../config/types";
 import { Icon } from "../components/Icons";
 import { createDemoShell } from "../utils/demoShell";
 import { brandIcon } from "../components/BrandIcons";
@@ -45,7 +54,7 @@ interface TerminalPaneProps {
   runQueue?: QueuedCommand[];
 }
 
-type LiveMode = "ssh" | "pty" | "demo" | "error";
+type LiveMode = "ssh" | "serial" | "pty" | "demo" | "error";
 
 interface HostKeyChallengeState {
   event: HostKeyChallenge;
@@ -61,18 +70,51 @@ export function TerminalPane({ lang, host, shellId, shellTitle, onClose, onRetry
   const sessionIdRef = useRef<string | null>(null);
   const demoRef = useRef<ReturnType<typeof createDemoShell> | null>(null);
   const lastRunLengthRef = useRef(0);
-  const [liveMode, setLiveMode] = useState<LiveMode>(host ? "ssh" : shellId ? "pty" : "demo");
+  const [liveMode, setLiveMode] = useState<LiveMode>(host ? (host.connectionType === "serial" ? "serial" : "ssh") : shellId ? "pty" : "demo");
   const [connectionError, setConnectionError] = useState<string | null>(null);
   const [hostKeyChallenge, setHostKeyChallenge] = useState<HostKeyChallengeState | null>(null);
   const [retryNonce, setRetryNonce] = useState(0);
   const [clock, setClock] = useState(() => new Date());
+  const isLogClosedRef = useRef(false);
   const onCloseRef = useRef(onClose);
   onCloseRef.current = onClose;
+  const bytesInRef = useRef(0);
+  const bytesOutRef = useRef(0);
+  const connectionLogIdRef = useRef<string | null>(null);
 
   useEffect(() => {
     const id = window.setInterval(() => setClock(new Date()), 1000);
     return () => window.clearInterval(id);
   }, []);
+
+  const closeConnectionLog = async (error?: string, exitStatus: number | null = null) => {
+    const logId = connectionLogIdRef.current;
+    if (!logId || isLogClosedRef.current) return;
+    isLogClosedRef.current = true;
+    try {
+      await connectionLogClose({
+        logId,
+        bytesIn: bytesInRef.current,
+        bytesOut: bytesOutRef.current,
+        exitStatus,
+        error,
+      });
+    } catch {
+      // Ignore failures for local telemetry logs.
+    } finally {
+      connectionLogIdRef.current = null;
+    }
+  };
+
+  const writeBytes = (bytes: Uint8Array) => {
+    bytesInRef.current += bytes.length;
+    return bytes;
+  };
+
+  const sendBytes = (data: Uint8Array) => {
+    bytesOutRef.current += data.length;
+    return data;
+  };
 
   useEffect(() => {
     const mount = mountRef.current;
@@ -107,12 +149,18 @@ export function TerminalPane({ lang, host, shellId, shellTitle, onClose, onRetry
     let unlistenExit: (() => void) | null = null;
     let disposed = false;
     let focusTimer = 0;
+    const resetMetrics = () => {
+      bytesInRef.current = 0;
+      bytesOutRef.current = 0;
+      isLogClosedRef.current = false;
+    };
 
     const resizeRemote = () => {
       safeFit(fit);
       const sessionId = sessionIdRef.current;
       if (!sessionId) return;
       if (modeRef.current === "ssh") void sshResize(sessionId, term.cols, term.rows);
+      if (modeRef.current === "serial") void serialResize(sessionId, term.cols, term.rows);
       if (modeRef.current === "pty") void ptyResize(sessionId, term.cols, term.rows);
     };
     let resizeFrame = 0;
@@ -127,11 +175,18 @@ export function TerminalPane({ lang, host, shellId, shellTitle, onClose, onRetry
     dataSub = term.onData((data) => {
       const sessionId = sessionIdRef.current;
       if (sessionId && modeRef.current === "ssh") {
-        void sshSend(sessionId, new TextEncoder().encode(data));
+        const outgoing = sendBytes(new TextEncoder().encode(data));
+        void sshSend(sessionId, outgoing);
+        return;
+      }
+      if (sessionId && modeRef.current === "serial") {
+        const outgoing = sendBytes(new TextEncoder().encode(data));
+        void serialSend(sessionId, outgoing);
         return;
       }
       if (sessionId && modeRef.current === "pty") {
-        void ptySend(sessionId, new TextEncoder().encode(data));
+        const outgoing = sendBytes(new TextEncoder().encode(data));
+        void ptySend(sessionId, outgoing);
         return;
       }
       demoRef.current?.handle(data);
@@ -158,7 +213,7 @@ export function TerminalPane({ lang, host, shellId, shellTitle, onClose, onRetry
     (async () => {
       try {
         if (shellId) {
-          modeRef.current = "pty";
+      modeRef.current = "pty";
           setLiveMode("pty");
           const id = await ptyOpen(shellId);
           if (disposed) {
@@ -166,42 +221,103 @@ export function TerminalPane({ lang, host, shellId, shellTitle, onClose, onRetry
             return;
           }
           sessionIdRef.current = id;
-          unlistenData = await onPtyData(id, (b64) => term.write(base64Bytes(b64)));
+          resetMetrics();
+          unlistenData = await onPtyData(id, (b64) => {
+            const bytes = base64Bytes(b64);
+            term.write(writeBytes(bytes));
+          });
           unlistenExit = await onPtyExit(id, () => onCloseRef.current?.());
           queueResize();
           return;
         }
 
         if (host) {
+          if (host.connectionType === "serial") {
+            modeRef.current = "serial";
+            setLiveMode("serial");
+            const serialProfile = resolveSerialProfile(host.serialProfile);
+            const id = await serialOpen({
+              portName: serialProfile.portName || host.hostname,
+              baudRate: serialProfile.baudRate,
+              dataBits: serialProfile.dataBits,
+              parity: serialProfile.parity,
+              stopBits: serialProfile.stopBits,
+              flowControl: serialProfile.flowControl,
+              lineEnding: serialProfile.lineEnding,
+            });
+            if (disposed) {
+              await serialClose(id);
+              return;
+            }
+            sessionIdRef.current = id;
+            resetMetrics();
+            unlistenData = await onSerialData(id, (b64) => {
+              const bytes = base64Bytes(b64);
+              term.write(writeBytes(bytes));
+            });
+            unlistenExit = await onSerialExit(id, () => onCloseRef.current?.());
+            queueResize();
+            return;
+          }
+
           modeRef.current = "ssh";
           setLiveMode("ssh");
           unlistenHostKeyChallenge = await onHostKeyChallenge((event) => {
             if (event.host !== host.hostname || event.port !== host.port) return;
             setHostKeyChallenge({ event, submitting: false });
           });
+          resetMetrics();
+          const credentials = useCredentials.getState().credentials;
+          const loadPassword = useCredentials.getState().loadPassword;
+          const credentialProfile = host.credentialProfileId
+            ? credentials.find((item) => item.id === host.credentialProfileId)
+            : undefined;
+          const username = credentialProfile?.user || host.user;
+          const identityFile = credentialProfile?.identityFile || host.identityFile;
+          let password: string | undefined = host.ephemeralPassword ?? undefined;
+          if (!password && credentialProfile?.hasPassword) {
+            password = (await loadPassword(credentialProfile.id).catch(() => undefined)) ?? undefined;
+          }
+          try {
+            const connectionLogId = await connectionLogOpen(host.alias);
+            connectionLogIdRef.current = connectionLogId;
+          } catch {
+            // Ignore logging failures, still attempt the SSH connection.
+            connectionLogIdRef.current = null;
+          }
           const id = await sshOpen({
             alias: host.alias,
             host: host.hostname,
-            user: host.user,
+            user: username,
             port: host.port,
-            identityFile: host.identityFile,
-            password: host.ephemeralPassword,
+            identityFile,
+            password,
           });
           if (disposed) {
             await sshClose(id);
+            await closeConnectionLog("disposed before first paint", null);
             return;
           }
           sessionIdRef.current = id;
-          unlistenData = await onSshData(id, (b64) => term.write(base64Bytes(b64)));
-          unlistenExit = await onSshExit(id, () => onCloseRef.current?.());
+          unlistenData = await onSshData(id, (b64) => {
+            const bytes = base64Bytes(b64);
+            term.write(writeBytes(bytes));
+          });
+          unlistenExit = await onSshExit(id, () => {
+            void closeConnectionLog();
+            onCloseRef.current?.();
+          });
           queueResize();
           return;
         }
 
         startDemo();
-      } catch (error) {
-        startDemo(error);
-      }
+        } catch (error) {
+          if (connectionLogIdRef.current) {
+            await closeConnectionLog(error instanceof Error ? error.message : String(error));
+          }
+          startDemo(error);
+        }
     })();
 
     focusTimer = window.setTimeout(() => {
@@ -220,7 +336,11 @@ export function TerminalPane({ lang, host, shellId, shellTitle, onClose, onRetry
       unlistenData?.();
       unlistenExit?.();
       const id = sessionIdRef.current;
-      if (id && modeRef.current === "ssh") void sshClose(id);
+      if (id && modeRef.current === "ssh") {
+        void sshClose(id);
+        void closeConnectionLog();
+      }
+      if (id && modeRef.current === "serial") void serialClose(id);
       if (id && modeRef.current === "pty") void ptyClose(id);
       sessionIdRef.current = null;
       demoRef.current = null;
@@ -234,25 +354,37 @@ export function TerminalPane({ lang, host, shellId, shellTitle, onClose, onRetry
     const command = runQueue[runQueue.length - 1];
     const id = sessionIdRef.current;
     if (id && modeRef.current === "ssh") {
-      void sshSend(id, new TextEncoder().encode(`${command.cmd}\r`));
+      const outgoing = sendBytes(new TextEncoder().encode(`${command.cmd}\r`));
+      void sshSend(id, outgoing);
+      return;
+    }
+    if (id && modeRef.current === "serial") {
+      const outgoing = sendBytes(new TextEncoder().encode(`${command.cmd}\r`));
+      void serialSend(id, outgoing);
       return;
     }
     if (id && modeRef.current === "pty") {
-      void ptySend(id, new TextEncoder().encode(`${command.cmd}\r`));
+      const outgoing = sendBytes(new TextEncoder().encode(`${command.cmd}\r`));
+      void ptySend(id, outgoing);
       return;
     }
     demoRef.current?.runCommand(command.cmd);
   }, [runQueue]);
 
   const hueRgba = (color: string, alpha: number) => hexToRgba(color, alpha);
-  const title = host ? `${host.user}@${host.alias}` : shellTitle || shellId || "Local shell";
-  const subtitle = host ? `${host.hostname}${host.port !== 22 ? `:${host.port}` : ""}` : t("rail.add", lang);
+  const title = host ? (host.connectionType === "serial" ? host.alias : `${host.user}@${host.alias}`) : shellTitle || shellId || "Local shell";
+  const serialSubtitle = host?.serialProfile?.portName || host?.hostname || host?.alias || "";
+  const subtitle = host
+    ? host.connectionType === "serial"
+      ? serialSubtitle
+      : `${host.hostname}${host.port !== 22 ? `:${host.port}` : ""}`
+    : t("rail.add", lang);
   const isDemo = liveMode === "demo";
   const hasError = liveMode === "error" && !!connectionError;
   const handleRetry = () => {
     setConnectionError(null);
     setHostKeyChallenge(null);
-    setLiveMode(host ? "ssh" : shellId ? "pty" : "demo");
+    setLiveMode(host ? (host.connectionType === "serial" ? "serial" : "ssh") : shellId ? "pty" : "demo");
     setRetryNonce((n) => n + 1);
     onRetry?.();
   };
@@ -317,7 +449,9 @@ export function TerminalPane({ lang, host, shellId, shellTitle, onClose, onRetry
               <p>{connectionError}</p>
               <div className="connection-error__target">
                 <span style={{ fontFamily: "var(--font-mono)", fontSize: 13, color: "var(--text)" }}>
-                  {host.user}@{host.hostname}:{host.port}
+                  {host.connectionType === "serial"
+                    ? `${host.user}@${host.serialProfile?.portName || host.hostname || host.alias}`
+                    : `${host.user}@${host.hostname}:${host.port}`}
                 </span>
               </div>
               {host.identityFile && (
@@ -346,10 +480,10 @@ export function TerminalPane({ lang, host, shellId, shellTitle, onClose, onRetry
         <span className="item accent"><span className="key">{t("status.latency", lang)}</span><span>{host?.latency ?? "-"} ms</span></span>
         <span className="item"><span className="key">{t("status.cipher", lang)}</span><span>{host ? t("status.cipher.ssh2", lang) : t("status.cipher.conpty", lang)}</span></span>
         <span className="item"><span className="key">{t("status.encoding", lang)}</span><span>UTF-8</span></span>
-        <span className="item"><span className="key">{t("status.shell", lang)}</span><span>{hasError ? t("conn.status.failed", lang) : isDemo ? t("status.shell.local", lang) : host ? t("status.shell.remote", lang) : t("status.shell.local", lang)}</span></span>
+        <span className="item"><span className="key">{t("status.shell", lang)}</span><span>{hasError ? t("conn.status.failed", lang) : isDemo ? t("status.shell.local", lang) : host ? (host.connectionType === "serial" ? t("status.shell.serial", lang) : t("status.shell.remote", lang)) : t("status.shell.local", lang)}</span></span>
         <span style={{ flex: 1 }} />
         <span className="item" style={{ color: "var(--text-mute)" }}>
-          <span>{host ? `${t("status.protocol.tcp", lang)}/${host.port}` : t("status.shell.local", lang)} . </span>
+          <span>{host ? (host.connectionType === "serial" ? t("status.protocol.serial", lang) : `${t("status.protocol.tcp", lang)}/${host.port}`) : t("status.shell.local", lang)} . </span>
           <span>{clock.toLocaleTimeString()}</span>
         </span>
       </div>
@@ -468,6 +602,15 @@ function hexToRgba(hex: string, alpha: number) {
 
 function errorMessage(error: unknown) {
   return describeConnectionError(error);
+}
+
+function resolveSerialProfile(profile?: SerialProfile): SerialProfile {
+  const fallback = SERIAL_PRESETS.find((preset) => preset.id === "generic-9600-8n1")?.profile ?? SERIAL_PRESETS[0].profile;
+  return {
+    ...fallback,
+    ...profile,
+    presetId: profile?.presetId ?? fallback.presetId,
+  };
 }
 
 export function describeConnectionError(error: unknown) {

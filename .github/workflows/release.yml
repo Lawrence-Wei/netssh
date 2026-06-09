@@ -2,9 +2,19 @@ name: Release
 
 on:
   push:
+    branches:
+      - main
     tags:
       - 'v*'
+  pull_request:
+    branches:
+      - main
   workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Release tag (for manual run, e.g. v1.1.10)'
+        required: false
+        default: ''
 
 permissions:
   contents: write
@@ -21,7 +31,7 @@ jobs:
       - name: Setup Node
         uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          node-version: 'lts/*'
 
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
@@ -37,7 +47,8 @@ jobs:
             libssl-dev \
             libglib2.0-dev \
             libsoup-3.0-dev \
-            libjavascriptcoregtk-4.1-dev
+            libjavascriptcoregtk-4.1-dev \
+            libudev-dev
 
       - name: Install dependencies
         run: npm ci
@@ -57,6 +68,7 @@ jobs:
   # ── Windows 构建 ──
   build-windows:
     needs: test
+    if: ${{ github.ref_type == 'tag' || (github.event_name == 'workflow_dispatch' && github.event.inputs.tag != '') }}
     runs-on: windows-latest
     steps:
       - name: Checkout
@@ -65,7 +77,7 @@ jobs:
       - name: Setup Node
         uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          node-version: 'lts/*'
 
       - name: Install dependencies
         run: npm install
@@ -111,6 +123,7 @@ jobs:
   # ── macOS 构建 ──
   build-macos:
     needs: test
+    if: ${{ github.ref_type == 'tag' || (github.event_name == 'workflow_dispatch' && github.event.inputs.tag != '') }}
     runs-on: macos-latest
     steps:
       - name: Checkout
@@ -119,7 +132,7 @@ jobs:
       - name: Setup Node
         uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          node-version: 'lts/*'
 
       - name: Install dependencies
         run: npm install
@@ -165,6 +178,7 @@ jobs:
   # ── Linux x64 构建 ──
   build-linux-x64:
     needs: test
+    if: ${{ github.ref_type == 'tag' || (github.event_name == 'workflow_dispatch' && github.event.inputs.tag != '') }}
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -173,7 +187,7 @@ jobs:
       - name: Setup Node
         uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          node-version: 'lts/*'
 
       - name: Install system dependencies
         run: |
@@ -185,6 +199,7 @@ jobs:
             patchelf \
             libgtk-3-dev \
             libsoup-3.0-dev \
+            libudev-dev \
             libjavascriptcoregtk-4.1-dev
 
       - name: Install dependencies
@@ -221,6 +236,7 @@ jobs:
   # ── Linux ARM64 (树莓派) 构建 ──
   build-linux-arm64:
     needs: test
+    if: ${{ github.ref_type == 'tag' || (github.event_name == 'workflow_dispatch' && github.event.inputs.tag != '') }}
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -229,7 +245,7 @@ jobs:
       - name: Setup Node
         uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          node-version: 'lts/*'
 
       - name: Install system dependencies (amd64 host + arm64 cross)
         run: |
@@ -251,20 +267,21 @@ jobs:
             sudo sed -i '/^Suites: /a Architectures: amd64' /etc/apt/sources.list.d/ubuntu.sources
           fi
           # 新建独立的 arm64 源指向 ports.ubuntu.com
-          cat <<'EOF' | sudo tee /etc/apt/sources.list.d/arm64-cross.sources >/dev/null
-Types: deb
-Architectures: arm64
-URIs: http://ports.ubuntu.com/ubuntu-ports
-Suites: noble noble-updates noble-security noble-backports
-Components: main restricted universe multiverse
-Signed-By: /usr/share/keyrings/ubuntu-archive-keyring.gpg
-EOF
+          printf '%s\n' \
+            'Types: deb' \
+            'Architectures: arm64' \
+            'URIs: http://ports.ubuntu.com/ubuntu-ports' \
+            'Suites: noble noble-updates noble-security noble-backports' \
+            'Components: main restricted universe multiverse' \
+            'Signed-By: /usr/share/keyrings/ubuntu-archive-keyring.gpg' \
+            | sudo tee /etc/apt/sources.list.d/arm64-cross.sources >/dev/null
           sudo apt-get update
           # 先把 amd64 的 dev 包更新到最新，避免和 arm64 版本不一致导致文件冲突
           sudo apt-get install -y \
             libwebkit2gtk-4.1-dev:amd64 \
             libgtk-3-dev:amd64 \
             libsoup-3.0-dev:amd64 \
+            libudev-dev:amd64 \
             libjavascriptcoregtk-4.1-dev:amd64 \
             libayatana-appindicator3-dev:amd64 \
             librsvg2-dev:amd64 \
@@ -274,6 +291,7 @@ EOF
             libwebkit2gtk-4.1-dev:arm64 \
             libgtk-3-dev:arm64 \
             libsoup-3.0-dev:arm64 \
+            libudev-dev:arm64 \
             libjavascriptcoregtk-4.1-dev:arm64 \
             libayatana-appindicator3-dev:arm64 \
             librsvg2-dev:arm64 \
@@ -323,7 +341,7 @@ EOF
   publish-npm:
     needs: test
     runs-on: ubuntu-latest
-    if: github.ref_type == 'tag'
+    if: ${{ github.ref_type == 'tag' || (github.event_name == 'workflow_dispatch' && github.event.inputs.tag != '') }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -331,11 +349,11 @@ EOF
       - name: Setup Node
         uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          node-version: 'lts/*'
 
       - name: Prepare package metadata
         env:
-          TAG_NAME: ${{ github.ref_name }}
+          TAG_NAME: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.tag || github.ref_name }}
           OWNER_NAME: ${{ github.repository_owner }}
         run: |
           OWNER="${OWNER_NAME,,}"
@@ -371,16 +389,17 @@ EOF
         run: |
           if npm view "${{ env.PACKAGE_NAME }}@${{ env.PACKAGE_VERSION }}" --registry https://npm.pkg.github.com >/dev/null 2>&1; then
             echo "Package ${PACKAGE_NAME}@${PACKAGE_VERSION} already exists; skip publish."
-            exit 0
+          else
+            npm publish --registry https://npm.pkg.github.com --access restricted --ignore-scripts
           fi
 
-          npm publish --registry https://npm.pkg.github.com --access restricted --ignore-scripts
+          npm dist-tag add "${{ env.PACKAGE_NAME }}@${{ env.PACKAGE_VERSION }}" latest --registry https://npm.pkg.github.com
 
   # ── 合并产物并发布 GitHub Release ──
   create-release:
     needs: [build-windows, build-macos, build-linux-x64, build-linux-arm64, publish-npm]
     runs-on: ubuntu-latest
-    if: github.ref_type == 'tag'
+    if: ${{ github.ref_type == 'tag' || (github.event_name == 'workflow_dispatch' && github.event.inputs.tag != '') }}
     steps:
       - name: Download Windows artifacts
         uses: actions/download-artifact@v4
@@ -409,6 +428,8 @@ EOF
       - name: Publish GitHub Release
         uses: softprops/action-gh-release@v2
         with:
+          tag_name: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.tag || github.ref_name }}
+          target_commitish: ${{ github.sha }}
           files: |
             release-artifacts/**
           fail_on_unmatched_files: true

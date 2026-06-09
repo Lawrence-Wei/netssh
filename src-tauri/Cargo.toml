@@ -28,6 +28,9 @@ russh-keys = "0.46"
 # Local PTYs — ConPTY on Windows, pty on macOS and Linux
 portable-pty = "0.8"
 
+# Serial ports (for console serial backends)
+serialport = "4.4"
+
 # SSH config parsing
 ssh2-config = "0.6"
 

@@ -426,14 +426,17 @@ function ManualConnectCard({
   const [port, setPort] = useState("22");
   const [password, setPassword] = useState("");
   const [identityFile, setIdentityFile] = useState<string | undefined>(undefined);
+  const [credentialProfileId, setCredentialProfileId] = useState("");
   const { credentials } = useCredentials();
 
   const applyCredential = (id: string) => {
     if (!id) return;
     const cred = credentials.find((c) => c.id === id);
     if (!cred) return;
+    setCredentialProfileId(id);
     setUser(cred.user);
     if (cred.hasPassword) setPassword("");
+    if (!cred.hasPassword) setPassword("");
     if (cred.identityFile) setIdentityFile(cred.identityFile);
   };
 
@@ -453,6 +456,7 @@ function ManualConnectCard({
           status: "ok",
           deployScope: "unknown",
           hue: "#7c3aed",
+          credentialProfileId: credentialProfileId || undefined,
           identityFile,
           ephemeralPassword: password || undefined,
         };
@@ -468,10 +472,10 @@ function ManualConnectCard({
         <label className="manual-card__cred">
           <span className="k">{t("manual.field.credential", lang)}</span>
           <select
-            defaultValue=""
+            value={credentialProfileId}
             onChange={(e) => {
+              if (!e.target.value) setCredentialProfileId("");
               applyCredential(e.target.value);
-              e.target.value = "";
             }}
           >
             <option value="">{t("manual.field.credential.pick", lang)}</option>

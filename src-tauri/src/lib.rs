@@ -4,6 +4,7 @@ mod pty;
 mod ssh;
 mod ssh_config;
 mod storage;
+mod serial;
 
 use tracing_subscriber::EnvFilter;
 
@@ -30,6 +31,11 @@ pub fn run() {
             commands::pty_send,
             commands::pty_resize,
             commands::pty_close,
+            commands::serial_list_ports,
+            commands::serial_open,
+            commands::serial_send,
+            commands::serial_resize,
+            commands::serial_close,
             commands::shells_detect,
             commands::keys_list,
             commands::cred_store,
@@ -39,6 +45,8 @@ pub fn run() {
             commands::host_ping,
             commands::app_state_get,
             commands::app_state_put,
+            commands::connection_log_open,
+            commands::connection_log_close,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
