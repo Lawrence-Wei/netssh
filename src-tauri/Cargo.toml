@@ -1,7 +1,7 @@
 [package]
 name = "netssh"
 version = "0.0.7"
-description = "Modern SSH / device manager for Windows"
+description = "Modern SSH / infrastructure device manager"
 authors = ["you"]
 edition = "2021"
 
@@ -25,13 +25,13 @@ tokio = { version = "1", features = ["full"] }
 russh = "0.46"
 russh-keys = "0.46"
 
-# Local PTYs — ConPTY on Windows
+# Local PTYs — ConPTY on Windows, pty on macOS and Linux
 portable-pty = "0.8"
 
 # SSH config parsing
 ssh2-config = "0.6"
 
-# Credentials — uses Windows Credential Manager on Windows
+# Credentials — keyring backend: Windows Credential Manager, Keychain on macOS
 keyring = "3.4"
 
 # Storage

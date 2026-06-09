@@ -24,36 +24,23 @@ function Invoke-ValidationCommand {
   )
 
   $resolvedCommand = (Get-Command $Command -ErrorAction Stop).Source
-  $startInfo = New-Object System.Diagnostics.ProcessStartInfo
-  $startInfo.FileName = $resolvedCommand
-  $startInfo.Arguments = ($Arguments | ForEach-Object { ConvertTo-ProcessArgument $_ }) -join " "
-  $startInfo.WorkingDirectory = $repoRoot
-  $startInfo.RedirectStandardOutput = $true
-  $startInfo.RedirectStandardError = $true
-  $startInfo.UseShellExecute = $false
-  $startInfo.CreateNoWindow = $true
-
-  $process = New-Object System.Diagnostics.Process
-  $process.StartInfo = $startInfo
-  [void]$process.Start()
-  $stdout = $process.StandardOutput.ReadToEnd()
-  $stderr = $process.StandardError.ReadToEnd()
-  $process.WaitForExit()
+  $streamedOutput = New-Object System.Collections.Generic.List[string]
+  Push-Location $repoRoot
+  try {
+    & $resolvedCommand @Arguments 2>&1 | ForEach-Object {
+      $line = $_.ToString()
+      $streamedOutput.Add($line)
+      Write-Host $line
+    }
+    $exitCode = $LASTEXITCODE
+  } finally {
+    Pop-Location
+  }
 
   [pscustomobject]@{
-    ExitCode = $process.ExitCode
-    Output = (($stdout, $stderr) -join [Environment]::NewLine).Trim()
+    ExitCode = $exitCode
+    Output = ($streamedOutput -join [Environment]::NewLine).Trim()
   }
-}
-
-function ConvertTo-ProcessArgument {
-  param([string]$Value)
-
-  if ($Value -notmatch '[\s"]') {
-    return $Value
-  }
-
-  '"' + ($Value -replace '\\(?=\\*")', '$0$0' -replace '"', '\"') + '"'
 }
 
 foreach ($item in $commands) {

@@ -6,6 +6,7 @@
 - [x] Add `.ai` product vision, backlog, and iteration rules.
 - [x] Add a PowerShell helper that runs the full validation gate and writes a timestamped report.
 - [x] Add a README app interface screenshot.
+- [x] Refresh the README screenshot with a multi-site network topology view.
 
 ## Phase 1: Asset Inventory + Quick SSH
 

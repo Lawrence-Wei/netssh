@@ -228,6 +228,17 @@ pub fn i18n_detect_system() -> String {
             }
         }
     }
+
+    #[cfg(any(target_os = "macos", target_os = "linux"))]
+    {
+        if let Ok(locale) = std::env::var("LC_ALL").or_else(|_| std::env::var("LANG")) {
+            let locale = locale.to_lowercase();
+            if locale.starts_with("zh") || locale.contains("zh_") {
+                return "zh".into();
+            }
+        }
+    }
+
     "en".into()
 }
 

@@ -1,4 +1,4 @@
-// Local PTY sessions via `portable-pty` (ConPTY on Windows).
+// Local PTY sessions via `portable-pty` (ConPTY on Windows, pty on Linux/macOS).
 //
 // One PtySession = one running shell + its reader thread.
 
@@ -95,20 +95,29 @@ impl PtySession {
     pub fn id(&self) -> &str { &self.id }
 }
 
-// Locate the four common Windows shells. Real impl should:
-//   - check registry for installed PowerShell versions
-//   - read WSL distro list via `wsl.exe -l -v`
-//   - allow user-added entries from settings DB
 pub fn detect_local_shells() -> Vec<ShellInfo> {
     let mut out = Vec::new();
 
-    let candidates = [
-        ("pwsh", "PowerShell 7", "C:\\Program Files\\PowerShell\\7\\pwsh.exe"),
-        ("powershell", "Windows PowerShell", "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe"),
-        ("cmd", "Command Prompt", "C:\\Windows\\System32\\cmd.exe"),
-        ("wsl", "WSL (default distro)", "C:\\Windows\\System32\\wsl.exe"),
-        ("gitbash", "Git Bash", "C:\\Program Files\\Git\\bin\\bash.exe"),
-    ];
+    let candidates = if cfg!(windows) {
+        vec![
+            ("pwsh", "PowerShell 7", "C:\\Program Files\\PowerShell\\7\\pwsh.exe"),
+            (
+                "powershell",
+                "Windows PowerShell",
+                "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+            ),
+            ("cmd", "Command Prompt", "C:\\Windows\\System32\\cmd.exe"),
+            ("wsl", "WSL (default distro)", "C:\\Windows\\System32\\wsl.exe"),
+            ("gitbash", "Git Bash", "C:\\Program Files\\Git\\bin\\bash.exe"),
+        ]
+    } else {
+        vec![
+            ("zsh", "Zsh", "/bin/zsh"),
+            ("bash", "Bash", "/bin/bash"),
+            ("sh", "Sh", "/bin/sh"),
+            ("fish", "Fish", "/usr/bin/fish"),
+        ]
+    };
 
     for (id, name, path) in candidates {
         if std::path::Path::new(path).exists() {

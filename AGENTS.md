@@ -50,6 +50,14 @@ Before autonomous iterations, read:
 - Add tests for security logic, parsers, imports, connection behavior, and bug fixes.
 - Avoid unrelated refactors and do not revert user changes unless explicitly requested.
 
+## Versioning
+- Use SemVer with tags in the form `vMAJOR.MINOR.PATCH`.
+- MAJOR: breaking changes, incompatible API changes, or major architecture changes.
+- MINOR: backward-compatible feature additions.
+- PATCH: backward-compatible bug fixes and small optimizations.
+- Package versions in `package.json` and `src-tauri/Cargo.toml` keep `MAJOR.MINOR.PATCH` format (without `v`).
+- Release workflows must be triggered from tags matching `v*` (for example, `v0.1.0`).
+
 ## File-Scoped Commands
 | Task | Command |
 |------|---------|

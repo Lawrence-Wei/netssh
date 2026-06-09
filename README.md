@@ -125,20 +125,3 @@ src-tauri/target/release/bundle/
 ```
 
 Expected bundle outputs include NSIS and MSI installers when the required Windows build tooling is installed.
-
-## Release Process
-
-1. Update README and release notes.
-2. Run `tools\ai-loop\run-validation.ps1`.
-3. Run `npm run tauri:build`.
-4. Publish the generated installers to GitHub Releases.
-
-Release assets should use the version from `package.json`, `src-tauri/Cargo.toml`, and `src-tauri/tauri.conf.json`.
-
-## Project Direction
-
-Phase 1 focuses on asset inventory, SSH config import, safe SSH connections, favorites, recents, diagnostics, and local-first credential handling.
-
-Phase 2 adds serial console live support: COM port selection, baud rate, 8N1 presets, serial event handling, and terminal live mode.
-
-Phase 3 expands credential profile polish, production asset markers, dangerous command confirmation, and local operation metadata without command bodies.
