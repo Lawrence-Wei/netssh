@@ -274,7 +274,7 @@ export function TerminalPane({ lang, host, shellId, shellTitle, onClose, onRetry
             : undefined;
           const username = credentialProfile?.user || host.user;
           const identityFile = credentialProfile?.identityFile || host.identityFile;
-          let password: string | undefined = host.ephemeralPassword;
+          let password: string | undefined = host.ephemeralPassword ?? undefined;
           if (!password && credentialProfile?.hasPassword) {
             password = await loadPassword(credentialProfile.id).catch(() => undefined);
           }

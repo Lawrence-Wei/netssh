@@ -11,7 +11,7 @@ import { useHosts } from "../store/hosts";
 import { useSessions } from "../store/sessions";
 import { useSettings } from "../store/settings";
 import { useSnippets } from "../store/snippets";
-import { detectSystemLang } from "../utils/i18n";
+import { detectSystemLang, t } from "../utils/i18n";
 import type { Host, Snippet } from "../config/types";
 import type { QueuedCommand } from "./TerminalPane";
 import { useConfirm } from "../components/ConfirmDialog";
