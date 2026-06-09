@@ -342,8 +342,9 @@ jobs:
     if: ${{ github.ref_type == 'tag' || (github.event_name == 'workflow_dispatch' && github.event.inputs.tag != '') }}
     steps:
       - name: Submit to WinGet
-        uses: vedantmgoyal2009/winget-releaser@v2
+        uses: vedantmgoyal9/winget-releaser@v2
         with:
           identifier: LawrenceWei.Netssh
+          installers-regex: '(?i)(\\.msi$|\\.exe$)'
           token: ${{ secrets.WINGET_TOKEN }}
           release-tag: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.tag || github.ref_name }}
