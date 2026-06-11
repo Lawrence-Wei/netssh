@@ -142,6 +142,36 @@ impl Handler for ClientHandler {
                 info!("Key mismatch — user accepted once");
                 Ok(true)
             }
+            Ok(Ok(HostKeyDecision::AcceptAndRemember)) if status == "mismatch" => {
+                info!("Key mismatch — user accepted and will update stored key");
+                match storage::open().and_then(|conn| {
+                    // Remove old entries for this host:port, then store new fingerprint
+                    if let Err(e) = storage::remove_trusted_host_key(
+                        &conn,
+                        &self.host,
+                        self.port,
+                    ) {
+                        warn!(error = %e, "Failed to remove old host key entries");
+                    }
+                    storage::remember_trusted_host_key(
+                        &conn,
+                        &self.host,
+                        self.port,
+                        &key_type,
+                        &fingerprint,
+                    )
+                }) {
+                    Ok(()) => {
+                        info!("Host key updated in trusted_host_keys");
+                        Ok(true)
+                    }
+                    Err(e) => {
+                        error!(error = %e, "Failed to store host key");
+                        set_host_key_error(&self.last_host_key_error, "host_key_store_failed");
+                        Ok(false)
+                    }
+                }
+            }
             Ok(Ok(HostKeyDecision::AcceptAndRemember)) if status == "unknown" => {
                 info!("Host key accepted and will be remembered");
                 match storage::open().and_then(|conn| {
@@ -191,7 +221,16 @@ impl SshSession {
         args: SshOpenArgs,
         challenge_registry: HostKeyChallengeRegistry,
     ) -> Result<Self> {
-        let config = Arc::new(client::Config::default());
+        let mut config = client::Config::default();
+        // Add legacy ssh-rsa host key algorithm for router/embedded device compatibility.
+        {
+            let mut keys: Vec<russh_keys::key::Name> = config.preferred.key.to_vec();
+            if !keys.iter().any(|k| k.0 == russh_keys::key::SSH_RSA.0) {
+                keys.insert(0, russh_keys::key::SSH_RSA);
+                config.preferred.key = std::borrow::Cow::Owned(keys);
+            }
+        }
+        let config = Arc::new(config);
         let addr = format!("{}:{}", args.host, args.port);
         let password = args.password.clone().filter(|p| !p.trim().is_empty());
         let identity_file = args
@@ -214,29 +253,6 @@ impl SshSession {
             has_identity = identity_file.is_some(),
             "SSH connect starting"
         );
-
-        // TCP probe first so we can return a clean "network_unreachable" code.
-        // 注意：这个 TCP 探针会打开再丢弃一条 TCP 连接，某些服务器
-        // fail2ban / MaxStartups 限制可能把第二次真实连接踢掉。
-        // 如果探针成功但后继连接失败，请检查服务器端日志。
-        let probe = tokio::time::timeout(
-            std::time::Duration::from_secs(4),
-            tokio::net::TcpStream::connect(&addr),
-        )
-        .await;
-        match probe {
-            Err(_) => {
-                error!(%addr, "TCP probe timed out");
-                return Err(anyhow!("network_unreachable: timeout connecting to {}", addr));
-            }
-            Ok(Err(e)) => {
-                error!(%addr, error = %e, "TCP probe failed");
-                return Err(anyhow!("network_unreachable: {}", e));
-            }
-            Ok(Ok(_)) => {
-                debug!(%addr, "TCP probe succeeded");
-            }
-        }
 
         // Load known_hosts for this session.
         let mut accepted_keys = load_known_hosts(&args.host, args.port);
@@ -494,7 +510,7 @@ fn load_known_hosts(hostname: &str, port: u16) -> HashSet<String> {
     set
 }
 
-fn load_known_hosts_from_reader<R: BufRead>(
+pub fn load_known_hosts_from_reader<R: BufRead>(
     reader: R,
     hostname: &str,
     port: u16,
@@ -524,7 +540,7 @@ fn load_known_hosts_from_reader<R: BufRead>(
     }
 }
 
-fn host_matches(patterns: &str, hostname: &str, port: u16) -> bool {
+pub fn host_matches(patterns: &str, hostname: &str, port: u16) -> bool {
     patterns
         .split(',')
         .any(|pattern| single_host_matches(pattern.trim(), hostname, port))
@@ -582,17 +598,8 @@ fn set_host_key_error(slot: &Arc<StdMutex<Option<String>>>, value: &str) {
 // ─── key_type_name helper ────────────────────────────────────────────────
 
 fn key_type_name(key: &PublicKey) -> String {
-    // russh_keys PublicKey has a Display impl that usually gives the key type
-    let disp = format!("{key:?}");
-    if disp.contains("Ed25519") {
-        "ssh-ed25519".into()
-    } else if disp.contains("Rsa") {
-        "ssh-rsa".into()
-    } else if disp.contains("Ecdsa") {
-        "ecdsa-sha2-nistp256".into()
-    } else {
-        "ssh-unknown".into()
-    }
+    // Use the proper PublicKey::name() API instead of Debug format
+    key.name().to_string()
 }
 
 // ─── key listing ─────────────────────────────────────────────────────────
@@ -656,7 +663,7 @@ impl SshSession {
     }
 }
 
-fn expand_tilde(s: &str) -> String {
+pub fn expand_tilde(s: &str) -> String {
     if let Some(rest) = s.strip_prefix("~/") {
         if let Some(home) = dirs::home_dir() {
             return home.join(rest).to_string_lossy().into_owned();

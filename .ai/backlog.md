@@ -45,3 +45,6 @@
 - [x] Add dangerous command confirmation.
 - [x] Add local operation log metadata without storing command bodies.
 
+<!-- 2026-06-09 autonomous iteration blocker: process-spawning tools failed with `windows sandbox: spawn setup refresh`, so no backlog item could be selected or implemented in this run. See `.ai/reports/2026-06-09T000000Z-autonomous-iteration-blocked.md`. -->
+> Automation note (2026-06-10): autonomous iteration blocked before backlog selection because command execution failed with `windows sandbox: spawn setup refresh`. See `.ai/reports/2026-06-10T00-00-00Z-autonomous-iteration-blocked.md`.
+<!-- 2026-06-10 autonomous iteration note: blocked before backlog selection because local command execution failed with `windows sandbox: spawn setup refresh`; see `.ai/reports/2026-06-10T02-unknownZ-autonomous-iteration-blocked.md`. -->

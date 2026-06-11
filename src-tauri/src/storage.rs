@@ -192,3 +192,15 @@ pub fn remember_trusted_host_key(
     )?;
     Ok(())
 }
+
+pub fn remove_trusted_host_key(
+    conn: &Connection,
+    host: &str,
+    port: u16,
+) -> Result<()> {
+    conn.execute(
+        "DELETE FROM trusted_host_keys WHERE host = ?1 AND port = ?2",
+        params![host, i64::from(port)],
+    )?;
+    Ok(())
+}

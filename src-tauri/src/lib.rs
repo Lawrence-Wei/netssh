@@ -3,8 +3,16 @@ mod credentials;
 mod pty;
 mod ssh;
 mod ssh_config;
-mod storage;
 mod serial;
+pub mod storage;
+
+// 导出供集成测试使用的符号
+pub use ssh::{list_keys, HostKeyChallengeRegistry, HostKeyDecision, SshSession,
+    host_matches as ssh_host_matches,
+    expand_tilde as ssh_expand_tilde,
+    load_known_hosts_from_reader as ssh_load_known_hosts_from_reader,
+};
+pub use ssh_config::{parse as config_parse};
 
 use tracing_subscriber::EnvFilter;
 
