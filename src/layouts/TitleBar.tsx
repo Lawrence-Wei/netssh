@@ -18,6 +18,8 @@ interface TitleBarProps {
   onDisconnectActive: () => void;
   onGoHome: () => void;
   onOpenSettings: () => void;
+  sidebarCollapsed: boolean;
+  onToggleSidebar: () => void;
 }
 
 export function TitleBar({
@@ -34,6 +36,8 @@ export function TitleBar({
   onDisconnectActive,
   onGoHome,
   onOpenSettings,
+  sidebarCollapsed,
+  onToggleSidebar,
 }: TitleBarProps) {
   const activeTab = tabs.find((tab) => tab.id === activeTabId);
   const canConnect = activeTab?.kind === "host" && !!activeTab.hostId && !activeTab.connected;
@@ -100,6 +104,13 @@ export function TitleBar({
       </div>
 
       <div style={{ display: "flex", alignItems: "center", gap: 6, paddingRight: 8 }}>
+        <button
+          className="icon-btn sidebar-toggle-btn"
+          onClick={onToggleSidebar}
+          title={sidebarCollapsed ? (lang === "zh" ? "Show sidebar" : "Show sidebar") : (lang === "zh" ? "Hide sidebar" : "Hide sidebar")}
+        >
+          {sidebarCollapsed ? Icon.sidebarShow : Icon.sidebarHide}
+        </button>
         <button className="icon-btn" onClick={onOpenSettings} title={lang === "zh" ? "Preferences" : "Preferences"}>
           {Icon.settings}
         </button>

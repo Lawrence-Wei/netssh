@@ -237,7 +237,7 @@ export function brandIcon(host: Host) {
     if (overrideBrand) return overrideBrand.icon;
   }
 
-  const haystack = [host.alias, host.hostname, host.role, (host.tags || []).join(" ")]
+  const haystack = [host.alias, host.hostname, host.role, host.env, (host.tags || []).join(" ")]
     .filter(Boolean)
     .join(" ")
     .toLowerCase();
@@ -256,7 +256,7 @@ export function brandIcon(host: Host) {
 }
 
 export function brandLabel(host: Host): string | null {
-  const haystack = [host.alias, host.hostname, host.role, (host.tags || []).join(" ")]
+  const haystack = [host.alias, host.hostname, host.role, host.env, (host.tags || []).join(" ")]
     .filter(Boolean)
     .join(" ")
     .toLowerCase();

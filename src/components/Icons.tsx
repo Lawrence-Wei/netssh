@@ -5,7 +5,7 @@ export type IconName =
   | "chevron" | "server" | "pi" | "cloud" | "router" | "pin" | "import"
   | "refresh" | "split" | "snippet" | "sftp" | "power" | "copy" | "edit" | "trash" | "tunnel"
   | "palette" | "globe" | "shell" | "key" | "terminal" | "keyboard" | "settings" | "bookmark"
-  | "play" | "check" | "arrow";
+  | "play" | "check" | "arrow" | "sidebarShow" | "sidebarHide";
 
 export const Icon: Record<IconName, ReactNode> = {
   min: <svg viewBox="0 0 10 10" fill="none"><path d="M0 5h10" stroke="currentColor" strokeWidth="1" /></svg>,
@@ -44,4 +44,6 @@ export const Icon: Record<IconName, ReactNode> = {
   play: <svg viewBox="0 0 14 14" fill="none"><path d="M4 2.5L11 7L4 11.5V2.5Z" fill="currentColor" /></svg>,
   check: <svg viewBox="0 0 14 14" fill="none"><path d="M2.5 7.5L5.5 10.5L11.5 4.5" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" /></svg>,
   arrow: <svg viewBox="0 0 14 14" fill="none"><path d="M2 7H12M8 3L12 7L8 11" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round" /></svg>,
+  sidebarShow: <svg viewBox="0 0 14 14" fill="none"><rect x="2" y="2" width="4" height="10" rx="0.8" stroke="currentColor" strokeWidth="1.2" /><rect x="8" y="2" width="4" height="10" rx="0.8" stroke="currentColor" strokeWidth="1.2" /></svg>,
+  sidebarHide: <svg viewBox="0 0 14 14" fill="none"><rect x="2" y="2" width="10" height="10" rx="0.8" stroke="currentColor" strokeWidth="1.2" /><line x1="5" y1="2" x2="5" y2="12" stroke="currentColor" strokeWidth="1" /></svg>,
 };

@@ -705,7 +705,7 @@ input, textarea { background: none; border: 0; outline: none; }
   color: var(--accent);
 }
 .host-icon svg { width: 12px; height: 12px; }
-.host-icon img.brand-img { width: 24px; height: 24px; object-fit: contain; }
+.host-icon img.brand-img { width: 14px; height: 14px; object-fit: contain; }
 .brand-initial {
   font-family: var(--font-display);
   font-size: 11px;
@@ -2931,9 +2931,9 @@ body.reduce-motion *::after {
   border-bottom: 1px solid var(--glass-stroke);
 }
 .host-detail-header__icon {
-  width: 44px;
-  height: 44px;
-  border-radius: 12px;
+  width: 36px;
+  height: 36px;
+  border-radius: 10px;
   display: grid;
   place-items: center;
   background: var(--glass);
@@ -2945,8 +2945,8 @@ body.reduce-motion *::after {
   height: 22px;
 }
 .host-detail-header__icon img.brand-img {
-  width: 30px;
-  height: 30px;
+  width: 22px;
+  height: 22px;
   object-fit: contain;
 }
 .host-detail-header__main {

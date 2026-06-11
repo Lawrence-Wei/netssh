@@ -136,6 +136,8 @@ export default function App() {
     const saved = Number(window.localStorage.getItem("netssh.sidebarWidth"));
     return Number.isFinite(saved) && saved >= 240 && saved <= 460 ? saved : 320;
   });
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const sidebarVisible = !sidebarCollapsed;
   const queueTimerRef = useRef(0);
   const confirm = useConfirm();
 
@@ -205,8 +207,9 @@ export default function App() {
     setSetting(key, value as never);
   };
   const shellColumns = useMemo(() => {
+    if (!sidebarVisible) return "0px 0px minmax(0, 1fr)";
     return `${sidebarWidth}px 6px minmax(0, 1fr)`;
-  }, [sidebarWidth]);
+  }, [sidebarWidth, sidebarVisible]);
 
   const startSidebarResize = (event: ReactPointerEvent<HTMLDivElement>) => {
     event.preventDefault();
@@ -315,48 +318,54 @@ export default function App() {
           goHome();
         }}
         onOpenSettings={openSettings}
+        sidebarCollapsed={sidebarCollapsed}
+        onToggleSidebar={() => setSidebarCollapsed((c) => !c)}
       />
 
       <div className="shell shell--no-rail" style={{ gridTemplateColumns: shellColumns } as CSSProperties}>
-        <Sidebar
-          lang={lang}
-          hosts={hosts}
-          groups={groups}
-          activeHostId={activeHost?.id}
-          onPickHost={selectHost}
-          onDoubleClickHost={(host) => openManagedHost(host, true)}
-          onContextMenu={(event, host) => setCtxMenu({ x: event.clientX, y: event.clientY, host })}
-          onOpenImport={() => setImportOpen(true)}
-          onAddGroup={addGroup}
-          onRenameGroup={renameGroup}
-          onRemoveGroup={removeGroup}
-          onMoveHostToGroup={moveHostToGroup}
-          onRemoveHosts={(ids) => ids.forEach((id) => removeHost(id))}
-          onToggleFavorite={toggleFavorite}
-          onAddHostQuick={() => {
-            const created = addHost({
-              alias: "",
-              hostname: "",
-              user: "",
-              port: 22,
-              group: "unassigned",
-            });
-            setEditingHostId(created.id);
-            selectHost(created);
-          }}
-        />
+        {sidebarVisible && (
+          <Sidebar
+            lang={lang}
+            hosts={hosts}
+            groups={groups}
+            activeHostId={activeHost?.id}
+            onPickHost={selectHost}
+            onDoubleClickHost={(host) => openManagedHost(host, true)}
+            onContextMenu={(event, host) => setCtxMenu({ x: event.clientX, y: event.clientY, host })}
+            onOpenImport={() => setImportOpen(true)}
+            onAddGroup={addGroup}
+            onRenameGroup={renameGroup}
+            onRemoveGroup={removeGroup}
+            onMoveHostToGroup={moveHostToGroup}
+            onRemoveHosts={(ids) => ids.forEach((id) => removeHost(id))}
+            onToggleFavorite={toggleFavorite}
+            onAddHostQuick={() => {
+              const created = addHost({
+                alias: "",
+                hostname: "",
+                user: "",
+                port: 22,
+                group: "unassigned",
+              });
+              setEditingHostId(created.id);
+              selectHost(created);
+            }}
+          />
+        )}
 
-        <div
-          className="sidebar-resizer"
-          role="separator"
-          aria-orientation="vertical"
-          title={lang === "zh" ? "Drag to resize the sidebar. Double-click to reset." : "Drag to resize the sidebar. Double-click to reset."}
-          onPointerDown={startSidebarResize}
-          onDoubleClick={() => {
-            setSidebarWidth(320);
-            window.localStorage.setItem("netssh.sidebarWidth", "320");
-          }}
-        />
+        {sidebarVisible && (
+          <div
+            className="sidebar-resizer"
+            role="separator"
+            aria-orientation="vertical"
+            title={lang === "zh" ? "Drag to resize the sidebar. Double-click to reset." : "Drag to resize the sidebar. Double-click to reset."}
+            onPointerDown={startSidebarResize}
+            onDoubleClick={() => {
+              setSidebarWidth(320);
+              window.localStorage.setItem("netssh.sidebarWidth", "320");
+            }}
+          />
+        )}
 
         <Workspace
           lang={lang}
