@@ -18,7 +18,13 @@ import { remote, type Browser } from "webdriverio";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const projectRoot = resolve(__dirname, "..");
-const exe = resolve(projectRoot, "src-tauri", "target", "debug", "netssh.exe");
+const exe = resolve(
+  projectRoot,
+  "src-tauri",
+  "target",
+  "release",
+  "netssh.exe",
+);
 
 // ── Helpers ───────────────────────────────────────────────
 

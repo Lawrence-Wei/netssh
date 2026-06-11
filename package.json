@@ -13,6 +13,7 @@
     "test": "vitest",
     "lint": "eslint src --ext .ts,.tsx",
     "test:e2e": "pwsh -File scripts/e2e-quick.ps1",
+    "test:e2e:browser": "npx tsx scripts/e2e-browser.ts",
     "test:e2e:runner": "npx tsx scripts/e2e-runner.ts",
     "test:e2e:full": "pwsh -File scripts/e2e-launch.ps1",
     "test:all": "pwsh -File scripts/test-all.ps1"
