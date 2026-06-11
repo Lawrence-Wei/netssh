@@ -26,3 +26,5 @@ src-tauri/target/
 
 # Test
 coverage/
+e2e-failure*.png
+e2e-failure-browser*.png

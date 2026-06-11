@@ -149,7 +149,7 @@ export default function App() {
 
   useEffect(() => {
     void loadFromSshConfig();
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  }, []);
 
   useEffect(() => {
     if (followSystem) void detectSystemLang().then(setLang);
@@ -167,6 +167,22 @@ export default function App() {
     document.body.classList.toggle("no-translucency", !translucency);
     document.body.classList.toggle("reduce-motion", reduceMotion);
   }, [reduceMotion, translucency]);
+
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      const key = event.key?.toLowerCase();
+      if ((event.ctrlKey || event.metaKey) && key === "k") {
+        event.preventDefault();
+        document.querySelector<HTMLElement>(".sidebar .search input")?.focus();
+      }
+      if ((event.ctrlKey || event.metaKey) && key === "m") {
+        event.preventDefault();
+        document.querySelector<HTMLElement>(".manual-card__foot .btn")?.focus();
+      }
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, []);
 
   const activeTab = tabs.find((tab) => tab.id === activeTabId);
   const activeHost =
@@ -298,9 +314,6 @@ export default function App() {
         "--terminal-font-family": fontFamily,
       } as CSSProperties}
     >
-      <div className="aurora"><div className="aurora-blob" /></div>
-      <div className="grain" />
-
       <TitleBar
         lang={lang}
         tabs={tabs}

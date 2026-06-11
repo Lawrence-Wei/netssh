@@ -7,6 +7,7 @@
 - [x] Add a PowerShell helper that runs the full validation gate and writes a timestamped report.
 - [x] Add a README app interface screenshot.
 - [x] Refresh the README screenshot with a multi-site network topology view.
+- [x] Refine the landing workspace for function-first SSH operations (topology filters, compact manual connect, and non-blocking layout).
 
 ## Phase 1: Asset Inventory + Quick SSH
 

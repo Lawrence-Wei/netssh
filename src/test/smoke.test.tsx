@@ -188,12 +188,12 @@ describe("3. Sidebar", () => {
 describe("4. Landing / Home Page", () => {
   it("heading text visible", () => {
     renderApp();
-    expect(screen.getByText(/land tonight/i)).toBeTruthy();
+    expect(screen.getByText(/network operations/i)).toBeTruthy();
   });
 
   it("home-toolbar has buttons", () => {
     renderApp();
-    const tb = document.querySelector(".home-toolbar")!;
+    const tb = document.querySelector(".landing-toolbar")!;
     expect(tb.querySelectorAll("button").length).toBeGreaterThanOrEqual(3);
   });
 
@@ -216,7 +216,7 @@ describe("4. Landing / Home Page", () => {
     /** TopologyView needs host data to render a meaningful topology; reset stores start empty. */
     renderApp();
     /** Verify the home view renders even when topology has no data. */
-    expect(screen.getByText(/land tonight/i)).toBeTruthy();
+    expect(screen.getByText(/network operations/i)).toBeTruthy();
   });
 });
 

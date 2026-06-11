@@ -14,19 +14,42 @@ interface TopologyViewProps {
   groups: Group[];
   onPickHost: (host: Host) => void;
   onOpenHost: (host: Host) => void;
+  showRouters: boolean;
+  showSwitches: boolean;
+  showDevices: boolean;
 }
 
-export function TopologyView({ lang, hosts, groups, onPickHost, onOpenHost }: TopologyViewProps) {
+export function TopologyView({
+  lang,
+  hosts,
+  groups,
+  onPickHost,
+  onOpenHost,
+  showRouters,
+  showSwitches,
+  showDevices,
+}: TopologyViewProps) {
   const knownGroups = new Set(groups.map((group) => group.id));
   const grouped = groups
     .map((group) => ({
       group,
       nodes: hosts
         .filter((host) => host.group === group.id)
-        .map((host) => ({ host, kind: inferKind(host) })),
+        .map((host) => ({ host, kind: inferKind(host) }))
+        .filter((node) => {
+          if (node.kind === "router") return showRouters;
+          if (node.kind === "switch") return showSwitches;
+          return showDevices;
+        }),
     }))
     .filter((item) => item.nodes.length > 0);
-  const orphans = hosts.filter((host) => !knownGroups.has(host.group));
+  const orphans = hosts.filter((host) => !knownGroups.has(host.group))
+    .map((host) => ({ host, kind: inferKind(host) }))
+    .filter((node) => {
+      if (node.kind === "router") return showRouters;
+      if (node.kind === "switch") return showSwitches;
+      return showDevices;
+    });
   if (orphans.length) {
     grouped.push({
       group: {
@@ -34,7 +57,7 @@ export function TopologyView({ lang, hosts, groups, onPickHost, onOpenHost }: To
         name: lang === "zh" ? "Unassigned" : "Unassigned",
         color: "#897e6e",
       },
-      nodes: orphans.map((host) => ({ host, kind: inferKind(host) })),
+      nodes: orphans,
     });
   }
 

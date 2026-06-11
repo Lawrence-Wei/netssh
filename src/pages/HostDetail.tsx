@@ -317,22 +317,24 @@ function Landing({
   onOpenQuad: () => void;
   canOpenQuad: boolean;
 }) {
+  const [showTopology, setShowTopology] = useState(true);
+  const [showRouters, setShowRouters] = useState(true);
+  const [showSwitches, setShowSwitches] = useState(true);
+  const [showDevices, setShowDevices] = useState(false);
+  const [manualCompact, setManualCompact] = useState(true);
+
   return (
-    <div className="landing landing--center">
+    <div className="landing landing--workspace">
       <div className="landing-intro">
         <span className="eyebrow">{t("landing.eyebrow", lang)}</span>
-        <h1 style={{ fontFamily: "var(--font-display)", fontWeight: 300, fontSize: 38, lineHeight: 1.1, margin: "12px 0 10px" }}>
+        <h1>
           {t("landing.heading.start", lang)}{" "}
-          <span style={{ background: "linear-gradient(135deg, var(--accent), var(--accent-2))", WebkitBackgroundClip: "text", color: "transparent", fontWeight: 500 }}>
-            {t("landing.heading.accent", lang)}
-          </span>
+          <span className="landing-accent">{t("landing.heading.accent", lang)}</span>
         </h1>
-        <p style={{ color: "var(--text-dim)", fontSize: 13.5, lineHeight: 1.6, maxWidth: 520 }}>
-          {t("landing.sub", lang)}
-        </p>
+        <p>{t("landing.sub", lang)}</p>
       </div>
 
-      <div className="home-toolbar">
+      <div className="landing-toolbar">
         <button className="btn" onClick={onOpenImport}>
           {Icon.import}
           <span>{t("import.title", lang)}</span>
@@ -363,17 +365,54 @@ function Landing({
           {Icon.split}
           <span>{lang === "zh" ? "Quad view" : "Quad view"}</span>
         </button>
+        <button className="btn ghost" onClick={() => setShowTopology((next) => !next)}>
+          <span>{showTopology ? t("landing.topology.collapse", lang) : t("landing.topology.expand", lang)}</span>
+        </button>
+        <button className="btn ghost" onClick={() => setManualCompact((next) => !next)}>
+          <span>{manualCompact ? t("landing.manual.collapse", lang) : t("landing.manual.expand", lang)}</span>
+        </button>
       </div>
 
-      <TopologyView
-        lang={lang}
-        hosts={hosts}
-        groups={groups}
-        onPickHost={onPickHost}
-        onOpenHost={onOpenHost}
-      />
-
-      <ManualConnectCard lang={lang} onManualConnect={onManualConnect} />
+      <div className="landing-topology-panel">
+        <div className="topology-toolbar">
+          <span className="topology-toolbar__label">
+            <span className="eyebrow">{lang === "zh" ? "拓扑筛选" : "Topology filter"}</span>
+          </span>
+          <div className="topology-toolbar__chips">
+            <button
+              className={"chip " + (showRouters ? "active" : "")}
+              onClick={() => setShowRouters((v) => !v)}
+            >
+              {t("landing.topology.routers", lang)}
+            </button>
+            <button
+              className={"chip " + (showSwitches ? "active" : "")}
+              onClick={() => setShowSwitches((v) => !v)}
+            >
+              {t("landing.topology.switches", lang)}
+            </button>
+            <button
+              className={"chip " + (showDevices ? "active" : "")}
+              onClick={() => setShowDevices((v) => !v)}
+            >
+              {t("landing.topology.devices", lang)}
+            </button>
+          </div>
+        </div>
+        {showTopology && (
+          <TopologyView
+            lang={lang}
+            hosts={hosts}
+            groups={groups}
+            onPickHost={onPickHost}
+            onOpenHost={onOpenHost}
+            showRouters={showRouters}
+            showSwitches={showSwitches}
+            showDevices={showDevices}
+          />
+        )}
+      </div>
+      <ManualConnectCard lang={lang} onManualConnect={onManualConnect} compact={manualCompact} />
     </div>
   );
 }
@@ -413,9 +452,11 @@ function SiteQuickAdd({ lang, onAddGroup }: { lang: Lang; onAddGroup: (name: str
 function ManualConnectCard({
   lang,
   onManualConnect,
+  compact = false,
 }: {
   lang: Lang;
   onManualConnect: (host: Host) => void;
+  compact?: boolean;
 }) {
   const [alias, setAlias] = useState("");
   const [host, setHost] = useState("");
@@ -439,7 +480,7 @@ function ManualConnectCard({
 
   return (
     <form
-      className="manual-card"
+      className={"manual-card" + (compact ? " manual-card--compact" : "")}
       onSubmit={(event) => {
         event.preventDefault();
         if (!host.trim() || !user.trim()) return;

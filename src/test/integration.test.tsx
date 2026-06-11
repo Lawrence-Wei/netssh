@@ -124,7 +124,7 @@ describe("连接错误诊断", () => {
 // ============================================================
 describe("凭据管理", () => {
   it("add credential 写入 localStorage + 触发 credStore", async () => {
-    const { credStore } = await import("../api/tauri");
+    await import("../api/tauri");
     const invokeMock = (await import("@tauri-apps/api/core")).invoke as ReturnType<typeof vi.fn>;
     invokeMock.mockClear();
 
@@ -230,7 +230,7 @@ describe("主机管理 UI", () => {
   });
 
   it("Add host → 自动跳转到详情 → 点击 Edit → Connect", async () => {
-    const result = render(createElement(ConfirmProvider, null, createElement(App)));
+    render(createElement(ConfirmProvider, null, createElement(App)));
     const user = userEvent.setup();
 
     // 侧边栏 Add host
@@ -246,7 +246,7 @@ describe("主机管理 UI", () => {
   });
 
   it("新主机详情显示 hostname、user、port、Connect 按钮", async () => {
-    const result = render(createElement(ConfirmProvider, null, createElement(App)));
+    render(createElement(ConfirmProvider, null, createElement(App)));
     const user = userEvent.setup();
 
     // 先 Add host

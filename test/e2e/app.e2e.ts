@@ -231,7 +231,7 @@ describe("Netssh E2E — Landing / Home", () => {
     await browser.pause(500);
 
     // 首页应显示标语
-    const page = $("text=land tonight");
+    const page = $("text=network operations");
     await expect(page).toBeDisplayed();
   });
 

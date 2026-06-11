@@ -90,12 +90,31 @@ git push origin v1.1.14
 
 ## 6. 发 GitHub Release（可选）
 
-```powershell
+**Bash (Git Bash / WSL)：**
+
+```bash
 gh release create v1.1.14 \
   --title "v1.1.14" \
   --notes "## Changes" \
-  "src-tauri\target\release\bundle\msi\*.msi" \
+  "src-tauri/target/release/bundle/msi/*.msi" \
+  "src-tauri/target/release/bundle/nsis/*.exe"
+```
+
+**PowerShell：**（注意用 `` ` `` 续行，路径用 `\`）
+
+```powershell
+gh release create v1.1.14 `
+  --title "v1.1.14" `
+  --notes "## Changes" `
+  "src-tauri\target\release\bundle\msi\*.msi" `
   "src-tauri\target\release\bundle\nsis\*.exe"
+```
+
+**如果碰到 `mintty` 错误**（Git Bash），改用 cmd 或 PowerShell 终端运行 `gh`，或者加环境变量：
+
+```bash
+# Git Bash 里需要伪装终端
+MSYS=enable_pcon gh release create v1.1.14 ...
 ```
 
 ## 一步到位脚本

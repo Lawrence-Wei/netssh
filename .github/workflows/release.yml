@@ -140,11 +140,25 @@ jobs:
         run: |
           mkdir -p release-artifacts
           for target in x86_64-pc-windows-msvc aarch64-pc-windows-msvc; do
+            ARCH="${target/x86_64-pc-windows-msvc/x64}"
+            ARCH="${ARCH/aarch64-pc-windows-msvc/aarch64}"
             for pkg in msi nsis; do
               src_dir="src-tauri/target/${target}/release/bundle/${pkg}"
               if [ -d "${src_dir}" ]; then
                 mkdir -p "release-artifacts/${target}/${pkg}"
-                cp -v ${src_dir}/* release-artifacts/${target}/${pkg}/
+                for f in ${src_dir}/*; do
+                  [ -f "$f" ] || continue
+                  base="$(basename "$f")"
+                  case "$pkg" in
+                    msi)
+                      dst="Netssh_${ARCH}_windows_installer.msi"
+                      ;;
+                    nsis)
+                      dst="Netssh_${ARCH}_windows_setup.exe"
+                      ;;
+                  esac
+                  cp -v "$f" "release-artifacts/${target}/${pkg}/${dst}"
+                done
               fi
             done
           done

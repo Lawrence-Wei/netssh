@@ -4,7 +4,7 @@
  * Run: npx wdio run wdio.conf.ts --spec src/test/e2e/smoke.e2e.ts
  */
 
-import { browser, $, $$, expect } from "@wdio/globals";
+import { $, $$, expect } from "@wdio/globals";
 
 describe("Netssh — Smoke Tests", () => {
   //
