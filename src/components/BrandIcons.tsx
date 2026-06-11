@@ -19,9 +19,12 @@ const BRAND_RULES: BrandRule[] = [
     test: /zspace|z-space|zima|nance/i,
     icon: (
       <svg viewBox="0 0 14 14" fill="none" aria-label="ZSpace">
-        <rect x="1.5" y="1.5" width="11" height="11" rx="2" fill="#1A73E8" stroke="#1A73E8" strokeWidth="0.5" />
-        <path d="M4.2 3.8l5.6 6.4M9.8 3.8L4.2 10.2" stroke="#fff" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round" />
-        <path d="M9.5 3.3v1.5h-1.2M4.5 10.7v-1.5h1.2" stroke="#fff" strokeWidth="0.9" strokeLinecap="round" strokeLinejoin="round" />
+        {/* Left face — dark blue side */}
+        <polygon points="2.5,4.5 7,1.5 7,6.5 2.5,9" fill="#0033AA" />
+        {/* Top-right face — light blue top */}
+        <polygon points="7,1.5 11.5,4.5 11.5,9 7,6.5" fill="#66B2FF" />
+        {/* Bottom-front face — medium blue */}
+        <polygon points="2.5,9 7,6.5 11.5,9" fill="#3366CC" />
       </svg>
     ),
     label: "ZSpace",
@@ -67,9 +70,19 @@ const BRAND_RULES: BrandRule[] = [
     id: "huawei",
     test: /huawei|hw[-_]?|vrp|usg|s5700|s6700|s7700|s9700|s12700/i,
     icon: (
-      <svg viewBox="0 0 14 14" fill="none">
-        <path d="M7 1.5L3 7l4 5.5L11 7 7 1.5z" stroke="currentColor" strokeWidth="1.1" strokeLinejoin="round" />
-        <path d="M5 7l2-2 2 2-2 2-2-2z" fill="currentColor" opacity="0.55" />
+      <svg viewBox="0 0 14 14" fill="none" aria-label="Huawei">
+        <circle cx="7" cy="7" r="5.5" fill="#CF0A2C" />
+        {/* 8 petals radiating from center */}
+        <path d="M7 1.5C7 3.2 8.6 4.5 10.3 4.5C9.2 5.3 7.9 5.5 7 5.5V1.5z" fill="#fff" />
+        <path d="M7 1.5C7 3.2 5.4 4.5 3.7 4.5C4.8 5.3 6.1 5.5 7 5.5V1.5z" fill="#fff" />
+        <path d="M12.5 7C10.8 7 9.5 8.6 9.5 10.3C8.7 9.2 8.5 7.9 8.5 7L12.5 7z" fill="#fff" />
+        <path d="M12.5 7C10.8 7 9.5 5.4 9.5 3.7C8.7 4.8 8.5 6.1 8.5 7L12.5 7z" fill="#fff" />
+        <path d="M7 12.5C7 10.8 5.4 9.5 3.7 9.5C4.8 8.7 6.1 8.5 7 8.5V12.5z" fill="#fff" />
+        <path d="M7 12.5C7 10.8 8.6 9.5 10.3 9.5C9.2 8.7 7.9 8.5 7 8.5V12.5z" fill="#fff" />
+        <path d="M1.5 7C3.2 7 4.5 5.4 4.5 3.7C5.3 4.8 5.5 6.1 5.5 7L1.5 7z" fill="#fff" />
+        <path d="M1.5 7C3.2 7 4.5 8.6 4.5 10.3C5.3 9.2 5.5 7.9 5.5 7L1.5 7z" fill="#fff" />
+        {/* hub */}
+        <circle cx="7" cy="7" r="1.4" fill="#CF0A2C" />
       </svg>
     ),
     label: "Huawei Switch",
@@ -128,12 +141,14 @@ const BRAND_RULES: BrandRule[] = [
     test: /ubuntu|mint|elementary/i,
     icon: (
       <svg viewBox="0 0 14 14" fill="none" aria-label="Ubuntu">
-        <circle cx="7" cy="7" r="5.5" fill="#E95420" stroke="#E95420" strokeWidth="0.5" />
-        <circle cx="7" cy="7" r="3.5" stroke="#fff" strokeWidth="0.7" />
-        <circle cx="4.8" cy="5.2" r="1" fill="none" stroke="#fff" strokeWidth="0.7" />
-        <circle cx="9.2" cy="5.2" r="1" fill="none" stroke="#fff" strokeWidth="0.7" />
-        <circle cx="7" cy="8.8" r="1.2" fill="none" stroke="#fff" strokeWidth="0.7" />
-        <path d="M4.8 5.2L7 7l2.2-1.8M7 7v1.8" stroke="#fff" strokeWidth="0.4" strokeLinecap="round" />
+        <circle cx="7" cy="7" r="5.5" fill="#E95420" />
+        <circle cx="7" cy="3" r="1.15" fill="white" />
+        <circle cx="10.5" cy="9" r="1.15" fill="white" />
+        <circle cx="3.5" cy="9" r="1.15" fill="white" />
+        <circle cx="7" cy="7" r="1.3" fill="white" />
+        <line x1="7" y1="4.1" x2="7" y2="5.7" stroke="white" strokeWidth="1.5" strokeLinecap="round" />
+        <line x1="9.8" y1="8.2" x2="8.2" y2="7.6" stroke="white" strokeWidth="1.5" strokeLinecap="round" />
+        <line x1="4.2" y1="8.2" x2="5.8" y2="7.6" stroke="white" strokeWidth="1.5" strokeLinecap="round" />
       </svg>
     ),
     label: "Ubuntu",
@@ -200,9 +215,9 @@ const BRAND_RULES: BrandRule[] = [
     id: "h3c",
     test: /\bh3c\b|comware/i,
     icon: (
-      <svg viewBox="0 0 14 14" fill="none">
-        <rect x="1.5" y="3" width="11" height="8" rx="1" stroke="currentColor" strokeWidth="1.1" />
-        <text x="3" y="9" fontFamily="Inter,Arial,sans-serif" fontSize="4" fontWeight="700" fill="currentColor">H3C</text>
+      <svg viewBox="0 0 14 14" fill="none" aria-label="H3C">
+        <rect x="0.5" y="0.5" width="13" height="13" rx="2" fill="#E60012" />
+        <text x="7" y="10.2" fontFamily="Arial,Helvetica,sans-serif" fontSize="6.2" fontWeight="900" fill="#fff" textAnchor="middle" letterSpacing="-0.3">H3C</text>
       </svg>
     ),
     label: "H3C",
@@ -251,18 +266,21 @@ const BRAND_RULES: BrandRule[] = [
     icon: (
       <svg viewBox="0 0 14 14" fill="none" aria-label="Raspberry Pi">
         <circle cx="7" cy="7" r="5.5" fill="#A22846" stroke="#A22846" strokeWidth="0.3" />
-        {/* Raspberry body */}
-        <ellipse cx="7" cy="9" rx="4" ry="2.5" fill="#C51A4A" />
-        <ellipse cx="7" cy="8.5" rx="3.5" ry="2" fill="#E81B5C" />
-        {/* Surface bumps */}
-        <circle cx="5.2" cy="7.2" r="0.8" fill="#C51A4A" />
-        <circle cx="7" cy="6.5" r="0.9" fill="#C51A4A" />
-        <circle cx="8.8" cy="7.2" r="0.8" fill="#C51A4A" />
-        <circle cx="6" cy="5.8" r="0.7" fill="#C51A4A" />
-        <circle cx="8" cy="5.8" r="0.7" fill="#C51A4A" />
-        {/* Leaf */}
-        <path d="M7 5.5C7 4 8.5 2.5 9.5 2C9 2.8 8.5 4.2 9 5.2" fill="#6ABF4B" stroke="#4A9E2F" strokeWidth="0.3" strokeLinecap="round" />
-        <path d="M7.5 5.2C7.2 4 6 2.8 5.5 2.2" stroke="#6ABF4B" strokeWidth="0.8" strokeLinecap="round" />
+        {/* top */}
+        <circle cx="7" cy="3.8" r="1.2" fill="#CD2355" />
+        {/* upper ring */}
+        <circle cx="5.4" cy="4.6" r="1.2" fill="#CD2355" />
+        <circle cx="8.6" cy="4.6" r="1.2" fill="#CD2355" />
+        {/* middle ring */}
+        <circle cx="4.3" cy="6.0" r="1.2" fill="#CD2355" />
+        <circle cx="6.3" cy="5.6" r="1.3" fill="#CD2355" />
+        <circle cx="7.7" cy="5.6" r="1.3" fill="#CD2355" />
+        <circle cx="9.7" cy="6.0" r="1.2" fill="#CD2355" />
+        {/* lower ring */}
+        <circle cx="5.4" cy="7.5" r="1.2" fill="#CD2355" />
+        <circle cx="8.6" cy="7.5" r="1.2" fill="#CD2355" />
+        {/* bottom */}
+        <circle cx="7" cy="8.5" r="1.1" fill="#CD2355" />
       </svg>
     ),
     label: "Raspberry Pi",
