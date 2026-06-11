@@ -257,15 +257,17 @@ describe("主机管理 UI", () => {
     await user.click(addBtn);
     await waitFor(() => screen.getByText(/Edit host/i), { timeout: 3000 });
 
-    // 点 Cancel 退出编辑
-    const cancelBtns = screen.getAllByText("Cancel");
-    await user.click(cancelBtns[cancelBtns.length - 1]);
+    // 填写 alias 然后 Save
+    const aliasInput = screen.getByPlaceholderText("my-server");
+    await user.clear(aliasInput);
+    await user.type(aliasInput, "itg-host");
+    await user.click(screen.getByText("Save"));
 
     await waitFor(() => {
       expect(screen.getByText("Connect")).toBeTruthy();
     }, { timeout: 3000 });
-    expect(screen.getByText("example.com")).toBeTruthy();
-    expect(screen.getByText("root")).toBeTruthy();
+    const aliasEls = screen.getAllByText("itg-host");
+    expect(aliasEls.length).toBeGreaterThanOrEqual(2);
     expect(screen.getByText("22")).toBeTruthy();
   });
 });

@@ -150,13 +150,14 @@ describe("3. Sidebar", () => {
     expect(sidebar().querySelectorAll(".sidebar-quick__btn").length).toBe(4);
   });
 
-  it("Add host creates host in sidebar list", async () => {
+  it("Add host opens editor without appearing in sidebar", async () => {
     const { user } = renderApp();
     await user.click(within(sidebar()).getByText("Add host"));
     await waitFor(() => {
-      const aliases = Array.from(sidebar().querySelectorAll(".host-alias")).map((e) => e.textContent);
-      expect(aliases).toContain("new-host");
+      expect(screen.getByText(/Edit host/i)).toBeTruthy();
     });
+    const aliases = Array.from(sidebar().querySelectorAll(".host-alias")).map((e) => e.textContent);
+    expect(aliases.every((a) => a !== "")).toBe(true);
   });
 
   it("batch mode: enter → actions visible → Done exits", async () => {
@@ -231,18 +232,18 @@ describe("5. HostDetail & Editor", () => {
     });
   });
 
-  it("editor alias field pre-filled with 'new-host'", async () => {
+  it("editor alias field starts empty", async () => {
     const { user } = renderApp();
     await user.click(within(sidebar()).getByText("Add host"));
     await waitFor(() => screen.getByText(/Edit host/i));
-    expect(screen.getByDisplayValue("new-host")).toBeTruthy();
+    expect((screen.getByPlaceholderText(/my-server/i) as HTMLInputElement).value).toBe("");
   });
 
-  it("editor hostname field pre-filled with 'example.com'", async () => {
+  it("editor hostname field starts empty", async () => {
     const { user } = renderApp();
     await user.click(within(sidebar()).getByText("Add host"));
     await waitFor(() => screen.getByText(/Edit host/i));
-    expect(screen.getByDisplayValue("example.com")).toBeTruthy();
+    expect((screen.getAllByPlaceholderText("192.168.1.1 / example.com")[0] as HTMLInputElement).value).toBe("");
   });
 
   it("Cancel exits editor, Connect button appears", async () => {
@@ -256,15 +257,20 @@ describe("5. HostDetail & Editor", () => {
     });
   });
 
-  it("detail view shows SSH info: hostname, user, port", async () => {
+  it("detail view shows SSH info after saving host", async () => {
     const { user } = renderApp();
     await user.click(within(sidebar()).getByText("Add host"));
     await waitFor(() => screen.getByText(/Edit host/i));
-    const cancelBtns = screen.getAllByText("Cancel");
-    await user.click(cancelBtns[cancelBtns.length - 1]);
+    // Fill in and save
+    const aliasInput = screen.getByPlaceholderText(/my-server/i);
+    await user.clear(aliasInput);
+    await user.type(aliasInput, "test-detail-host");
+    await user.click(screen.getByText("Save"));
     await waitFor(() => screen.getByText("Connect"));
-    expect(screen.getByText("example.com")).toBeTruthy();
-    expect(screen.getByText("root")).toBeTruthy();
+    // The alias appears in sidebar and detail both — check sidebar shows it
+    const aliasEls = screen.getAllByText("test-detail-host");
+    expect(aliasEls.length).toBeGreaterThanOrEqual(2);
+    // Port 22 should be visible in detail view
     expect(screen.getByText("22")).toBeTruthy();
   });
 
@@ -272,9 +278,13 @@ describe("5. HostDetail & Editor", () => {
     const { user } = renderApp();
     await user.click(within(sidebar()).getByText("Add host"));
     await waitFor(() => screen.getByText(/Edit host/i));
-    const cancelBtns = screen.getAllByText("Cancel");
-    await user.click(cancelBtns[cancelBtns.length - 1]);
+    // Save with a name first
+    const aliasInput = screen.getByPlaceholderText(/my-server/i);
+    await user.clear(aliasInput);
+    await user.type(aliasInput, "editable-host");
+    await user.click(screen.getByText("Save"));
     await waitFor(() => screen.getByText("Connect"));
+    // Now re-edit
     await user.click(screen.getByText("Edit"));
     await waitFor(() => {
       expect(screen.getByText(/Edit host/i)).toBeTruthy();

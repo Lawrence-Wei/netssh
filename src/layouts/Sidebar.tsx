@@ -59,7 +59,7 @@ export function Sidebar({
   const confirm = useConfirm();
 
   const filtered = useMemo(() => {
-    let list = [...hosts];
+    let list = [...hosts].filter((h) => h.alias.trim());
     if (filter === "favorite") list = list.filter(isFavoriteHost);
     if (filter === "recent") list = list.filter((host) => Boolean(host.lastConnectedAt));
     if (filter === "local") list = list.filter((host) => deployScope(host) === "local");

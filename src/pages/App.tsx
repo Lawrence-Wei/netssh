@@ -120,6 +120,17 @@ export default function App() {
   const [ctxMenu, setCtxMenu] = useState<null | { x: number; y: number; host: Host }>(null);
   const [runQueue, setRunQueue] = useState<QueuedCommand[]>([]);
   const [editingHostId, setEditingHostId] = useState<string | null>(null);
+  const cancelEditCleanup = () => {
+    if (editingHostId) {
+      const host = useHosts.getState().hosts.find((h) => h.id === editingHostId);
+      if (host && !host.alias) {
+        useHosts.getState().removeHost(editingHostId);
+        const tab = useSessions.getState().tabs.find((t) => t.kind === "host" && t.hostId === editingHostId);
+        if (tab) useSessions.getState().closeTab(tab.id);
+      }
+    }
+    setEditingHostId(null);
+  };
   const [importOpen, setImportOpen] = useState(false);
   const [sidebarWidth, setSidebarWidth] = useState(() => {
     const saved = Number(window.localStorage.getItem("netssh.sidebarWidth"));
@@ -324,9 +335,9 @@ export default function App() {
           onToggleFavorite={toggleFavorite}
           onAddHostQuick={() => {
             const created = addHost({
-              alias: "new-host",
-              hostname: "example.com",
-              user: "root",
+              alias: "",
+              hostname: "",
+              user: "",
               port: 22,
               group: "unassigned",
             });
@@ -368,6 +379,7 @@ export default function App() {
           groups={groups}
           editingHostId={editingHostId}
           setEditingHostId={setEditingHostId}
+          cancelHostEdit={cancelEditCleanup}
           onAddHost={addHost}
           onUpdateHost={updateHost}
           onRemoveHost={(id) => {

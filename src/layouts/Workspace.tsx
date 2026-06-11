@@ -29,6 +29,7 @@ interface WorkspaceProps {
   groups: Group[];
   editingHostId: string | null;
   setEditingHostId: (id: string | null) => void;
+  cancelHostEdit: () => void;
   onAddHost: (host: Omit<Host, "id"> & { id?: string }) => Host;
   onUpdateHost: (id: string, patch: Partial<Host>) => void;
   onRemoveHost: (id: string) => void;
@@ -59,6 +60,7 @@ export function Workspace({
   groups,
   editingHostId,
   setEditingHostId,
+  cancelHostEdit,
   onAddHost,
   onUpdateHost,
   onRemoveHost,
@@ -195,7 +197,7 @@ export function Workspace({
           groups={groups}
           editing={false}
           startEditing={() => {}}
-          cancelEditing={() => {}}
+          cancelEditing={cancelHostEdit}
           onUpdateHost={onUpdateHost}
           onRemoveHost={onRemoveHost}
           onAddHost={onAddHost}
@@ -223,7 +225,7 @@ export function Workspace({
           groups={groups}
           editing={editingHostId === activeHost?.id}
           startEditing={() => activeHost && setEditingHostId(activeHost.id)}
-          cancelEditing={() => setEditingHostId(null)}
+          cancelEditing={cancelHostEdit}
           onUpdateHost={onUpdateHost}
           onRemoveHost={onRemoveHost}
           onAddHost={(host) => {

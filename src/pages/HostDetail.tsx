@@ -341,9 +341,9 @@ function Landing({
           className="btn ghost"
           onClick={() => {
             const created = onAddHost({
-              alias: "new-host",
-              hostname: "example.com",
-              user: "root",
+              alias: "",
+              hostname: "",
+              user: "",
               port: 22,
               group: groups[0]?.id || "unassigned",
             });
