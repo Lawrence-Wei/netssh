@@ -30,6 +30,7 @@ export default function App() {
     renameGroup,
     removeGroup,
     moveHostToGroup,
+    loadFromSshConfig,
   } = useHosts(
     (s) => ({
       hosts: s.hosts,
@@ -44,6 +45,7 @@ export default function App() {
       renameGroup: s.renameGroup,
       removeGroup: s.removeGroup,
       moveHostToGroup: s.moveHostToGroup,
+      loadFromSshConfig: s.loadFromSshConfig,
     }),
     shallow
   );
@@ -131,6 +133,10 @@ export default function App() {
       window.clearTimeout(queueTimerRef.current);
     };
   }, []);
+
+  useEffect(() => {
+    void loadFromSshConfig();
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     if (followSystem) void detectSystemLang().then(setLang);

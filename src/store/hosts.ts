@@ -45,7 +45,20 @@ export const useHosts = create<HostsState>()(
           if (parsed.length === 0) return;
 
           const existing = get().hosts;
-          const merged = [...existing];
+          const merged = existing.map((h) => {
+            const fresh = parsed.find((p) => p.alias === h.alias);
+            if (!fresh) return h;
+            return {
+              ...h,
+              hostname: fresh.hostname ?? h.hostname,
+              user: fresh.user ?? h.user,
+              port: fresh.port ?? h.port,
+              identityFile: fresh.identityFile ?? h.identityFile,
+              aliases: fresh.aliases ?? h.aliases,
+              source: fresh.source ?? h.source,
+              group: fresh.group && fresh.group !== "unassigned" ? fresh.group : h.group,
+            };
+          });
           parsed.forEach((host, index) => {
             const dup = existing.find((h) => h.alias === host.alias);
             if (dup) return;
