@@ -51,7 +51,12 @@ export const useSessions = create<SessionsState>((set, get) => ({
   openHost: (h, connectNow = true) => {
     const existing = get().tabs.find((t) => t.kind === "host" && t.hostId === h.id);
     if (existing) {
-      set({ activeTabId: existing.id });
+      set({
+        activeTabId: existing.id,
+        tabs: connectNow
+          ? get().tabs.map((t) => (t.id === existing.id ? { ...t, connected: true } : t))
+          : get().tabs,
+      });
       return;
     }
     const id = `tab-${Date.now()}`;

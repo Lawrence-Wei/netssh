@@ -84,7 +84,7 @@
   "manual.field.alias.placeholder": "(optional)",
   "manual.field.credential": "Use saved",
   "manual.field.credential.pick": "Pick a credential…",
-  "manual.action.connect": "Open session",
+  "manual.action.connect": "Connect",
   "common.save": "Save",
   "common.cancel": "Cancel",
   "common.add": "Add",

@@ -418,6 +418,7 @@ input, textarea { background: none; border: 0; outline: none; }
   flex-shrink: 0;
 }
 .tab-icon svg { width: 12px; height: 12px; }
+.tab-icon img.brand-img { width: 14px; height: 14px; object-fit: contain; }
 .tab .label { overflow: hidden; text-overflow: ellipsis; }
 .tab .x {
   width: 16px; height: 16px;
@@ -704,6 +705,7 @@ input, textarea { background: none; border: 0; outline: none; }
   color: var(--accent);
 }
 .host-icon svg { width: 12px; height: 12px; }
+.host-icon img.brand-img { width: 24px; height: 24px; object-fit: contain; }
 .brand-initial {
   font-family: var(--font-display);
   font-size: 11px;
@@ -2941,6 +2943,11 @@ body.reduce-motion *::after {
 .host-detail-header__icon svg {
   width: 22px;
   height: 22px;
+}
+.host-detail-header__icon img.brand-img {
+  width: 30px;
+  height: 30px;
+  object-fit: contain;
 }
 .host-detail-header__main {
   flex: 1;

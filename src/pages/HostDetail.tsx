@@ -116,7 +116,6 @@ export function HostDetail({
 
   return (
     <div className="landing">
-      <ManualConnectCard lang={lang} onManualConnect={onManualConnect} compact />
 
       {/* Host identity header */}
       <div className="host-detail-header">
@@ -414,11 +413,9 @@ function SiteQuickAdd({ lang, onAddGroup }: { lang: Lang; onAddGroup: (name: str
 function ManualConnectCard({
   lang,
   onManualConnect,
-  compact = false,
 }: {
   lang: Lang;
   onManualConnect: (host: Host) => void;
-  compact?: boolean;
 }) {
   const [alias, setAlias] = useState("");
   const [host, setHost] = useState("");
@@ -442,7 +439,7 @@ function ManualConnectCard({
 
   return (
     <form
-      className={"manual-card" + (compact ? " manual-card--compact" : "")}
+      className="manual-card"
       onSubmit={(event) => {
         event.preventDefault();
         if (!host.trim() || !user.trim()) return;

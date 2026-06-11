@@ -54,7 +54,7 @@ try {
 # 跑 wdio
 Write-Host "Running E2E tests..." -ForegroundColor Yellow
 Push-Location $projectRoot
-npx wdio run webdriverio.conf.ts
+npx wdio run wdio.conf.ts
 $exitCode = $LASTEXITCODE
 Pop-Location
 

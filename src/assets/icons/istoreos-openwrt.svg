@@ -1,0 +1,19 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" role="img" aria-label="OpenWrt">
+  <defs>
+    <linearGradient id="bg" x1="32" y1="18" x2="224" y2="238" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#6d79ff"/>
+      <stop offset="0.55" stop-color="#6573e9"/>
+      <stop offset="1" stop-color="#5868d2"/>
+    </linearGradient>
+    <filter id="shadow" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="0" dy="8" stdDeviation="10" flood-color="#000000" flood-opacity="0.22"/>
+    </filter>
+  </defs>
+  <rect width="256" height="256" rx="26" fill="url(#bg)"/>
+  <g filter="url(#shadow)">
+    <path fill="#fff" fill-rule="evenodd" d="M128 34c52 0 94 42 94 94 0 38-23 72-57 86v-43c14-11 22-26 22-43 0-32-27-59-59-59s-59 27-59 59c0 17 8 32 22 43v43c-34-14-57-48-57-86 0-52 42-94 94-94z"/>
+    <circle cx="128" cy="128" r="34" fill="#6675ea"/>
+    <rect x="109" y="147" width="38" height="60" rx="18" fill="#6675ea"/>
+  </g>
+  <text x="128" y="228" text-anchor="middle" fill="#fff" font-family="Inter, Segoe UI, Arial, sans-serif" font-size="33" font-weight="800" letter-spacing="0">openwrt</text>
+</svg>

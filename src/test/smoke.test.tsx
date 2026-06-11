@@ -500,7 +500,7 @@ describe("14. Error Handling", () => {
   it("empty manual connect submit does not crash", async () => {
     const { user } = renderApp();
     const card = document.querySelector(".manual-card")!;
-    await user.click(within(card as HTMLElement).getByText("Open session"));
+    await user.click(within(card as HTMLElement).getByText("Connect"));
     expect(screen.getByText("Netssh")).toBeTruthy();
   });
 
