@@ -6,16 +6,17 @@ import { Sidebar } from "../layouts/Sidebar";
 import { ContextMenu } from "../layouts/ContextMenu";
 import { Workspace } from "../layouts/Workspace";
 import { ImportDialog } from "./ImportDialog";
-import type { QuickCommand } from "../config/defaults";
+import { LOCAL_SHELLS, type QuickCommand } from "../config/defaults";
 import { useHosts } from "../store/hosts";
 import { useSessions } from "../store/sessions";
 import { useSettings } from "../store/settings";
 import { useSnippets } from "../store/snippets";
 import { detectSystemLang, t } from "../utils/i18n";
+import { filterHostsForInventory, type HostListFilter } from "../utils/hostFilters";
 import type { Host, Snippet } from "../config/types";
 import type { QueuedCommand } from "./TerminalPane";
 import { useConfirm } from "../components/ConfirmDialog";
-import { Icon } from "../components/Icons";
+import { onSshHostMetadata, type SshHostMetadata } from "../api/tauri";
 
 export default function App() {
   const {
@@ -100,6 +101,20 @@ export default function App() {
     reduceMotion,
     fontSize,
     fontFamily,
+    terminalCursorStyle,
+    terminalCursorBlink,
+    terminalScrollback,
+    terminalCopyOnSelect,
+    terminalRightClickPaste,
+    terminalLocale,
+    terminalTimezone,
+    defaultShellId,
+    defaultShellName,
+    defaultShellPath,
+    customShells,
+    hardwareAcceleration,
+    telemetry,
+    autostart,
     allowConfigWrite,
   } = useSettings(
     (s) => ({
@@ -113,6 +128,20 @@ export default function App() {
       reduceMotion: s.reduceMotion,
       fontSize: s.fontSize,
       fontFamily: s.fontFamily,
+      terminalCursorStyle: s.terminalCursorStyle,
+      terminalCursorBlink: s.terminalCursorBlink,
+      terminalScrollback: s.terminalScrollback,
+      terminalCopyOnSelect: s.terminalCopyOnSelect,
+      terminalRightClickPaste: s.terminalRightClickPaste,
+      terminalLocale: s.terminalLocale,
+      terminalTimezone: s.terminalTimezone,
+      defaultShellId: s.defaultShellId,
+      defaultShellName: s.defaultShellName,
+      defaultShellPath: s.defaultShellPath,
+      customShells: s.customShells,
+      hardwareAcceleration: s.hardwareAcceleration,
+      telemetry: s.telemetry,
+      autostart: s.autostart,
       allowConfigWrite: s.allowConfigWrite,
     }),
     shallow
@@ -121,6 +150,8 @@ export default function App() {
   const [ctxMenu, setCtxMenu] = useState<null | { x: number; y: number; host: Host }>(null);
   const [runQueue, setRunQueue] = useState<QueuedCommand[]>([]);
   const [editingHostId, setEditingHostId] = useState<string | null>(null);
+  const [hostQuery, setHostQuery] = useState("");
+  const [hostFilter, setHostFilter] = useState<HostListFilter>("all");
   const cancelEditCleanup = () => {
     if (editingHostId) {
       const host = useHosts.getState().hosts.find((h) => h.id === editingHostId);
@@ -152,6 +183,22 @@ export default function App() {
 
   useEffect(() => {
     void loadFromSshConfig();
+  }, []);
+
+  useEffect(() => {
+    let unlisten: (() => void) | undefined;
+    void onSshHostMetadata((metadata) => {
+      const state = useHosts.getState();
+      const target = state.hosts.find((host) => metadataMatchesHost(metadata, host));
+      if (!target || target.connectionType === "serial") return;
+      const patch = hostMetadataPatch(target, metadata);
+      if (Object.keys(patch).length > 0) {
+        state.updateHost(target.id, patch);
+      }
+    }).then((fn) => {
+      unlisten = fn;
+    });
+    return () => unlisten?.();
   }, []);
 
   useEffect(() => {
@@ -195,6 +242,15 @@ export default function App() {
         null
       : null;
   const activeQuickCommands = activeHost ? quickCommands[activeHost.id] || quickCommands[activeHost.alias] || [] : [];
+  const homeHosts = useMemo(
+    () => filterHostsForInventory(hosts, { query: hostQuery, filter: hostFilter }),
+    [hostFilter, hostQuery, hosts]
+  );
+  const homeHostScopeFiltered = hostQuery.trim().length > 0 || hostFilter !== "all";
+  const inventoryHostCount = useMemo(
+    () => hosts.filter((host) => host.alias.trim()).length,
+    [hosts]
+  );
 
   const openManagedHost = (host: Host, connectNow = true) => {
     if (connectNow) markConnected(host.id);
@@ -208,16 +264,51 @@ export default function App() {
     connectActive();
   };
 
-  const settingsSnapshot = useMemo(
+  const settingsSnapshot = useMemo<Parameters<typeof Workspace>[0]["settings"]>(
     () => ({
       translucency,
       reduceMotion,
       fontSize,
       fontFamily,
+      terminalCursorStyle,
+      terminalCursorBlink,
+      terminalScrollback,
+      terminalCopyOnSelect,
+      terminalRightClickPaste,
+      terminalLocale,
+      terminalTimezone,
+      defaultShellId,
+      defaultShellName,
+      defaultShellPath,
+      customShells,
+      hardwareAcceleration,
+      telemetry,
+      autostart,
       followSystem,
       allowConfigWrite,
     }),
-    [translucency, reduceMotion, fontSize, fontFamily, followSystem, allowConfigWrite]
+    [
+      translucency,
+      reduceMotion,
+      fontSize,
+      fontFamily,
+      terminalCursorStyle,
+      terminalCursorBlink,
+      terminalScrollback,
+      terminalCopyOnSelect,
+      terminalRightClickPaste,
+      terminalLocale,
+      terminalTimezone,
+      defaultShellId,
+      defaultShellName,
+      defaultShellPath,
+      customShells,
+      hardwareAcceleration,
+      telemetry,
+      autostart,
+      followSystem,
+      allowConfigWrite,
+    ]
   );
   const updateSetting = <K extends keyof typeof settingsSnapshot>(
     key: K,
@@ -265,6 +356,10 @@ export default function App() {
     }
     if (action === "edit") {
       useSessions.getState().clearSplit();
+      const hostTab = useSessions
+        .getState()
+        .tabs.find((tab) => tab.kind === "host" && tab.hostId === host.id);
+      if (hostTab?.connected) disconnectTab(hostTab.id);
       selectHost(host);
       setEditingHostId(host.id);
     }
@@ -333,8 +428,21 @@ export default function App() {
         activeTabId={activeTabId}
         onSelectTab={setActive}
         onCloseTab={closeTab}
+        onTabContextMenu={(event, tab) => {
+          if (tab.kind !== "host" || !tab.hostId) return;
+          const host = hosts.find((item) => item.id === tab.hostId);
+          if (!host) return;
+          event.preventDefault();
+          event.stopPropagation();
+          setActive(tab.id);
+          setCtxMenu({ x: event.clientX, y: event.clientY, host });
+        }}
         onNewTab={newTab}
-        onNewLocalShell={() => openLocalShell()}
+        onNewLocalShell={() => openLocalShell(
+          defaultShellId || "pwsh",
+          defaultShellName || defaultShellTitle(defaultShellId),
+          defaultShellPath
+        )}
         onConnectActive={connectActiveHost}
         onDisconnectActive={() => activeTab && disconnectTab(activeTab.id)}
         onGoHome={() => {
@@ -347,19 +455,6 @@ export default function App() {
       />
 
       <div className="shell shell--no-rail" style={{ gridTemplateColumns: shellColumns } as CSSProperties}>
-        {!sidebarVisible && (
-          <button
-            type="button"
-            className="sidebar-restore"
-            title={t("sidebar.action.show", lang)}
-            aria-label={t("sidebar.action.show", lang)}
-            onClick={() => updateSidebarCollapsed(false)}
-          >
-            {Icon.sidebarShow}
-            <span>{t("sidebar.action.show", lang)}</span>
-          </button>
-        )}
-
         {sidebarVisible && (
           <Sidebar
             lang={lang}
@@ -376,7 +471,10 @@ export default function App() {
             onMoveHostToGroup={moveHostToGroup}
             onRemoveHosts={(ids) => ids.forEach((id) => removeHost(id))}
             onToggleFavorite={toggleFavorite}
-            onCollapseSidebar={() => updateSidebarCollapsed(true)}
+            query={hostQuery}
+            filter={hostFilter}
+            onQueryChange={setHostQuery}
+            onFilterChange={setHostFilter}
             onAddHostQuick={() => {
               const created = addHost({
                 alias: "",
@@ -410,6 +508,9 @@ export default function App() {
           tab={activeTab}
           activeHost={activeHost}
           hosts={hosts}
+          homeHosts={homeHosts}
+          homeHostScopeFiltered={homeHostScopeFiltered}
+          inventoryHostCount={inventoryHostCount}
           ephemeralHosts={ephemeralHosts}
           snippets={snippets}
           categories={categories}
@@ -463,6 +564,52 @@ export default function App() {
       )}
     </div>
   );
+}
+
+function metadataMatchesHost(metadata: SshHostMetadata, host: Host) {
+  if (host.alias === metadata.alias) return true;
+  if (host.aliases?.includes(metadata.alias)) return true;
+  return host.hostname === metadata.host && host.port === metadata.port;
+}
+
+function hostMetadataPatch(host: Host, metadata: SshHostMetadata): Partial<Host> {
+  const patch: Partial<Host> = {};
+  if (
+    metadata.icon_override &&
+    metadata.icon_override !== host.iconOverride &&
+    (!host.iconOverride || metadata.icon_confidence >= 80)
+  ) {
+    patch.iconOverride = metadata.icon_override;
+  }
+  if (metadata.role && !host.role) {
+    patch.role = metadata.role;
+  }
+
+  const mergedTags = mergeDetectedTags(host.tags, metadata.tags);
+  if (mergedTags && !sameStringList(mergedTags, host.tags || [])) {
+    patch.tags = mergedTags;
+  }
+  return patch;
+}
+
+function mergeDetectedTags(current: string[] | undefined, detected: string[] | undefined) {
+  if (!detected?.length) return current;
+  const tags = [...(current || [])];
+  for (const rawTag of detected) {
+    const tag = rawTag.trim();
+    if (!tag || tags.some((item) => item.toLowerCase() === tag.toLowerCase())) continue;
+    tags.push(tag);
+  }
+  return tags;
+}
+
+function sameStringList(a: string[], b: string[]) {
+  if (a.length !== b.length) return false;
+  return a.every((item, index) => item === b[index]);
+}
+
+function defaultShellTitle(shellId?: string) {
+  return LOCAL_SHELLS.find((shell) => shell.id === shellId)?.name || "PowerShell";
 }
 
 const dangerousCommandPatterns: RegExp[] = [

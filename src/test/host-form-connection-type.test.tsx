@@ -107,5 +107,57 @@ describe("HostEditorFull connection type switching", () => {
     expect((screen.getByLabelText("User") as HTMLInputElement).value).toBe("admin");
     expect(screen.queryByLabelText("COM port")).toBeNull();
   });
+
+  it("offers Huawei switch as a device type override", async () => {
+    const onSave = vi.fn();
+    render(
+      <HostEditorFull
+        lang="zh"
+        host={buildHost({ alias: "switch" })}
+        groups={groups}
+        onSave={onSave}
+        onCancel={vi.fn()}
+        onRemove={vi.fn()}
+        onAddGroup={vi.fn((name: string) => ({ id: name, name, color: "#000" }))}
+      />
+    );
+
+    const deviceTypeSelect = screen
+      .getAllByLabelText("设备类型")
+      .find((element) => element.tagName === "SELECT") as HTMLSelectElement;
+    expect(deviceTypeSelect).toBeTruthy();
+    expect(Array.from(deviceTypeSelect.options).some((option) => option.value === "huawei" && option.textContent === "华为交换机")).toBe(true);
+
+    await userEvent.selectOptions(deviceTypeSelect, "huawei");
+    await userEvent.click(screen.getByText("保存"));
+
+    expect(onSave).toHaveBeenCalledWith(expect.objectContaining({ iconOverride: "huawei" }));
+  });
+
+  it("offers Cisco switch as a device type override", async () => {
+    const onSave = vi.fn();
+    render(
+      <HostEditorFull
+        lang="zh"
+        host={buildHost({ alias: "switch" })}
+        groups={groups}
+        onSave={onSave}
+        onCancel={vi.fn()}
+        onRemove={vi.fn()}
+        onAddGroup={vi.fn((name: string) => ({ id: name, name, color: "#000" }))}
+      />
+    );
+
+    const deviceTypeSelect = screen
+      .getAllByLabelText("设备类型")
+      .find((element) => element.tagName === "SELECT") as HTMLSelectElement;
+    expect(deviceTypeSelect).toBeTruthy();
+    expect(Array.from(deviceTypeSelect.options).some((option) => option.value === "cisco" && option.textContent === "思科交换机")).toBe(true);
+
+    await userEvent.selectOptions(deviceTypeSelect, "cisco");
+    await userEvent.click(screen.getByText("保存"));
+
+    expect(onSave).toHaveBeenCalledWith(expect.objectContaining({ iconOverride: "cisco" }));
+  });
 });
 

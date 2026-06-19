@@ -5,7 +5,7 @@ export type IconName =
   | "chevron" | "server" | "pi" | "cloud" | "router" | "pin" | "import"
   | "refresh" | "split" | "snippet" | "sftp" | "power" | "copy" | "edit" | "trash" | "tunnel"
   | "palette" | "globe" | "shell" | "key" | "terminal" | "keyboard" | "settings" | "bookmark"
-  | "play" | "check" | "arrow" | "sidebarShow" | "sidebarHide";
+  | "info" | "play" | "check" | "arrow" | "sidebarShow" | "sidebarHide";
 
 export const Icon: Record<IconName, ReactNode> = {
   min: <svg viewBox="0 0 10 10" fill="none"><path d="M0 5h10" stroke="currentColor" strokeWidth="1" /></svg>,
@@ -41,6 +41,7 @@ export const Icon: Record<IconName, ReactNode> = {
   keyboard: <svg viewBox="0 0 14 14" fill="none"><rect x="1" y="3.5" width="12" height="7" rx="1" stroke="currentColor" strokeWidth="1.2" /><path d="M3 6H3.1M5 6H5.1M7 6H7.1M9 6H9.1M11 6H11.1M3 8.5H4M10 8.5H11M5.5 8.5H8.5" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" /></svg>,
   settings: <svg viewBox="0 0 16 16" fill="none"><path d="M6.9 3H9.1L9.45 4.6C9.82 4.74 10.16 4.94 10.47 5.18L12 4.58L13.1 6.48L11.82 7.48C11.87 7.81 11.87 8.18 11.82 8.52L13.1 9.52L12 11.42L10.47 10.82C10.16 11.06 9.82 11.26 9.45 11.4L9.1 13H6.9L6.55 11.4C6.18 11.26 5.84 11.06 5.53 10.82L4 11.42L2.9 9.52L4.18 8.52C4.13 8.18 4.13 7.81 4.18 7.48L2.9 6.48L4 4.58L5.53 5.18C5.84 4.94 6.18 4.74 6.55 4.6L6.9 3Z" stroke="currentColor" strokeWidth="1.15" strokeLinejoin="round" /><circle cx="8" cy="8" r="2" stroke="currentColor" strokeWidth="1.15" /></svg>,
   bookmark: <svg viewBox="0 0 14 14" fill="none"><path d="M3 1.5H11V12.5L7 9.5L3 12.5V1.5Z" stroke="currentColor" strokeWidth="1.2" strokeLinejoin="round" /></svg>,
+  info: <svg viewBox="0 0 14 14" fill="none"><circle cx="7" cy="7" r="5.5" stroke="currentColor" strokeWidth="1.2" /><path d="M7 6.5V10" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" /><circle cx="7" cy="4.2" r="0.7" fill="currentColor" /></svg>,
   play: <svg viewBox="0 0 14 14" fill="none"><path d="M4 2.5L11 7L4 11.5V2.5Z" fill="currentColor" /></svg>,
   check: <svg viewBox="0 0 14 14" fill="none"><path d="M2.5 7.5L5.5 10.5L11.5 4.5" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" /></svg>,
   arrow: <svg viewBox="0 0 14 14" fill="none"><path d="M2 7H12M8 3L12 7L8 11" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round" /></svg>,

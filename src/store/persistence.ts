@@ -1,5 +1,5 @@
 import type { StateStorage } from "zustand/middleware";
-import { appStateGet, appStatePut } from "../api/tauri";
+import { appStateDelete, appStateGet, appStatePut } from "../api/tauri";
 
 export const appStorage: StateStorage = {
   async getItem(name) {
@@ -12,6 +12,9 @@ export const appStorage: StateStorage = {
     return window.localStorage.getItem(name);
   },
   async setItem(name, value) {
+    if (containsSensitiveAppState(name, value)) {
+      throw new Error("app_state_sensitive_value_rejected");
+    }
     window.localStorage.setItem(name, value);
     try {
       await appStatePut(name, value);
@@ -19,7 +22,24 @@ export const appStorage: StateStorage = {
       // Keep localStorage as a reliable preview/offline fallback.
     }
   },
-  removeItem(name) {
+  async removeItem(name) {
     window.localStorage.removeItem(name);
+    try {
+      await appStateDelete(name);
+    } catch {
+      // Browser preview and older native builds may not expose delete yet.
+    }
   },
 };
+
+function containsSensitiveAppState(name: string, value: string) {
+  const haystack = `${name} ${value}`.toLowerCase();
+  return [
+    "password",
+    "passphrase",
+    "privatekey",
+    "private_key",
+    "ephemeralpassword",
+    "ephemeral_password",
+  ].some((needle) => haystack.includes(needle));
+}

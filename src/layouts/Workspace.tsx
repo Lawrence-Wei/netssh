@@ -13,6 +13,9 @@ interface WorkspaceProps {
   tab?: Tab;
   activeHost?: Host | null;
   hosts: Host[];
+  homeHosts: Host[];
+  homeHostScopeFiltered: boolean;
+  inventoryHostCount: number;
   ephemeralHosts: Record<string, Host>;
   snippets: Snippet[];
   categories: Parameters<typeof SnippetsLibrary>[0]["categories"];
@@ -44,6 +47,9 @@ export function Workspace({
   tab,
   activeHost,
   hosts,
+  homeHosts,
+  homeHostScopeFiltered,
+  inventoryHostCount,
   ephemeralHosts,
   snippets,
   categories,
@@ -180,6 +186,7 @@ export function Workspace({
         <TerminalPane
           lang={lang}
           shellId={tab.shellId}
+          shellPath={tab.shellPath}
           shellTitle={tab.title}
           onClose={onDisconnect}
           runQueue={runQueue}
@@ -192,7 +199,9 @@ export function Workspace({
           onConnect={onConnect}
           snippets={snippets}
           quickCmds={quickCommands}
-          hosts={hosts}
+          hosts={homeHosts}
+          hostScopeFiltered={homeHostScopeFiltered}
+          inventoryHostCount={inventoryHostCount}
           onRunSnippet={onRunSnippet}
           groups={groups}
           editing={false}

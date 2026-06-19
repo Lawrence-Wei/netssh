@@ -6,6 +6,7 @@ import { brandIcon } from "../components/BrandIcons";
 import { useConfirm } from "../components/ConfirmDialog";
 import { deployScope, deployScopeLabel } from "../utils/deployScope";
 import { groupHostsForDisplay } from "../utils/groups";
+import { filterHostsForInventory, isFavoriteHost, sortHostsForSidebar, type HostListFilter } from "../utils/hostFilters";
 import type { Group, GroupId, Host, Lang } from "../config/types";
 import { Icon } from "../components/Icons";
 
@@ -25,7 +26,10 @@ interface SidebarProps {
   onAddHostQuick: () => void;
   onRemoveHosts: (ids: string[]) => void;
   onToggleFavorite: (hostId: string) => void;
-  onCollapseSidebar?: () => void;
+  query?: string;
+  filter?: HostListFilter;
+  onQueryChange?: (query: string) => void;
+  onFilterChange?: (filter: HostListFilter) => void;
 }
 
 export function Sidebar({
@@ -44,12 +48,15 @@ export function Sidebar({
   onAddHostQuick,
   onRemoveHosts,
   onToggleFavorite,
-  onCollapseSidebar,
+  query: controlledQuery,
+  filter: controlledFilter,
+  onQueryChange,
+  onFilterChange,
 }: SidebarProps) {
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
   const [dragOverGroup, setDragOverGroup] = useState<GroupId | null>(null);
-  const [query, setQuery] = useState("");
-  const [filter, setFilter] = useState<"all" | "favorite" | "recent" | "local" | "cloud">("all");
+  const [internalQuery, setInternalQuery] = useState("");
+  const [internalFilter, setInternalFilter] = useState<HostListFilter>("all");
   const [siteEditor, setSiteEditor] = useState(false);
   const [newSite, setNewSite] = useState("");
   const [newSiteSubnet, setNewSiteSubnet] = useState("");
@@ -60,23 +67,21 @@ export function Sidebar({
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const reachability = useReachability(hosts);
   const confirm = useConfirm();
+  const query = controlledQuery ?? internalQuery;
+  const filter = controlledFilter ?? internalFilter;
+
+  const updateQuery = (nextQuery: string) => {
+    if (controlledQuery === undefined) setInternalQuery(nextQuery);
+    onQueryChange?.(nextQuery);
+  };
+
+  const updateFilter = (nextFilter: HostListFilter) => {
+    if (controlledFilter === undefined) setInternalFilter(nextFilter);
+    onFilterChange?.(nextFilter);
+  };
 
   const filtered = useMemo(() => {
-    let list = [...hosts].filter((h) => h.alias.trim());
-    if (filter === "favorite") list = list.filter(isFavoriteHost);
-    if (filter === "recent") list = list.filter((host) => Boolean(host.lastConnectedAt));
-    if (filter === "local") list = list.filter((host) => deployScope(host) === "local");
-    if (filter === "cloud") list = list.filter((host) => deployScope(host) === "cloud");
-    if (query.trim()) {
-      const q = query.toLowerCase();
-      list = list.filter((host) =>
-        [host.alias, host.hostname, host.role, host.user, (host.tags || []).join(" ")]
-          .join(" ")
-          .toLowerCase()
-          .includes(q)
-      );
-    }
-    return sortHostsForSidebar(list, filter);
+    return sortHostsForSidebar(filterHostsForInventory(hosts, { query, filter }), filter);
   }, [filter, hosts, query]);
 
   const filteredIds = useMemo(() => new Set(filtered.map((h) => h.id)), [filtered]);
@@ -138,22 +143,11 @@ export function Sidebar({
           <span className="eyebrow">{t("sidebar.eyebrow", lang)}</span>
           <span className="sidebar-title__actions">
             <span className="count">{filtered.length}</span>
-            {onCollapseSidebar && (
-              <button
-                type="button"
-                className="icon-btn sidebar-title__toggle"
-                title={t("sidebar.action.hide", lang)}
-                aria-label={t("sidebar.action.hide", lang)}
-                onClick={onCollapseSidebar}
-              >
-                {Icon.sidebarHide}
-              </button>
-            )}
           </span>
         </div>
         <div className="search">
           {Icon.search}
-          <input placeholder={t("sidebar.search", lang)} value={query} onChange={(event) => setQuery(event.target.value)} />
+          <input placeholder={t("sidebar.search", lang)} value={query} onChange={(event) => updateQuery(event.target.value)} />
           <kbd>Ctrl + K</kbd>
         </div>
         <div className="sidebar-filters">
@@ -164,7 +158,7 @@ export function Sidebar({
             ["local", lang === "zh" ? "本地" : "Local"],
             ["cloud", lang === "zh" ? "云端" : "Cloud"],
           ].map(([id, label]) => (
-            <button key={id} className={"chip " + (filter === id ? "active" : "")} onClick={() => setFilter(id as typeof filter)}>
+            <button key={id} className={"chip " + (filter === id ? "active" : "")} onClick={() => updateFilter(id as HostListFilter)}>
               {label}
             </button>
           ))}
@@ -453,26 +447,6 @@ function latencyClass(latency?: number | null, status?: Host["status"]) {
   if (latency < 20) return "ok";
   if (latency < 60) return "warn";
   return "bad";
-}
-
-function isFavoriteHost(host: Host) {
-  return Boolean(host.favorite ?? host.pinned);
-}
-
-function sortHostsForSidebar(
-  hosts: Host[],
-  filter: "all" | "favorite" | "recent" | "local" | "cloud"
-) {
-  return [...hosts].sort((a, b) => {
-    if (filter === "recent") {
-      return (b.lastConnectedAt || 0) - (a.lastConnectedAt || 0);
-    }
-    const favoriteDelta = Number(isFavoriteHost(b)) - Number(isFavoriteHost(a));
-    if (favoriteDelta !== 0) return favoriteDelta;
-    const recentDelta = (b.lastConnectedAt || 0) - (a.lastConnectedAt || 0);
-    if (recentDelta !== 0) return recentDelta;
-    return a.alias.localeCompare(b.alias);
-  });
 }
 
 function formatRecent(timestamp: number, lang: Lang) {

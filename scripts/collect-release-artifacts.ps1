@@ -36,10 +36,27 @@ if (!$artifacts) {
   throw "No Tauri bundle artifacts matching version $version were found under $bundleRootPath."
 }
 
-if (Test-Path $releaseDirPath) {
-  Remove-Item -LiteralPath $releaseDirPath -Recurse -Force
-}
 New-Item -ItemType Directory -Force -Path $releaseDirPath | Out-Null
+
+$artifactDirs = $artifacts |
+  ForEach-Object {
+    $relativePath = $_.FullName.Substring($bundleRootPath.Length).TrimStart('\', '/')
+    Split-Path $relativePath -Parent
+  } |
+  Sort-Object -Unique
+
+foreach ($relativeDir in $artifactDirs) {
+  $targetDir = if ([string]::IsNullOrWhiteSpace($relativeDir)) {
+    $releaseDirPath
+  } else {
+    Join-Path $releaseDirPath $relativeDir
+  }
+
+  if (Test-Path $targetDir) {
+    Get-ChildItem -LiteralPath $targetDir -Recurse -File |
+      Remove-Item -Force
+  }
+}
 
 foreach ($artifact in $artifacts) {
   $relativePath = $artifact.FullName.Substring($bundleRootPath.Length).TrimStart('\', '/')

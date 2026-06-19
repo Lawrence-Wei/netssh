@@ -77,6 +77,15 @@ Before marking development work complete, run:
 tools\ai-loop\run-validation.ps1
 ```
 
+## Local Install Gate
+After any Netssh code/UI/backend/test change passes validation and `npm run tauri:build` succeeds, automatically install and relaunch the freshly built app on this Windows machine unless the user explicitly says not to install:
+
+```powershell
+pwsh -NoProfile -ExecutionPolicy Bypass -File C:\Users\lawrence\.agents\skills\netssh-auto-install\scripts\install-netssh.ps1 -RepoRoot D:\projects\netssh
+```
+
+Use the installer under `D:\projects\netssh\releases\vMAJOR.MINOR.PATCH\nsis`. This replaces the previously installed local Netssh app for user `lawrence` and starts the new `Netssh.exe`.
+
 ## Final Response
 For development tasks, include:
 - What changed

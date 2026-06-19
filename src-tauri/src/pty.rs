@@ -19,13 +19,25 @@ pub struct PtySession {
 }
 
 impl PtySession {
-    pub fn spawn(app: &AppHandle, id: &str, shell_id: &str) -> Result<Self> {
+    pub fn spawn(
+        app: &AppHandle,
+        id: &str,
+        shell_id: &str,
+        shell_path: Option<&str>,
+        terminal_locale: Option<&str>,
+        terminal_timezone: Option<&str>,
+    ) -> Result<Self> {
         let shells = detect_local_shells();
-        let shell = shells
-            .iter()
-            .find(|s| s.id == shell_id)
-            .or_else(|| shells.iter().find(|s| s.is_default))
-            .ok_or_else(|| anyhow::anyhow!("no shell available"))?;
+        let shell_program = if let Some(path) = shell_path.filter(|path| !path.trim().is_empty()) {
+            path
+        } else {
+            shells
+                .iter()
+                .find(|s| s.id == shell_id)
+                .or_else(|| shells.iter().find(|s| s.is_default))
+                .map(|shell| shell.path.as_str())
+                .ok_or_else(|| anyhow::anyhow!("no shell available"))?
+        };
 
         let pty_system = native_pty_system();
         let pair = pty_system.openpty(PtySize {
@@ -35,10 +47,11 @@ impl PtySession {
             pixel_height: 0,
         })?;
 
-        let mut cmd = CommandBuilder::new(&shell.path);
+        let mut cmd = CommandBuilder::new(shell_program);
         if let Some(home) = dirs::home_dir() {
             cmd.cwd(home);
         }
+        apply_terminal_env(&mut cmd, terminal_locale, terminal_timezone);
         let child = pair.slave.spawn_command(cmd)?;
         drop(pair.slave);
 
@@ -93,6 +106,26 @@ impl PtySession {
 
     #[allow(dead_code)]
     pub fn id(&self) -> &str { &self.id }
+}
+
+fn apply_terminal_env(
+    cmd: &mut CommandBuilder,
+    terminal_locale: Option<&str>,
+    terminal_timezone: Option<&str>,
+) {
+    if let Some(locale) = clean_env_value(terminal_locale) {
+        cmd.env("LANG", locale);
+        cmd.env("LC_ALL", locale);
+    }
+    if let Some(timezone) = clean_env_value(terminal_timezone) {
+        cmd.env("TZ", timezone);
+    }
+}
+
+fn clean_env_value(value: Option<&str>) -> Option<&str> {
+    value
+        .map(str::trim)
+        .filter(|value| !value.is_empty() && !value.contains('\0') && !value.contains('='))
 }
 
 pub fn detect_local_shells() -> Vec<ShellInfo> {

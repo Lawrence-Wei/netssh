@@ -6,11 +6,12 @@
 use std::collections::{HashMap, HashSet};
 use std::io::{BufRead, BufReader};
 use std::sync::{Arc, Mutex as StdMutex};
+use std::time::Duration;
 
 use anyhow::{anyhow, Result};
 use async_trait::async_trait;
 use base64::Engine;
-use russh::client::{Handle, Handler};
+use russh::client::{Handle, Handler, KeyboardInteractiveAuthResponse, Prompt};
 use russh::*;
 use russh_keys::key::PublicKey;
 use tauri::{AppHandle, Emitter};
@@ -55,6 +56,24 @@ pub struct HostKeyChallenge {
     pub can_remember: bool,
 }
 
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct SshHostMetadata {
+    pub session_id: String,
+    pub alias: String,
+    pub host: String,
+    pub port: u16,
+    pub remote_hostname: Option<String>,
+    pub os_id: Option<String>,
+    pub os_name: Option<String>,
+    pub os_pretty_name: Option<String>,
+    pub kernel: Option<String>,
+    pub model: Option<String>,
+    pub icon_override: Option<String>,
+    pub icon_confidence: u8,
+    pub role: Option<String>,
+    pub tags: Vec<String>,
+}
+
 #[derive(Debug, Clone, serde::Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum HostKeyDecision {
@@ -75,6 +94,32 @@ enum SshCommand {
     Resize(u16, u16),
     Close,
 }
+
+const HOST_METADATA_SCRIPT: &str = r#"printf '__NETSSH_BEGIN__\n'
+if [ -r /etc/os-release ]; then
+  cat /etc/os-release
+elif [ -r /usr/lib/os-release ]; then
+  cat /usr/lib/os-release
+fi
+if [ -r /etc/openwrt_release ]; then
+  printf '__NETSSH_OPENWRT_RELEASE__=1\n'
+  cat /etc/openwrt_release
+fi
+if [ -d /etc/pve ] || uname -r 2>/dev/null | grep -qi pve; then
+  printf '__NETSSH_PVE__=1\n'
+fi
+if [ -r /proc/device-tree/model ]; then
+  printf '__NETSSH_MODEL__='
+  tr -d '\000' </proc/device-tree/model
+  printf '\n'
+fi
+printf '__NETSSH_HOSTNAME__=%s\n' "$(hostname 2>/dev/null || uname -n 2>/dev/null || true)"
+printf '__NETSSH_KERNEL__=%s\n' "$(uname -srm 2>/dev/null || true)"
+printf '__NETSSH_END__\n'"#;
+
+const NETWORK_METADATA_COMMANDS: &[&str] = &["display version", "show version"];
+const SSH_TCP_CONNECT_TIMEOUT: Duration = Duration::from_secs(8);
+const SSH_AUTH_ATTEMPT_TIMEOUT: Duration = Duration::from_secs(12);
 
 #[async_trait]
 impl Handler for ClientHandler {
@@ -256,8 +301,33 @@ impl SshSession {
             challenge_registry,
             last_host_key_error: last_host_key_error.clone(),
         };
+        info!("Opening TCP connection for SSH");
+        let socket = match tokio::time::timeout(
+            SSH_TCP_CONNECT_TIMEOUT,
+            tokio::net::TcpStream::connect(&addr),
+        )
+        .await
+        {
+            Ok(Ok(socket)) => socket,
+            Ok(Err(e)) => {
+                error!(error = %e, "SSH TCP connection failed");
+                return Err(anyhow!("connect_failed: {}", e));
+            }
+            Err(_) => {
+                error!(
+                    timeout_ms = SSH_TCP_CONNECT_TIMEOUT.as_millis() as u64,
+                    "SSH TCP connection timed out"
+                );
+                return Err(anyhow!(
+                    "connect_timeout: no response from {} after {} seconds",
+                    addr,
+                    SSH_TCP_CONNECT_TIMEOUT.as_secs()
+                ));
+            }
+        };
+
         info!("Starting SSH handshake and key exchange");
-        let mut handle = match client::connect(config, addr.clone(), handler).await {
+        let mut handle = match client::connect_stream(config, socket, handler).await {
             Ok(h) => {
                 info!("SSH handshake + key exchange completed");
                 h
@@ -276,15 +346,20 @@ impl SshSession {
             }
         };
 
-        // Authenticate: try publickey first, then password.
+        // Authenticate: try publickey first, then password / keyboard-interactive.
         let authed = if let Some(ref identity_file) = identity_file {
-            match try_publickey_auth(&mut handle, &args.user, identity_file, &args.passphrase).await {
-                Ok(true) => {
+            match tokio::time::timeout(
+                SSH_AUTH_ATTEMPT_TIMEOUT,
+                try_publickey_auth(&mut handle, &args.user, identity_file, &args.passphrase),
+            )
+            .await
+            {
+                Ok(Ok(true)) => {
                     info!(user = %args.user, key = %identity_file, "Public-key auth succeeded");
                     true
                 }
-                Ok(false) => false,
-                Err(err) if password.is_some() => {
+                Ok(Ok(false)) => false,
+                Ok(Err(err)) if password.is_some() => {
                     warn!(
                         user = %args.user,
                         key = %identity_file,
@@ -293,9 +368,31 @@ impl SshSession {
                     );
                     false
                 }
-                Err(err) => {
+                Ok(Err(err)) => {
                     error!(user = %args.user, key = %identity_file, error = %err, "Public-key auth fatal");
                     return Err(err);
+                }
+                Err(_) if password.is_some() => {
+                    warn!(
+                        user = %args.user,
+                        key = %identity_file,
+                        timeout_ms = SSH_AUTH_ATTEMPT_TIMEOUT.as_millis() as u64,
+                        "Public-key auth timed out, falling back to password"
+                    );
+                    false
+                }
+                Err(_) => {
+                    error!(
+                        user = %args.user,
+                        key = %identity_file,
+                        timeout_ms = SSH_AUTH_ATTEMPT_TIMEOUT.as_millis() as u64,
+                        "Public-key auth timed out"
+                    );
+                    return Err(anyhow!(
+                        "auth_timeout: public-key authentication timed out for {}@{}",
+                        args.user,
+                        args.host
+                    ));
                 }
             }
         } else {
@@ -304,49 +401,110 @@ impl SshSession {
 
         if !authed {
             if let Some(ref password) = password {
-                // Validate the username locally; servers usually answer "auth failed"
-                // identically whether the user exists or not, so we catch the obvious
-                // cases (empty / whitespace / disallowed chars) up front.
-                if args.user.trim().is_empty()
-                    || args
-                        .user
-                        .chars()
-                        .any(|c| c.is_whitespace() || c == ':')
-                {
-                    warn!(user = %args.user, "Username validation failed locally");
-                    return Err(anyhow!(
-                        "username_invalid: \"{}\" is not a valid SSH username",
-                        args.user
-                    ));
-                }
+                validate_username(&args.user)?;
                 info!(user = %args.user, host = %args.host, "Attempting password auth");
-                let ok = handle
-                    .authenticate_password(&args.user, password)
-                    .await
-                    .map_err(|e| {
+                let ok = match tokio::time::timeout(
+                    SSH_AUTH_ATTEMPT_TIMEOUT,
+                    handle.authenticate_password(&args.user, password),
+                )
+                .await
+                {
+                    Ok(result) => result.map_err(|e| {
                         error!(error = %e, "Password auth protocol error");
                         anyhow!("auth_error: {}", e)
-                    })?;
-                if !ok {
-                    warn!(user = %args.user, host = %args.host, "Password rejected by server");
+                    })?,
+                    Err(_) => {
+                        error!(
+                            user = %args.user,
+                            host = %args.host,
+                            timeout_ms = SSH_AUTH_ATTEMPT_TIMEOUT.as_millis() as u64,
+                            "Password auth timed out"
+                        );
+                        return Err(anyhow!(
+                            "auth_timeout: password authentication timed out for {}@{}",
+                            args.user,
+                            args.host
+                        ));
+                    }
+                };
+                if ok {
+                    info!(user = %args.user, "Password auth succeeded");
+                } else {
+                    info!(user = %args.user, "Password auth rejected, trying keyboard-interactive");
+                    let keyboard_ok = match tokio::time::timeout(
+                        SSH_AUTH_ATTEMPT_TIMEOUT,
+                        try_keyboard_interactive_auth(&mut handle, &args.user, password),
+                    )
+                    .await
+                    {
+                        Ok(result) => result?,
+                        Err(_) => {
+                            error!(
+                                user = %args.user,
+                                host = %args.host,
+                                timeout_ms = SSH_AUTH_ATTEMPT_TIMEOUT.as_millis() as u64,
+                                "Keyboard-interactive auth timed out"
+                            );
+                            return Err(anyhow!(
+                                "auth_timeout: keyboard-interactive authentication timed out for {}@{}",
+                                args.user,
+                                args.host
+                            ));
+                        }
+                    };
+                    if !keyboard_ok {
+                        warn!(user = %args.user, host = %args.host, "Password and keyboard-interactive rejected by server");
+                        return Err(anyhow!(
+                            "password_incorrect: password rejected for {}@{}",
+                            args.user,
+                            args.host
+                        ));
+                    }
+                    info!(user = %args.user, "Keyboard-interactive auth succeeded");
+                }
+            } else {
+                validate_username(&args.user)?;
+                if identity_file.is_some() {
+                    warn!(
+                        alias = %args.alias,
+                        host = %args.host,
+                        "Public key was not accepted and no password is available"
+                    );
                     return Err(anyhow!(
-                        "password_incorrect: password rejected for {}@{}",
+                        "password_required: SSH key was not accepted and no password is available for {}@{}",
                         args.user,
                         args.host
                     ));
                 }
-                info!(user = %args.user, "Password auth succeeded");
-            } else {
-                warn!(
-                    alias = %args.alias,
-                    host = %args.host,
-                    "No credentials available — connection aborted"
-                );
+                warn!(alias = %args.alias, host = %args.host, "Password required but not available");
                 return Err(anyhow!(
-                    "no_credentials: no IdentityFile or password provided for {}@{}",
-                    args.alias,
+                    "password_required: password is required for {}@{}",
+                    args.user,
                     args.host
                 ));
+            }
+        }
+
+        match detect_host_metadata(&mut handle, id, &args).await {
+            Ok(Some(metadata)) => {
+                debug!(
+                    alias = %args.alias,
+                    host = %args.host,
+                    icon = ?metadata.icon_override,
+                    "SSH host metadata detected"
+                );
+                let _ = app.emit("ssh:host-metadata", metadata);
+            }
+            Ok(None) => {
+                debug!(alias = %args.alias, host = %args.host, "No SSH host metadata detected");
+            }
+            Err(err) => {
+                debug!(
+                    alias = %args.alias,
+                    host = %args.host,
+                    error = %err,
+                    "SSH host metadata detection skipped"
+                );
             }
         }
 
@@ -364,6 +522,13 @@ impl SshSession {
                 error!(error = %e, "PTY request failed");
                 anyhow!("pty_request_failed: {}", e)
             })?;
+        if let Some(locale) = clean_env_value(args.terminal_locale.as_deref()) {
+            let _ = channel.set_env(false, "LANG", locale).await;
+            let _ = channel.set_env(false, "LC_ALL", locale).await;
+        }
+        if let Some(timezone) = clean_env_value(args.terminal_timezone.as_deref()) {
+            let _ = channel.set_env(false, "TZ", timezone).await;
+        }
         debug!("Requesting shell");
         channel.request_shell(true).await.map_err(|e| {
             error!(error = %e, "Shell request failed");
@@ -449,6 +614,492 @@ impl SshSession {
     }
 }
 
+async fn detect_host_metadata(
+    handle: &mut Handle<ClientHandler>,
+    session_id: &str,
+    args: &SshOpenArgs,
+) -> Result<Option<SshHostMetadata>> {
+    let output = match tokio::time::timeout(
+        Duration::from_secs(2),
+        run_host_metadata_command(handle, HOST_METADATA_SCRIPT),
+    )
+    .await
+    {
+        Ok(Ok(output)) => output,
+        Ok(Err(err)) => return Err(err),
+        Err(_) => return Err(anyhow!("metadata_probe_timeout")),
+    };
+    let posix_metadata = host_metadata_from_probe(
+        session_id,
+        &args.alias,
+        &args.host,
+        args.port,
+        &output,
+    );
+    if posix_metadata
+        .as_ref()
+        .and_then(|metadata| metadata.icon_override.as_ref())
+        .is_some()
+    {
+        return Ok(posix_metadata);
+    }
+
+    for command in NETWORK_METADATA_COMMANDS {
+        let output = match tokio::time::timeout(
+            Duration::from_secs(1),
+            run_host_metadata_command(handle, command),
+        )
+        .await
+        {
+            Ok(Ok(output)) => output,
+            Ok(Err(_)) | Err(_) => continue,
+        };
+        if let Some(metadata) =
+            host_metadata_from_network_probe(session_id, &args.alias, &args.host, args.port, &output)
+        {
+            return Ok(Some(metadata));
+        }
+    }
+
+    Ok(posix_metadata)
+}
+
+async fn run_host_metadata_command(
+    handle: &mut Handle<ClientHandler>,
+    command: &str,
+) -> Result<String> {
+    let mut channel = handle
+        .channel_open_session()
+        .await
+        .map_err(|e| anyhow!("metadata_channel_open_failed: {}", e))?;
+    channel
+        .exec(true, command)
+        .await
+        .map_err(|e| anyhow!("metadata_exec_failed: {}", e))?;
+
+    let mut output = Vec::new();
+    loop {
+        let Some(msg) = channel.wait().await else { break };
+        match msg {
+            ChannelMsg::Data { ref data } | ChannelMsg::ExtendedData { ref data, ext: _ } => {
+                if output.len() >= 32 * 1024 {
+                    break;
+                }
+                let remaining = 32 * 1024 - output.len();
+                output.extend_from_slice(&data[..data.len().min(remaining)]);
+            }
+            ChannelMsg::Close | ChannelMsg::ExitStatus { .. } => break,
+            ChannelMsg::Eof => {}
+            _ => {}
+        }
+    }
+    let _ = channel.close().await;
+    Ok(String::from_utf8_lossy(&output).into_owned())
+}
+
+#[derive(Default, Debug)]
+struct RemoteProbe {
+    remote_hostname: Option<String>,
+    os_id: Option<String>,
+    os_id_like: Vec<String>,
+    os_name: Option<String>,
+    os_pretty_name: Option<String>,
+    kernel: Option<String>,
+    model: Option<String>,
+    openwrt_release: bool,
+    pve: bool,
+}
+
+fn host_metadata_from_probe(
+    session_id: &str,
+    alias: &str,
+    host: &str,
+    port: u16,
+    output: &str,
+) -> Option<SshHostMetadata> {
+    if !output.contains("__NETSSH_BEGIN__") {
+        return None;
+    }
+    let probe = parse_remote_probe(output);
+    let (icon_override, icon_confidence) = infer_icon_override(alias, host, &probe);
+    let role = infer_role(alias, &probe, icon_override.as_deref());
+    let tags = infer_tags(&probe, icon_override.as_deref(), role.as_deref());
+
+    let has_metadata = probe.remote_hostname.is_some()
+        || probe.os_id.is_some()
+        || probe.os_name.is_some()
+        || probe.os_pretty_name.is_some()
+        || probe.kernel.is_some()
+        || probe.model.is_some()
+        || icon_override.is_some()
+        || !tags.is_empty();
+    if !has_metadata {
+        return None;
+    }
+
+    Some(SshHostMetadata {
+        session_id: session_id.to_string(),
+        alias: alias.to_string(),
+        host: host.to_string(),
+        port,
+        remote_hostname: probe.remote_hostname,
+        os_id: probe.os_id,
+        os_name: probe.os_name,
+        os_pretty_name: probe.os_pretty_name,
+        kernel: probe.kernel,
+        model: probe.model,
+        icon_override,
+        icon_confidence,
+        role,
+        tags,
+    })
+}
+
+fn host_metadata_from_network_probe(
+    session_id: &str,
+    alias: &str,
+    host: &str,
+    port: u16,
+    output: &str,
+) -> Option<SshHostMetadata> {
+    let text = output.to_lowercase();
+    let (icon_override, os_name, role, tags) = if contains_any(
+        &text,
+        &[
+            "huawei",
+            "huawei versatile routing platform",
+            "vrp software",
+            "quidway",
+            "cloudengine",
+            "s5700",
+            "s6700",
+        ],
+    ) {
+        (
+            Some("huawei".to_string()),
+            Some("Huawei VRP".to_string()),
+            network_role(&text),
+            network_tags(&["huawei", "vrp"], &text),
+        )
+    } else if contains_any(
+        &text,
+        &[
+            "cisco ios",
+            "ios xe",
+            "ios-xe",
+            "nx-os",
+            "cisco nexus",
+            "cisco catalyst",
+            "cisco systems",
+        ],
+    ) {
+        (
+            Some("cisco".to_string()),
+            Some("Cisco IOS".to_string()),
+            network_role(&text),
+            network_tags(&["cisco"], &text),
+        )
+    } else {
+        return None;
+    };
+
+    Some(SshHostMetadata {
+        session_id: session_id.to_string(),
+        alias: alias.to_string(),
+        host: host.to_string(),
+        port,
+        remote_hostname: None,
+        os_id: None,
+        os_name,
+        os_pretty_name: None,
+        kernel: None,
+        model: None,
+        icon_override,
+        icon_confidence: 90,
+        role,
+        tags,
+    })
+}
+
+fn parse_remote_probe(output: &str) -> RemoteProbe {
+    let mut probe = RemoteProbe::default();
+    for raw_line in output.lines() {
+        let line = raw_line.trim().trim_end_matches('\r').trim();
+        if line.is_empty() || line == "__NETSSH_BEGIN__" || line == "__NETSSH_END__" {
+            continue;
+        }
+        if let Some(value) = line.strip_prefix("__NETSSH_HOSTNAME__=") {
+            set_non_empty(&mut probe.remote_hostname, value);
+            continue;
+        }
+        if let Some(value) = line.strip_prefix("__NETSSH_KERNEL__=") {
+            set_non_empty(&mut probe.kernel, value);
+            continue;
+        }
+        if let Some(value) = line.strip_prefix("__NETSSH_MODEL__=") {
+            set_non_empty(&mut probe.model, value);
+            continue;
+        }
+        if line == "__NETSSH_OPENWRT_RELEASE__=1" {
+            probe.openwrt_release = true;
+            continue;
+        }
+        if line == "__NETSSH_PVE__=1" {
+            probe.pve = true;
+            continue;
+        }
+        let Some((key, value)) = line.split_once('=') else {
+            continue;
+        };
+        let value = clean_probe_value(value);
+        match key {
+            "ID" => {
+                let value = value.to_lowercase();
+                set_non_empty(&mut probe.os_id, &value);
+            }
+            "ID_LIKE" => {
+                for item in value.split_whitespace() {
+                    push_unique(&mut probe.os_id_like, &item.to_lowercase());
+                }
+            }
+            "NAME" => set_non_empty(&mut probe.os_name, &value),
+            "PRETTY_NAME" => set_non_empty(&mut probe.os_pretty_name, &value),
+            "DISTRIB_ID" => {
+                let value = value.to_lowercase();
+                if value.contains("openwrt") {
+                    probe.openwrt_release = true;
+                    set_non_empty(&mut probe.os_id, "openwrt");
+                }
+            }
+            "DISTRIB_DESCRIPTION" => set_non_empty(&mut probe.os_pretty_name, &value),
+            _ => {}
+        }
+    }
+    probe
+}
+
+fn infer_icon_override(alias: &str, host: &str, probe: &RemoteProbe) -> (Option<String>, u8) {
+    let remote_text = [
+        probe.remote_hostname.as_deref(),
+        probe.os_id.as_deref(),
+        probe.os_name.as_deref(),
+        probe.os_pretty_name.as_deref(),
+        probe.kernel.as_deref(),
+        probe.model.as_deref(),
+    ]
+    .into_iter()
+    .flatten()
+    .chain(probe.os_id_like.iter().map(String::as_str))
+    .collect::<Vec<_>>()
+    .join(" ")
+    .to_lowercase();
+
+    if probe.pve || contains_any(&remote_text, &["proxmox", " pve", "-pve"]) {
+        return (Some("proxmox".into()), 95);
+    }
+    if contains_any(&remote_text, &["istoreos", "istore os"]) {
+        return (Some("istoreos".into()), 95);
+    }
+    if probe.openwrt_release || contains_any(&remote_text, &["openwrt", "lede"]) {
+        return (Some("openwrt".into()), 95);
+    }
+    if contains_any(&remote_text, &["luckfox", "picokvm", "pico kvm"]) {
+        return (Some("luckfox".into()), 95);
+    }
+    if contains_any(&remote_text, &["raspberry pi", "raspbian", "raspberrypi"]) {
+        return (Some("raspberry".into()), 95);
+    }
+    if contains_any(&remote_text, &["huawei", "vrp", "s5700", "s6700", "cloudengine"]) {
+        return (Some("huawei".into()), 90);
+    }
+    if contains_any(&remote_text, &["cisco", "ios xe", "ios-xe", "nx-os", "catalyst"]) {
+        return (Some("cisco".into()), 90);
+    }
+    if contains_any(&remote_text, &["ubuntu"]) || probe.os_id.as_deref() == Some("ubuntu") {
+        return (Some("ubuntu".into()), 95);
+    }
+    if contains_any(&remote_text, &["debian"]) || probe.os_id.as_deref() == Some("debian") {
+        return (Some("debian".into()), 90);
+    }
+    if contains_any(&remote_text, &["rocky"]) {
+        return (Some("rocky".into()), 90);
+    }
+    if contains_any(&remote_text, &["almalinux", "alma linux"]) {
+        return (Some("alma".into()), 90);
+    }
+    if contains_any(&remote_text, &["centos"]) {
+        return (Some("centos".into()), 90);
+    }
+    if contains_any(&remote_text, &["darwin"]) {
+        return (Some("macos".into()), 90);
+    }
+    if contains_any(&remote_text, &["microsoft", "windows"]) {
+        return (Some("windows".into()), 90);
+    }
+    if contains_any(&remote_text, &["linux"]) || probe.os_id.is_some() {
+        return (Some("linux".into()), 70);
+    }
+
+    let name_text = format!("{alias} {host}").to_lowercase();
+    if contains_any(&name_text, &["huawei", "s5700", "s6700"]) {
+        return (Some("huawei".into()), 55);
+    }
+    if contains_any(&name_text, &["cisco", "catalyst", "ios-xe", "nx-os"]) {
+        return (Some("cisco".into()), 55);
+    }
+    if contains_any(&name_text, &["luckfox", "picokvm", "pico-kvm"]) {
+        return (Some("luckfox".into()), 55);
+    }
+    if contains_any(&name_text, &["raspberry", "raspi"]) {
+        return (Some("raspberry".into()), 55);
+    }
+    if contains_any(&name_text, &["proxmox", "pve"]) {
+        return (Some("proxmox".into()), 55);
+    }
+    if contains_any(&name_text, &["istoreos", "istore-os"]) {
+        return (Some("istoreos".into()), 55);
+    }
+    if contains_any(&name_text, &["openwrt"]) {
+        return (Some("openwrt".into()), 55);
+    }
+    (None, 0)
+}
+
+fn infer_role(alias: &str, probe: &RemoteProbe, icon: Option<&str>) -> Option<String> {
+    let text = [
+        Some(alias),
+        probe.remote_hostname.as_deref(),
+        probe.os_name.as_deref(),
+        probe.os_pretty_name.as_deref(),
+        probe.model.as_deref(),
+    ]
+    .into_iter()
+    .flatten()
+    .collect::<Vec<_>>()
+    .join(" ")
+    .to_lowercase();
+
+    match icon {
+        Some("proxmox") => Some("hypervisor".into()),
+        Some("openwrt") | Some("istoreos") => Some("router".into()),
+        Some("huawei") | Some("cisco") if contains_any(&text, &["switch", "s5700", "s6700", "catalyst"]) => {
+            Some("switch".into())
+        }
+        Some("huawei") | Some("cisco") if contains_any(&text, &["router", "gateway"]) => {
+            Some("router".into())
+        }
+        _ => None,
+    }
+}
+
+fn infer_tags(probe: &RemoteProbe, icon: Option<&str>, role: Option<&str>) -> Vec<String> {
+    let mut tags = Vec::new();
+    if let Some(os_id) = &probe.os_id {
+        push_unique(&mut tags, os_id);
+    }
+    for item in &probe.os_id_like {
+        push_unique(&mut tags, item);
+    }
+    if let Some(pretty) = &probe.os_pretty_name {
+        if pretty.to_lowercase().contains("ubuntu") {
+            push_unique(&mut tags, "ubuntu");
+        }
+    }
+    if probe
+        .kernel
+        .as_deref()
+        .map(|kernel| kernel.to_lowercase().contains("linux"))
+        .unwrap_or(false)
+    {
+        push_unique(&mut tags, "linux");
+    }
+    if probe.pve {
+        push_unique(&mut tags, "proxmox");
+        push_unique(&mut tags, "pve");
+    }
+    if probe.openwrt_release {
+        push_unique(&mut tags, "openwrt");
+    }
+    if let Some(icon) = icon {
+        push_unique(&mut tags, icon);
+    }
+    if let Some(role) = role {
+        push_unique(&mut tags, role);
+    }
+    tags
+}
+
+fn network_role(text: &str) -> Option<String> {
+    if contains_any(
+        text,
+        &[
+            "switch",
+            "s5700",
+            "s6700",
+            "cloudengine",
+            "catalyst",
+            "nexus",
+        ],
+    ) {
+        return Some("switch".into());
+    }
+    if contains_any(text, &["router", "gateway", "routing platform"]) {
+        return Some("router".into());
+    }
+    None
+}
+
+fn network_tags(base: &[&str], text: &str) -> Vec<String> {
+    let mut tags = Vec::new();
+    for tag in base {
+        push_unique(&mut tags, tag);
+    }
+    if let Some(role) = network_role(text) {
+        push_unique(&mut tags, &role);
+    }
+    if contains_any(text, &["ios xe", "ios-xe"]) {
+        push_unique(&mut tags, "ios-xe");
+    }
+    if contains_any(text, &["nx-os"]) {
+        push_unique(&mut tags, "nx-os");
+    }
+    tags
+}
+
+fn set_non_empty(slot: &mut Option<String>, value: &str) {
+    let value = clean_probe_value(value);
+    if value.is_empty() || slot.is_some() {
+        return;
+    }
+    *slot = Some(value);
+}
+
+fn clean_probe_value(value: &str) -> String {
+    let trimmed = value.trim();
+    if trimmed.len() >= 2 {
+        let first = trimmed.as_bytes()[0] as char;
+        let last = trimmed.as_bytes()[trimmed.len() - 1] as char;
+        if (first == '"' && last == '"') || (first == '\'' && last == '\'') {
+            return trimmed[1..trimmed.len() - 1]
+                .replace("\\\"", "\"")
+                .replace("\\'", "'");
+        }
+    }
+    trimmed.to_string()
+}
+
+fn push_unique(tags: &mut Vec<String>, value: &str) {
+    let tag = value.trim().to_lowercase();
+    if tag.is_empty() || tags.iter().any(|item| item == &tag) {
+        return;
+    }
+    tags.push(tag);
+}
+
+fn contains_any(text: &str, needles: &[&str]) -> bool {
+    needles.iter().any(|needle| text.contains(needle))
+}
+
 // ─── Public-key auth with optional passphrase ─────────────────────────────
 
 async fn try_publickey_auth(
@@ -469,6 +1120,65 @@ async fn try_publickey_auth(
     };
     let ok = handle.authenticate_publickey(user, Arc::new(key)).await?;
     Ok(ok)
+}
+
+async fn try_keyboard_interactive_auth(
+    handle: &mut Handle<ClientHandler>,
+    user: &str,
+    password: &str,
+) -> Result<bool> {
+    let mut response = handle
+        .authenticate_keyboard_interactive_start(user, Some("password".to_string()))
+        .await
+        .map_err(|e| anyhow!("keyboard_interactive_error: {}", e))?;
+
+    for _ in 0..4 {
+        match response {
+            KeyboardInteractiveAuthResponse::Success => return Ok(true),
+            KeyboardInteractiveAuthResponse::Failure => return Ok(false),
+            KeyboardInteractiveAuthResponse::InfoRequest { prompts, .. } => {
+                let responses = keyboard_interactive_responses(&prompts, password);
+                response = handle
+                    .authenticate_keyboard_interactive_respond(responses)
+                    .await
+                    .map_err(|e| anyhow!("keyboard_interactive_error: {}", e))?;
+            }
+        }
+    }
+
+    Ok(false)
+}
+
+fn keyboard_interactive_responses(prompts: &[Prompt], password: &str) -> Vec<String> {
+    if prompts.is_empty() {
+        return Vec::new();
+    }
+    let mut used_password = false;
+    let mut responses = Vec::with_capacity(prompts.len());
+    for prompt in prompts {
+        let text = prompt.prompt.to_lowercase();
+        if !used_password && (!prompt.echo || text.contains("password") || text.contains("密码")) {
+            responses.push(password.to_string());
+            used_password = true;
+        } else {
+            responses.push(String::new());
+        }
+    }
+    if !used_password {
+        responses[0] = password.to_string();
+    }
+    responses
+}
+
+fn validate_username(user: &str) -> Result<()> {
+    if user.trim().is_empty() || user.chars().any(|c| c.is_whitespace() || c == ':') {
+        warn!(user = %user, "Username validation failed locally");
+        return Err(anyhow!(
+            "username_invalid: \"{}\" is not a valid SSH username",
+            user
+        ));
+    }
+    Ok(())
 }
 
 // ─── known_hosts ─────────────────────────────────────────────────────────
@@ -568,6 +1278,12 @@ fn parse_bracketed_host_port(pattern: &str) -> Option<(&str, u16)> {
 
 fn set_host_key_error(slot: &Arc<StdMutex<Option<String>>>, value: &str) {
     *slot.lock().unwrap_or_else(|e| e.into_inner()) = Some(value.to_string());
+}
+
+fn clean_env_value(value: Option<&str>) -> Option<&str> {
+    value
+        .map(str::trim)
+        .filter(|value| !value.is_empty() && !value.contains('\0') && !value.contains('='))
 }
 
 fn host_key_decision_policy(status: &str, decision: HostKeyDecision) -> HostKeyDecisionPolicy {
@@ -703,6 +1419,124 @@ mod tests {
         assert_eq!(
             host_key_decision_policy("mismatch", HostKeyDecision::AcceptAndRemember),
             HostKeyDecisionPolicy::Reject("host_key_mismatch")
+        );
+    }
+
+    #[test]
+    fn host_metadata_probe_detects_ubuntu() {
+        let output = r#"__NETSSH_BEGIN__
+NAME="Ubuntu"
+ID=ubuntu
+ID_LIKE=debian
+PRETTY_NAME="Ubuntu 24.04.2 LTS"
+__NETSSH_HOSTNAME__=metrics
+__NETSSH_KERNEL__=Linux 6.8.0-60-generic x86_64
+__NETSSH_END__
+"#;
+
+        let metadata = host_metadata_from_probe("session-1", "metrics", "192.168.77.213", 22, output)
+            .expect("metadata");
+        assert_eq!(metadata.remote_hostname.as_deref(), Some("metrics"));
+        assert_eq!(metadata.os_id.as_deref(), Some("ubuntu"));
+        assert_eq!(metadata.icon_override.as_deref(), Some("ubuntu"));
+        assert!(metadata.icon_confidence >= 90);
+        assert!(metadata.tags.contains(&"ubuntu".to_string()));
+        assert!(metadata.tags.contains(&"linux".to_string()));
+    }
+
+    #[test]
+    fn host_metadata_probe_prefers_proxmox_over_debian() {
+        let output = r#"__NETSSH_BEGIN__
+NAME="Debian GNU/Linux"
+ID=debian
+PRETTY_NAME="Debian GNU/Linux 12 (bookworm)"
+__NETSSH_PVE__=1
+__NETSSH_HOSTNAME__=pve
+__NETSSH_KERNEL__=Linux 6.8.12-9-pve x86_64
+__NETSSH_END__
+"#;
+
+        let metadata = host_metadata_from_probe("session-1", "pve", "192.168.77.160", 22, output)
+            .expect("metadata");
+        assert_eq!(metadata.icon_override.as_deref(), Some("proxmox"));
+        assert_eq!(metadata.role.as_deref(), Some("hypervisor"));
+        assert!(metadata.tags.contains(&"pve".to_string()));
+    }
+
+    #[test]
+    fn host_metadata_probe_prefers_raspberry_model_over_debian() {
+        let output = r#"__NETSSH_BEGIN__
+NAME="Debian GNU/Linux"
+ID=debian
+PRETTY_NAME="Debian GNU/Linux 12 (bookworm)"
+__NETSSH_MODEL__=Raspberry Pi 4 Model B Rev 1.5
+__NETSSH_HOSTNAME__=pi
+__NETSSH_KERNEL__=Linux 6.6.20+rpt-rpi-v8 aarch64
+__NETSSH_END__
+"#;
+
+        let metadata = host_metadata_from_probe("session-1", "pi", "192.168.77.198", 22, output)
+            .expect("metadata");
+        assert_eq!(metadata.icon_override.as_deref(), Some("raspberry"));
+        assert!(metadata.tags.contains(&"debian".to_string()));
+    }
+
+    #[test]
+    fn network_metadata_probe_detects_huawei_vrp_switch() {
+        let output = r#"Huawei Versatile Routing Platform Software
+VRP (R) software, Version 5.170 (S5700 V200R022C00SPC500)
+Quidway S5700-28C-EI uptime is 10 weeks
+"#;
+
+        let metadata =
+            host_metadata_from_network_probe("session-1", "switch", "192.168.100.253", 22, output)
+                .expect("metadata");
+        assert_eq!(metadata.icon_override.as_deref(), Some("huawei"));
+        assert_eq!(metadata.role.as_deref(), Some("switch"));
+        assert!(metadata.tags.contains(&"vrp".to_string()));
+    }
+
+    #[test]
+    fn network_metadata_probe_detects_cisco_switch() {
+        let output = r#"Cisco IOS XE Software, Version 17.09.04a
+Cisco Catalyst 9300 Switch uptime is 2 weeks
+"#;
+
+        let metadata =
+            host_metadata_from_network_probe("session-1", "core-cisco", "192.168.100.252", 22, output)
+                .expect("metadata");
+        assert_eq!(metadata.icon_override.as_deref(), Some("cisco"));
+        assert_eq!(metadata.role.as_deref(), Some("switch"));
+        assert!(metadata.tags.contains(&"ios-xe".to_string()));
+    }
+
+    #[test]
+    fn keyboard_interactive_uses_password_for_hidden_password_prompt() {
+        let prompts = vec![Prompt {
+            prompt: "Password:".into(),
+            echo: false,
+        }];
+        assert_eq!(
+            keyboard_interactive_responses(&prompts, "secret"),
+            vec!["secret".to_string()]
+        );
+    }
+
+    #[test]
+    fn keyboard_interactive_leaves_non_password_prompts_empty() {
+        let prompts = vec![
+            Prompt {
+                prompt: "Password:".into(),
+                echo: false,
+            },
+            Prompt {
+                prompt: "Verification code:".into(),
+                echo: true,
+            },
+        ];
+        assert_eq!(
+            keyboard_interactive_responses(&prompts, "secret"),
+            vec!["secret".to_string(), String::new()]
         );
     }
 }

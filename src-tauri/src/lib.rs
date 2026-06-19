@@ -13,6 +13,7 @@ pub use ssh::{list_keys, HostKeyChallengeRegistry, HostKeyDecision, SshSession,
     load_known_hosts_from_reader as ssh_load_known_hosts_from_reader,
 };
 pub use ssh_config::{parse as config_parse};
+pub use commands::validate_app_state_value;
 
 use tracing_subscriber::EnvFilter;
 
@@ -54,6 +55,7 @@ pub fn run() {
             commands::host_ping,
             commands::app_state_get,
             commands::app_state_put,
+            commands::app_state_delete,
             commands::connection_log_open,
             commands::connection_log_close,
         ])

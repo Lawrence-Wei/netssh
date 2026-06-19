@@ -43,15 +43,21 @@ export const useCredentials = create<CredentialsState>()(
       add: async (input: Omit<Credential, "id" | "createdAt"> & { password?: string }) => {
         const id = `cred-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
         const { password, ...meta } = input;
+        let hasPassword = false;
+        if (password) {
+          try {
+            await credStore(credAccount(id), password);
+            hasPassword = true;
+          } catch {
+            hasPassword = false;
+          }
+        }
         const cred: Credential = {
           ...meta,
           id,
           createdAt: Date.now(),
-          hasPassword: !!password,
+          hasPassword,
         };
-        if (password) {
-          try { await credStore(credAccount(id), password); } catch { /* ignore */ }
-        }
         set({ credentials: [...get().credentials, cred] });
         return cred;
       },
@@ -59,13 +65,20 @@ export const useCredentials = create<CredentialsState>()(
       update: async (id, patch, password) => {
         const existing = get().credentials.find((c) => c.id === id);
         if (!existing) return;
-        const next: Credential = { ...existing, ...patch };
+        const { password: _ignoredPassword, ...safePatch } = patch as Partial<Credential> & { password?: string };
+        const next: Credential = { ...existing, ...safePatch };
         if (password !== undefined) {
-          next.hasPassword = !!password;
           try {
-            if (password) await credStore(credAccount(id), password);
-            else await credDelete(credAccount(id));
-          } catch { /* ignore */ }
+            if (password) {
+              await credStore(credAccount(id), password);
+              next.hasPassword = true;
+            } else {
+              await credDelete(credAccount(id));
+              next.hasPassword = false;
+            }
+          } catch {
+            next.hasPassword = existing.hasPassword;
+          }
         }
         set({
           credentials: get().credentials.map((c) =>

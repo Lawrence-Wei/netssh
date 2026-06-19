@@ -28,16 +28,8 @@ const tauriEventMock = vi.hoisted(() => {
   };
 });
 
-Object.assign(globalThis, {
-  __netsshEmitTauriEvent: tauriEventMock.emitEvent,
-  __netsshClearTauriEvents: tauriEventMock.clear,
-});
-
-// ============================================================
-// Mock Tauri window API
-// ============================================================
-vi.mock("@tauri-apps/api/window", () => ({
-  getCurrentWindow: () => ({
+const tauriWindowMock = vi.hoisted(() => ({
+  current: {
     minimize: vi.fn(() => Promise.resolve()),
     maximize: vi.fn(() => Promise.resolve()),
     unmaximize: vi.fn(() => Promise.resolve()),
@@ -47,7 +39,19 @@ vi.mock("@tauri-apps/api/window", () => ({
     setTitle: vi.fn(() => Promise.resolve()),
     center: vi.fn(() => Promise.resolve()),
     onCloseRequested: vi.fn(() => Promise.resolve()),
-  }),
+  },
+}));
+
+Object.assign(globalThis, {
+  __netsshEmitTauriEvent: tauriEventMock.emitEvent,
+  __netsshClearTauriEvents: tauriEventMock.clear,
+});
+
+// ============================================================
+// Mock Tauri window API
+// ============================================================
+vi.mock("@tauri-apps/api/window", () => ({
+  getCurrentWindow: () => tauriWindowMock.current,
   getAllWindows: () => [],
 }));
 
@@ -93,6 +97,8 @@ vi.mock("@tauri-apps/api/core", () => ({
       case "app_state_get":
         return Promise.resolve(null);
       case "app_state_put":
+        return Promise.resolve();
+      case "app_state_delete":
         return Promise.resolve();
       case "connection_log_close":
         return Promise.resolve();
@@ -166,6 +172,8 @@ vi.mock("@xterm/xterm", () => ({
     blur: vi.fn(),
     loadAddon: vi.fn(),
     onData: vi.fn(() => ({ dispose: vi.fn() })),
+    onSelectionChange: vi.fn(() => ({ dispose: vi.fn() })),
+    getSelection: vi.fn(() => ""),
     onResize: vi.fn(() => ({ dispose: vi.fn() })),
     onTitleChange: vi.fn(() => ({ dispose: vi.fn() })),
     resize: vi.fn(),

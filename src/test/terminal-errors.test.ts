@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { describeConnectionError } from "../pages/TerminalPane";
+import { describeConnectionError, isPasswordRecoverableError } from "../pages/TerminalPane";
 
 describe("describeConnectionError", () => {
   it.each([
@@ -23,7 +23,23 @@ describe("describeConnectionError", () => {
       "encrypted private key: invalid passphrase",
       "SSH key passphrase required",
     ],
+    [
+      "password_required: SSH key was not accepted and no password is available",
+      "Password required",
+    ],
+    [
+      "auth_timeout: password authentication timed out for lawrence@192.168.100.253",
+      "Authentication timed out",
+    ],
   ])("classifies %s", (raw, expected) => {
     expect(describeConnectionError(new Error(raw))).toContain(expected);
+  });
+
+  it("localizes password-required diagnostics", () => {
+    expect(describeConnectionError("password_required", "zh")).toContain("需要密码");
+  });
+
+  it("treats authentication timeout as password-recoverable", () => {
+    expect(isPasswordRecoverableError("auth_timeout: keyboard-interactive authentication timed out")).toBe(true);
   });
 });

@@ -5,8 +5,13 @@
  */
 
 import { $, $$, expect } from "@wdio/globals";
+import { waitForAppShell } from "./helpers";
 
 describe("Netssh — Smoke Tests", () => {
+  before(async () => {
+    await waitForAppShell();
+  });
+
   //
   // ── App Launch ──────────────────────────────────────────
   //
@@ -31,23 +36,11 @@ describe("Netssh — Smoke Tests", () => {
   });
 
   //
-  // ── Sidebar Host List ───────────────────────────────────
+  // ── Home / Topology ─────────────────────────────────────
   //
-  it("should have at least one host row in the sidebar", async () => {
-    const rows = await $$(".host-row");
-    expect(rows.length).toBeGreaterThan(0);
-  });
-
-  it("host rows should display alias text", async () => {
-    const firstAlias = await $(".host-row .host-alias");
-    await expect(firstAlias).toBePresent();
-    const text = await firstAlias.getText();
-    expect(text.length).toBeGreaterThan(0);
-  });
-
-  it("host rows should display host meta (user@hostname)", async () => {
-    const firstMeta = await $(".host-row .host-meta");
-    await expect(firstMeta).toBePresent();
+  it("should show the topology panel on home", async () => {
+    const topology = await $(".topology-panel");
+    await expect(topology).toBePresent();
   });
 
   //
@@ -56,5 +49,10 @@ describe("Netssh — Smoke Tests", () => {
   it("should have a search input in the sidebar", async () => {
     const searchInput = await $(".search input");
     await expect(searchInput).toBePresent();
+  });
+
+  it("should have the current sidebar quick actions", async () => {
+    const buttons = await $$(".sidebar-quick__btn");
+    expect(buttons.length).toBeGreaterThanOrEqual(4);
   });
 });

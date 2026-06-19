@@ -37,6 +37,8 @@ pub struct SshOpenArgs {
     pub password: Option<String>,
     pub passphrase: Option<String>,
     pub skip_open_ssh_known_hosts: Option<bool>,
+    pub terminal_locale: Option<String>,
+    pub terminal_timezone: Option<String>,
 }
 
 #[tauri::command]
@@ -124,9 +126,24 @@ pub async fn ssh_close(state: State<'_, AppState>, id: String) -> Result<(), Str
 // ─── local PTYs ────────────────────────────────────────────────────────────
 
 #[tauri::command]
-pub fn pty_open(app: AppHandle, state: State<'_, AppState>, shell_id: String) -> Result<String, String> {
+pub fn pty_open(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    shell_id: Option<String>,
+    shell_path: Option<String>,
+    terminal_locale: Option<String>,
+    terminal_timezone: Option<String>,
+) -> Result<String, String> {
     let id = uuid::Uuid::new_v4().to_string();
-    let session = pty::PtySession::spawn(&app, &id, &shell_id).map_err(|e| e.to_string())?;
+    let session = pty::PtySession::spawn(
+        &app,
+        &id,
+        shell_id.as_deref().unwrap_or("pwsh"),
+        shell_path.as_deref(),
+        terminal_locale.as_deref(),
+        terminal_timezone.as_deref(),
+    )
+    .map_err(|e| e.to_string())?;
     state
         .pty_sessions
         .lock()
@@ -352,8 +369,15 @@ pub fn app_state_get(key: String) -> Result<Option<String>, String> {
 
 #[tauri::command]
 pub fn app_state_put(key: String, value: String) -> Result<(), String> {
+    validate_app_state_value(&key, &value)?;
     let conn = storage::open().map_err(|e| e.to_string())?;
     storage::put_app_state(&conn, &key, &value).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn app_state_delete(key: String) -> Result<(), String> {
+    let conn = storage::open().map_err(|e| e.to_string())?;
+    storage::delete_app_state(&conn, &key).map_err(|e| e.to_string())
 }
 
 // ─── local operation log ────────────────────────────────────────────────────
@@ -399,4 +423,20 @@ pub fn emit_data(app: &AppHandle, channel: &str, id: &str, data: &[u8]) {
 
 fn base64_encode(b: &[u8]) -> String {
     STANDARD.encode(b)
+}
+
+pub fn validate_app_state_value(key: &str, value: &str) -> Result<(), String> {
+    let haystack = format!("{} {}", key, value).to_ascii_lowercase();
+    const DENYLIST: &[&str] = &[
+        "password",
+        "passphrase",
+        "privatekey",
+        "private_key",
+        "ephemeralpassword",
+        "ephemeral_password",
+    ];
+    if DENYLIST.iter().any(|needle| haystack.contains(needle)) {
+        return Err("app_state_sensitive_value_rejected".into());
+    }
+    Ok(())
 }

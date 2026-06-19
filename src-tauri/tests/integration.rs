@@ -124,6 +124,21 @@ fn storage_db_open_and_migrate() {
     assert!(closed.is_some());
 }
 
+#[test]
+fn app_state_validation_rejects_sensitive_payloads() {
+    assert!(netssh_lib::validate_app_state_value(
+        "netssh.settings",
+        r#"{"state":{"theme":"blue","terminalScrollback":10000}}"#
+    )
+    .is_ok());
+    assert!(netssh_lib::validate_app_state_value(
+        "netssh.settings",
+        r#"{"state":{"ephemeralPassword":"secret"}}"#
+    )
+    .is_err());
+    assert!(netssh_lib::validate_app_state_value("password", "anything").is_err());
+}
+
 // ============================================================
 // 3. Host key 挑战注册表
 // ============================================================

@@ -5,13 +5,27 @@ import type { ReactNode } from "react";
 import type { Host } from "../config/types";
 import { Icon } from "./Icons";
 
-import huaweiImg from "../assets/icons/huawei.png";
-import raspberryPiImg from "../assets/icons/raspberry-pi.png";
 import zspaceImg from "../assets/icons/zspace-logo.png";
-import asusImg from "../assets/icons/asus.png";
-import proxmoxImg from "../assets/icons/proxmox.png";
-import openwrtImg from "../assets/icons/istoreos-openwrt.svg";
-import ubuntuImg from "../assets/icons/ubuntu.svg";
+import luckfoxImg from "../assets/icons/luckfox.png";
+import istoreosImg from "../assets/icons/istoreos-openwrt.svg";
+import almaLinuxImg from "../assets/icons/dashboard-icons/alma-linux.svg";
+import appleImg from "../assets/icons/dashboard-icons/apple.svg";
+import asusImg from "../assets/icons/dashboard-icons/asus.svg";
+import centosImg from "../assets/icons/dashboard-icons/centos.svg";
+import ciscoImg from "../assets/icons/dashboard-icons/cisco.svg";
+import debianLinuxImg from "../assets/icons/dashboard-icons/debian-linux.svg";
+import huaweiImg from "../assets/icons/dashboard-icons/huawei.svg";
+import microsoftWindowsImg from "../assets/icons/dashboard-icons/microsoft-windows.svg";
+import openwrtImg from "../assets/icons/dashboard-icons/openwrt.svg";
+import proxmoxImg from "../assets/icons/dashboard-icons/proxmox.svg";
+import qnapImg from "../assets/icons/dashboard-icons/qnap.svg";
+import raspberryPiImg from "../assets/icons/dashboard-icons/raspberry-pi.svg";
+import rockyLinuxImg from "../assets/icons/dashboard-icons/rocky-linux.svg";
+import synologyImg from "../assets/icons/dashboard-icons/synology.svg";
+import truenasImg from "../assets/icons/dashboard-icons/truenas.svg";
+import linuxImg from "../assets/icons/dashboard-icons/tux.svg";
+import ubuntuImg from "../assets/icons/dashboard-icons/ubuntu-linux.svg";
+import windows11Img from "../assets/icons/dashboard-icons/windows-11.webp";
 
 interface BrandRule {
   id: string;
@@ -28,29 +42,21 @@ const BRAND_RULES: BrandRule[] = [
     label: "ZSpace",
   },
   {
+    id: "luckfox",
+    test: /luckfox|picokvm|pico[-_ ]?kvm|luckfox[-_ ]?(pico|lyra|aura|lume)/i,
+    icon: <img src={luckfoxImg} alt="Luckfox" className="brand-img" />,
+    label: "Luckfox",
+  },
+  {
     id: "windows11",
     test: /windows[\s-]?11|win[\s-]?11|win11|w11/i,
-    icon: (
-      <svg viewBox="0 0 14 14" fill="none">
-        <path d="M1.5 3l5-0.7v4.4H1.5V3z" fill="currentColor" />
-        <path d="M7.5 2.2l5-0.7v5.2H7.5V2.2z" fill="currentColor" />
-        <path d="M1.5 7.3h5v4.4l-5-0.7V7.3z" fill="currentColor" opacity="0.75" />
-        <path d="M7.5 7.3h5v5.2l-5-0.7V7.3z" fill="currentColor" opacity="0.75" />
-      </svg>
-    ),
+    icon: <img src={windows11Img} alt="Windows 11" className="brand-img" />,
     label: "Windows 11",
   },
   {
     id: "windows",
     test: /windows|win10|win[\s-]?10|microsoft/i,
-    icon: (
-      <svg viewBox="0 0 14 14" fill="none">
-        <path d="M1.5 3.6l5-0.8v4.4H1.5V3.6z" fill="currentColor" />
-        <path d="M7.5 2.7l5-0.9v5.3H7.5V2.7z" fill="currentColor" />
-        <path d="M1.5 7.5h5v4.4l-5-0.8V7.5z" fill="currentColor" />
-        <path d="M7.5 7.5h5v5.3l-5-0.8V7.5z" fill="currentColor" />
-      </svg>
-    ),
+    icon: <img src={microsoftWindowsImg} alt="Windows" className="brand-img" />,
     label: "Windows",
   },
   {
@@ -71,18 +77,10 @@ const BRAND_RULES: BrandRule[] = [
     label: "Huawei Switch",
   },
   {
-    id: "apple",
+    id: "macos",
     test: /^macbook|imac|macmini|apple|osx|macos|mac[-_]?/i,
-    icon: (
-      <svg viewBox="0 0 14 14" fill="none">
-        <path
-          d="M9.4 7.4c0-1.4 1.1-2 1.1-2-0.6-0.9-1.5-1-1.9-1-0.8-0.1-1.6 0.5-2 0.5-0.4 0-1.1-0.5-1.8-0.5-1 0-1.9 0.6-2.4 1.5-1 1.8-0.3 4.5 0.7 5.9 0.5 0.7 1.1 1.5 1.8 1.4 0.7 0 1-0.5 1.9-0.5 0.9 0 1.1 0.5 1.9 0.5 0.8 0 1.3-0.7 1.8-1.4 0.3-0.5 0.6-1.1 0.7-1.6-0.4-0.2-1.8-0.8-1.8-2.3z"
-          fill="currentColor"
-        />
-        <path d="M8.3 3.2c0.4-0.5 0.6-1.1 0.5-1.7-0.5 0-1.2 0.4-1.5 0.8-0.3 0.4-0.6 1-0.5 1.6 0.6 0.1 1.1-0.2 1.5-0.7z" fill="currentColor" />
-      </svg>
-    ),
-    label: "Apple",
+    icon: <img src={appleImg} alt="macOS" className="brand-img" />,
+    label: "macOS",
   },
   {
     id: "ios",
@@ -123,24 +121,26 @@ const BRAND_RULES: BrandRule[] = [
   {
     id: "debian",
     test: /debian/i,
-    icon: (
-      <svg viewBox="0 0 14 14" fill="none">
-        <path d="M8.8 4.2c-0.6-0.7-1.7-1.1-2.8-0.8-1.7 0.4-2.8 1.8-2.5 3.4 0.3 1.8 2 2.8 4.1 2.5 1.2-0.2 2-0.7 2.4-1.4" stroke="currentColor" strokeWidth="1.1" strokeLinecap="round" />
-        <path d="M7.3 5.5c0.5 0.5 0.5 1.5-0.1 2-0.5 0.4-1.3 0.4-1.7-0.1" stroke="currentColor" strokeWidth="1.1" strokeLinecap="round" />
-      </svg>
-    ),
+    icon: <img src={debianLinuxImg} alt="Debian" className="brand-img" />,
     label: "Debian",
   },
   {
     id: "centos",
-    test: /centos|rocky|alma/i,
-    icon: (
-      <svg viewBox="0 0 14 14" fill="none">
-        <rect x="3" y="3" width="8" height="8" rx="1" stroke="currentColor" strokeWidth="1.1" />
-        <path d="M7 1.8v10.4M1.8 7h10.4M3.6 3.6l6.8 6.8M10.4 3.6l-6.8 6.8" stroke="currentColor" strokeWidth="0.9" strokeLinecap="round" />
-      </svg>
-    ),
-    label: "CentOS / Rocky / AlmaLinux",
+    test: /centos/i,
+    icon: <img src={centosImg} alt="CentOS" className="brand-img" />,
+    label: "CentOS",
+  },
+  {
+    id: "rocky",
+    test: /rocky/i,
+    icon: <img src={rockyLinuxImg} alt="Rocky Linux" className="brand-img" />,
+    label: "Rocky Linux",
+  },
+  {
+    id: "alma",
+    test: /alma/i,
+    icon: <img src={almaLinuxImg} alt="AlmaLinux" className="brand-img" />,
+    label: "AlmaLinux",
   },
   {
     id: "tsinghua-linux",
@@ -156,26 +156,13 @@ const BRAND_RULES: BrandRule[] = [
   {
     id: "linux",
     test: /linux|tux|fedora|arch|alpine/i,
-    icon: (
-      <svg viewBox="0 0 14 14" fill="none">
-        <ellipse cx="7" cy="9" rx="3.5" ry="3" stroke="currentColor" strokeWidth="1.1" />
-        <path d="M5.6 5C5.4 3 6 1.6 7 1.6S8.6 3 8.4 5" stroke="currentColor" strokeWidth="1.1" />
-        <circle cx="6" cy="5.4" r="0.5" fill="currentColor" />
-        <circle cx="8" cy="5.4" r="0.5" fill="currentColor" />
-      </svg>
-    ),
+    icon: <img src={linuxImg} alt="Linux" className="brand-img" />,
     label: "Linux",
   },
   {
     id: "cisco",
     test: /cisco|catalyst|ios[-_]?xe|nx[-_]?os/i,
-    icon: (
-      <svg viewBox="0 0 14 14" fill="none">
-        <g stroke="currentColor" strokeWidth="1.1" strokeLinecap="round">
-          <path d="M3 8v-2M5 9v-4M7 10v-6M9 9v-4M11 8v-2" />
-        </g>
-      </svg>
-    ),
+    icon: <img src={ciscoImg} alt="Cisco" className="brand-img" />,
     label: "Cisco",
   },
   {
@@ -192,7 +179,7 @@ const BRAND_RULES: BrandRule[] = [
   {
     id: "istoreos",
     test: /istoreos|istore[\s-]?os|\bistore\b|\b(sh|wx|wuxi|shanghai)[-_]?gw\b/i,
-    icon: <img src={openwrtImg} alt="iStoreOS/OpenWrt" className="brand-img" />,
+    icon: <img src={istoreosImg} alt="iStoreOS" className="brand-img" />,
     label: "iStoreOS",
   },
   {
@@ -215,14 +202,32 @@ const BRAND_RULES: BrandRule[] = [
   },
   {
     id: "synology",
-    test: /synology|qnap|truenas|nas/i,
+    test: /synology|dsm/i,
+    icon: <img src={synologyImg} alt="Synology" className="brand-img" />,
+    label: "Synology",
+  },
+  {
+    id: "qnap",
+    test: /qnap/i,
+    icon: <img src={qnapImg} alt="QNAP" className="brand-img" />,
+    label: "QNAP",
+  },
+  {
+    id: "truenas",
+    test: /truenas|freenas/i,
+    icon: <img src={truenasImg} alt="TrueNAS" className="brand-img" />,
+    label: "TrueNAS",
+  },
+  {
+    id: "nas",
+    test: /nas|storage|openmediavault|unraid|xigmanas/i,
     icon: (
       <svg viewBox="0 0 14 14" fill="none">
         <rect x="2" y="2" width="10" height="10" rx="1.2" stroke="currentColor" strokeWidth="1.1" />
         <path d="M5 5h4M5 7h4M5 9h4" stroke="currentColor" strokeWidth="1.1" strokeLinecap="round" />
       </svg>
     ),
-    label: "NAS",
+    label: "NAS / Storage",
   },
 ];
 
@@ -230,10 +235,15 @@ function matchBrand(text: string) {
   return BRAND_RULES.find((rule) => rule.test.test(text));
 }
 
+function brandRuleById(id: string) {
+  const normalized = id === "apple" ? "macos" : id;
+  return BRAND_RULES.find((rule) => rule.id === normalized);
+}
+
 export function brandIcon(host: Host) {
   // Check explicit icon override first
   if (host.iconOverride) {
-    const overrideBrand = BRAND_RULES.find((r) => r.id === host.iconOverride);
+    const overrideBrand = brandRuleById(host.iconOverride);
     if (overrideBrand) return overrideBrand.icon;
   }
 
@@ -256,6 +266,11 @@ export function brandIcon(host: Host) {
 }
 
 export function brandLabel(host: Host): string | null {
+  if (host.iconOverride) {
+    const overrideBrand = brandRuleById(host.iconOverride);
+    if (overrideBrand) return overrideBrand.label;
+  }
+
   const haystack = [host.alias, host.hostname, host.role, host.env, (host.tags || []).join(" ")]
     .filter(Boolean)
     .join(" ")

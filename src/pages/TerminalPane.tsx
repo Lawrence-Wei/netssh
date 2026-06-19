@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import type { CSSProperties } from "react";
+import type { CSSProperties, FormEvent } from "react";
 import { FitAddon } from "@xterm/addon-fit";
 import { WebLinksAddon } from "@xterm/addon-web-links";
 import { WebglAddon } from "@xterm/addon-webgl";
@@ -32,8 +32,9 @@ import {
 import { t } from "../utils/i18n";
 import { SERIAL_PRESETS } from "../config/defaults";
 import { useCredentials } from "../store/credentials";
+import { useSettings } from "../store/settings";
 
-import type { Host, Lang, SerialProfile } from "../config/types";
+import type { Host, Lang, SerialProfile, TerminalLocale, TerminalTimezone } from "../config/types";
 import { Icon } from "../components/Icons";
 import { createDemoShell } from "../utils/demoShell";
 import { brandIcon } from "../components/BrandIcons";
@@ -48,6 +49,7 @@ interface TerminalPaneProps {
   lang: Lang;
   host?: Host;
   shellId?: string;
+  shellPath?: string;
   shellTitle?: string;
   onClose?: () => void;
   onRetry?: () => void;
@@ -56,6 +58,7 @@ interface TerminalPaneProps {
 }
 
 type LiveMode = "ssh" | "serial" | "pty" | "demo" | "error";
+type ConnectionPhase = "idle" | "opening" | "connected" | "error";
 
 interface HostKeyChallengeState {
   event: HostKeyChallenge;
@@ -70,7 +73,7 @@ interface PendingHostKeyDecision {
   decision: HostKeyDecision;
 }
 
-export function TerminalPane({ lang, host, shellId, shellTitle, onClose, onRetry, onEditHost, runQueue }: TerminalPaneProps) {
+export function TerminalPane({ lang, host, shellId, shellPath, shellTitle, onClose, onRetry, onEditHost, runQueue }: TerminalPaneProps) {
   const mountRef = useRef<HTMLDivElement>(null);
   const termRef = useRef<XTerm | null>(null);
   const fitRef = useRef<FitAddon | null>(null);
@@ -83,6 +86,9 @@ export function TerminalPane({ lang, host, shellId, shellTitle, onClose, onRetry
   const [hostKeyChallenge, setHostKeyChallenge] = useState<HostKeyChallengeState | null>(null);
   const [retryNonce, setRetryNonce] = useState(0);
   const [skipOpenSshKnownHosts, setSkipOpenSshKnownHosts] = useState(false);
+  const [sessionPassword, setSessionPassword] = useState("");
+  const [passwordDraft, setPasswordDraft] = useState("");
+  const [connectionPhase, setConnectionPhase] = useState<ConnectionPhase>(() => (host || shellId ? "opening" : "idle"));
   const [clock, setClock] = useState(() => new Date());
   const isLogClosedRef = useRef(false);
   const onCloseRef = useRef(onClose);
@@ -91,11 +97,35 @@ export function TerminalPane({ lang, host, shellId, shellTitle, onClose, onRetry
   const bytesOutRef = useRef(0);
   const connectionLogIdRef = useRef<string | null>(null);
   const pendingHostKeyDecisionRef = useRef<PendingHostKeyDecision | null>(null);
+  const {
+    terminalCursorStyle,
+    terminalCursorBlink,
+    terminalScrollback,
+    terminalCopyOnSelect,
+    terminalRightClickPaste,
+    terminalLocale,
+    terminalTimezone,
+    hardwareAcceleration,
+  } = useSettings((s) => ({
+    terminalCursorStyle: s.terminalCursorStyle,
+    terminalCursorBlink: s.terminalCursorBlink,
+    terminalScrollback: s.terminalScrollback,
+    terminalCopyOnSelect: s.terminalCopyOnSelect,
+    terminalRightClickPaste: s.terminalRightClickPaste,
+    terminalLocale: s.terminalLocale,
+    terminalTimezone: s.terminalTimezone,
+    hardwareAcceleration: s.hardwareAcceleration,
+  }));
 
   useEffect(() => {
     const id = window.setInterval(() => setClock(new Date()), 1000);
     return () => window.clearInterval(id);
   }, []);
+
+  useEffect(() => {
+    setSessionPassword("");
+    setPasswordDraft("");
+  }, [host?.id]);
 
   const closeConnectionLog = async (error?: string, exitStatus: number | null = null) => {
     const logId = connectionLogIdRef.current;
@@ -135,25 +165,28 @@ export function TerminalPane({ lang, host, shellId, shellTitle, onClose, onRetry
       fontFamily: getCSS("--terminal-font-family", '"JetBrains Mono", ui-monospace, monospace'),
       fontSize: Number.parseInt(getCSS("--terminal-font-size", "13"), 10) || 13,
       lineHeight: 1.35,
-      cursorBlink: true,
-      cursorStyle: "bar",
+      cursorBlink: terminalCursorBlink,
+      cursorStyle: terminalCursorStyle,
+      scrollback: terminalScrollback,
       allowProposedApi: true,
       theme: terminalTheme(),
     });
     const fit = new FitAddon();
     term.loadAddon(fit);
     term.loadAddon(new WebLinksAddon());
-    try {
-      term.loadAddon(new WebglAddon());
-    } catch {
-      // WebGL can be disabled on some Windows machines; canvas rendering is fine.
-    }
     term.open(mount);
-    safeFit(fit);
+    if (shouldLoadWebglAddon(hardwareAcceleration)) {
+      try {
+        term.loadAddon(new WebglAddon());
+      } catch {
+        // WebGL can be disabled on some Windows machines; canvas rendering is fine.
+      }
+    }
     termRef.current = term;
     fitRef.current = fit;
 
     let dataSub: IDisposable | null = null;
+    let selectionSub: IDisposable | null = null;
     let unlistenHostKeyChallenge: (() => void) | null = null;
     let unlistenData: (() => void) | null = null;
     let unlistenExit: (() => void) | null = null;
@@ -165,15 +198,17 @@ export function TerminalPane({ lang, host, shellId, shellTitle, onClose, onRetry
       isLogClosedRef.current = false;
     };
 
+    let resizeFrame = 0;
+    let initialResizeTimer = 0;
     const resizeRemote = () => {
-      safeFit(fit);
+      const fitted = safeFit(fit);
+      if (!fitted) return;
       const sessionId = sessionIdRef.current;
       if (!sessionId) return;
       if (modeRef.current === "ssh") void sshResize(sessionId, term.cols, term.rows);
       if (modeRef.current === "serial") void serialResize(sessionId, term.cols, term.rows);
       if (modeRef.current === "pty") void ptyResize(sessionId, term.cols, term.rows);
     };
-    let resizeFrame = 0;
     const queueResize = () => {
       window.cancelAnimationFrame(resizeFrame);
       resizeFrame = window.requestAnimationFrame(resizeRemote);
@@ -181,8 +216,10 @@ export function TerminalPane({ lang, host, shellId, shellTitle, onClose, onRetry
     const ro = new ResizeObserver(queueResize);
     ro.observe(mount);
     window.addEventListener("resize", queueResize);
+    queueResize();
+    initialResizeTimer = window.setTimeout(queueResize, 100);
 
-    dataSub = term.onData((data) => {
+    const sendInput = (data: string) => {
       const sessionId = sessionIdRef.current;
       if (sessionId && modeRef.current === "ssh") {
         const outgoing = sendBytes(new TextEncoder().encode(data));
@@ -200,7 +237,25 @@ export function TerminalPane({ lang, host, shellId, shellTitle, onClose, onRetry
         return;
       }
       demoRef.current?.handle(data);
-    });
+    };
+
+    dataSub = term.onData(sendInput);
+
+    if (terminalCopyOnSelect) {
+      selectionSub = term.onSelectionChange(() => {
+        const selected = term.getSelection();
+        if (selected) void navigator.clipboard?.writeText(selected);
+      });
+    }
+
+    const onContextMenu = (event: MouseEvent) => {
+      if (!terminalRightClickPaste) return;
+      event.preventDefault();
+      void navigator.clipboard?.readText().then((text) => {
+        if (text) sendInput(text);
+      });
+    };
+    mount.addEventListener("contextmenu", onContextMenu);
 
     setConnectionError(null);
     setHostKeyChallenge(null);
@@ -210,11 +265,13 @@ export function TerminalPane({ lang, host, shellId, shellTitle, onClose, onRetry
       if (host) {
         modeRef.current = "error";
         setLiveMode("error");
-        setConnectionError(errorMessage(reason));
+        setConnectionPhase("error");
+        setConnectionError(rawErrorMessage(reason));
         return;
       }
       modeRef.current = "demo";
       setLiveMode("demo");
+      setConnectionPhase("connected");
       const demo = createDemoShell(term, host, shellTitle || shellId || "local", () => onCloseRef.current?.());
       demoRef.current = demo;
       demo.start();
@@ -223,9 +280,9 @@ export function TerminalPane({ lang, host, shellId, shellTitle, onClose, onRetry
     (async () => {
       try {
         if (shellId) {
-      modeRef.current = "pty";
+          modeRef.current = "pty";
           setLiveMode("pty");
-          const id = await ptyOpen(shellId);
+          const id = await ptyOpen(shellId, shellPath, resolveTerminalEnv(terminalLocale, terminalTimezone));
           if (disposed) {
             await ptyClose(id);
             return;
@@ -237,6 +294,7 @@ export function TerminalPane({ lang, host, shellId, shellTitle, onClose, onRetry
             term.write(writeBytes(bytes));
           });
           unlistenExit = await onPtyExit(id, () => onCloseRef.current?.());
+          setConnectionPhase("connected");
           queueResize();
           return;
         }
@@ -266,6 +324,7 @@ export function TerminalPane({ lang, host, shellId, shellTitle, onClose, onRetry
               term.write(writeBytes(bytes));
             });
             unlistenExit = await onSerialExit(id, () => onCloseRef.current?.());
+            setConnectionPhase("connected");
             queueResize();
             return;
           }
@@ -304,9 +363,13 @@ export function TerminalPane({ lang, host, shellId, shellTitle, onClose, onRetry
             : undefined;
           const username = credentialProfile?.user || host.user;
           const identityFile = credentialProfile?.identityFile || host.identityFile;
-          let password: string | undefined = host.ephemeralPassword ?? undefined;
+          let password: string | undefined = sessionPassword || host.ephemeralPassword || undefined;
           if (!password && credentialProfile) {
             password = (await loadPassword(credentialProfile.id).catch(() => undefined)) ?? undefined;
+          }
+          if (!password && !identityFile) {
+            startDemo(`password_required: password is required for ${username}@${host.hostname}`);
+            return;
           }
           try {
             const connectionLogId = await connectionLogOpen(host.alias);
@@ -323,6 +386,7 @@ export function TerminalPane({ lang, host, shellId, shellTitle, onClose, onRetry
             identityFile,
             password,
             skipOpenSshKnownHosts,
+            ...resolveTerminalEnv(terminalLocale, terminalTimezone),
           });
           if (disposed) {
             await sshClose(id);
@@ -338,6 +402,7 @@ export function TerminalPane({ lang, host, shellId, shellTitle, onClose, onRetry
             void closeConnectionLog();
             onCloseRef.current?.();
           });
+          setConnectionPhase("connected");
           queueResize();
           return;
         }
@@ -359,9 +424,12 @@ export function TerminalPane({ lang, host, shellId, shellTitle, onClose, onRetry
       disposed = true;
       onCloseRef.current = undefined;
       window.cancelAnimationFrame(resizeFrame);
+      window.clearTimeout(initialResizeTimer);
       window.clearTimeout(focusTimer);
       window.removeEventListener("resize", queueResize);
+      mount.removeEventListener("contextmenu", onContextMenu);
       dataSub?.dispose();
+      selectionSub?.dispose();
       ro.disconnect();
       unlistenHostKeyChallenge?.();
       unlistenData?.();
@@ -377,7 +445,23 @@ export function TerminalPane({ lang, host, shellId, shellTitle, onClose, onRetry
       demoRef.current = null;
       term.dispose();
     };
-  }, [host?.id, shellId, shellTitle, retryNonce, skipOpenSshKnownHosts]);
+  }, [
+    host?.id,
+    shellId,
+    shellPath,
+    shellTitle,
+    retryNonce,
+    skipOpenSshKnownHosts,
+    sessionPassword,
+    terminalCursorStyle,
+    terminalCursorBlink,
+    terminalScrollback,
+    terminalCopyOnSelect,
+    terminalRightClickPaste,
+    terminalLocale,
+    terminalTimezone,
+    hardwareAcceleration,
+  ]);
 
   useEffect(() => {
     if (!runQueue || runQueue.length === 0 || runQueue.length === lastRunLengthRef.current) return;
@@ -419,32 +503,46 @@ export function TerminalPane({ lang, host, shellId, shellTitle, onClose, onRetry
     : null;
   const hasHostKeyBlocked = hostKeyStatus === "blocked";
   const hasHostKeyPending = hostKeyStatus === "pending";
-  const connectionStatusClass = hasError || hasHostKeyBlocked ? "bad" : isDemo || hasHostKeyPending ? "warn" : "";
+  const isOpening = connectionPhase === "opening";
+  const connectionStatusClass = hasError || hasHostKeyBlocked ? "bad" : isDemo || hasHostKeyPending || isOpening ? "warn" : "";
   const connectionStatusLabel = hasError
     ? t("conn.status.failed", lang)
     : hasHostKeyBlocked
       ? t("conn.status.hostKeyBlocked", lang)
       : hasHostKeyPending
         ? t("conn.status.hostKeyPending", lang)
-        : t(isDemo ? "conn.status.localDemo" : "conn.status.connected", lang);
+        : isOpening
+          ? t("conn.status.connecting", lang)
+          : t(isDemo ? "conn.status.localDemo" : "conn.status.connected", lang);
   const shellStatusLabel = hasError
     ? t("conn.status.failed", lang)
     : hasHostKeyBlocked
       ? t("conn.status.hostKeyBlocked", lang)
       : hasHostKeyPending
         ? t("conn.status.hostKeyPending", lang)
-        : isDemo
-          ? t("status.shell.local", lang)
-          : host
-            ? (host.connectionType === "serial" ? t("status.shell.serial", lang) : t("status.shell.remote", lang))
-            : t("status.shell.local", lang);
+        : isOpening
+          ? t("conn.status.connecting", lang)
+          : isDemo
+            ? t("status.shell.local", lang)
+            : host
+              ? (host.connectionType === "serial" ? t("status.shell.serial", lang) : t("status.shell.remote", lang))
+              : t("status.shell.local", lang);
   const handleRetry = (options?: { skipOpenSshKnownHosts?: boolean }) => {
     setSkipOpenSshKnownHosts(Boolean(options?.skipOpenSshKnownHosts));
     setConnectionError(null);
     setHostKeyChallenge(null);
+    setConnectionPhase(host || shellId ? "opening" : "idle");
     setLiveMode(host ? (host.connectionType === "serial" ? "serial" : "ssh") : shellId ? "pty" : "demo");
     setRetryNonce((n) => n + 1);
     onRetry?.();
+  };
+  const submitPasswordRetry = (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    const nextPassword = passwordDraft;
+    if (!nextPassword) return;
+    setSessionPassword(nextPassword);
+    setPasswordDraft("");
+    handleRetry();
   };
   const decideHostKey = async (decision: HostKeyDecision) => {
     if (!hostKeyChallenge || hostKeyChallenge.submitting) return;
@@ -535,7 +633,7 @@ export function TerminalPane({ lang, host, shellId, shellTitle, onClose, onRetry
             <div className="connection-error">
               <span className="eyebrow">{t("conn.error.eyebrow", lang)}</span>
               <h2>{t("conn.error.title", lang)}</h2>
-              <p>{connectionError}</p>
+              <p>{describeConnectionError(connectionError, lang)}</p>
               <div className="connection-error__target">
                 <span style={{ fontFamily: "var(--font-mono)", fontSize: 13, color: "var(--text)" }}>
                   {host.connectionType === "serial"
@@ -548,6 +646,24 @@ export function TerminalPane({ lang, host, shellId, shellTitle, onClose, onRetry
                   <span className="k" style={{ color: "var(--text-mute)" }}>{t("host.eyebrow.key", lang)}: </span>
                   <span>{host.identityFile}</span>
                 </div>
+              )}
+              {host.connectionType !== "serial" && isPasswordRecoverableError(connectionError) && (
+                <form className="connection-error__password" onSubmit={submitPasswordRetry}>
+                  <label>
+                    <span className="k">{t("manual.field.password", lang)}</span>
+                    <input
+                      type="password"
+                      value={passwordDraft}
+                      onChange={(event) => setPasswordDraft(event.target.value)}
+                      placeholder={t("term.password.placeholder", lang)}
+                      autoComplete="current-password"
+                    />
+                  </label>
+                  <button className="btn" type="submit" disabled={!passwordDraft}>
+                    {Icon.power}
+                    <span>{t("term.password.retry", lang)}</span>
+                  </button>
+                </form>
               )}
               <div className="connection-error__actions">
                 <button className="btn" onClick={() => handleRetry()}>
@@ -648,11 +764,49 @@ function HostKeyChallengeOverlay({
 }
 
 function safeFit(fit: FitAddon) {
+  if (!isFitReady(fit)) return false;
   try {
     fit.fit();
+    return true;
   } catch {
     // xterm may briefly have zero-sized cells during first paint.
+    return false;
   }
+}
+
+function isFitReady(fit: FitAddon) {
+  const candidate = fit as unknown as {
+    _terminal?: {
+      _core?: {
+        _renderService?: {
+          _renderer?: {
+            value?: unknown;
+          };
+        };
+      };
+    };
+  };
+  return Boolean(candidate._terminal?._core?._renderService?._renderer?.value);
+}
+
+function shouldLoadWebglAddon(enabled: boolean) {
+  if (!enabled) return false;
+  const tauriWindow = window as Window & { __TAURI_INTERNALS__?: unknown };
+  if (!tauriWindow.__TAURI_INTERNALS__) return false;
+  if (/Headless/i.test(navigator.userAgent)) return false;
+  const canvas = document.createElement("canvas");
+  try {
+    return Boolean(canvas.getContext("webgl2") || canvas.getContext("webgl"));
+  } catch {
+    return false;
+  }
+}
+
+function resolveTerminalEnv(terminalLocale: TerminalLocale, terminalTimezone: TerminalTimezone) {
+  return {
+    terminalLocale: terminalLocale === "system" ? undefined : terminalLocale,
+    terminalTimezone: terminalTimezone === "system" ? undefined : terminalTimezone,
+  };
 }
 
 function base64Bytes(b64: string) {
@@ -701,8 +855,8 @@ function hexToRgba(hex: string, alpha: number) {
   return `rgba(${r},${g},${b},${alpha})`;
 }
 
-function errorMessage(error: unknown) {
-  return describeConnectionError(error);
+function rawErrorMessage(error: unknown) {
+  return error instanceof Error ? error.message : String(error || "");
 }
 
 function resolveSerialProfile(profile?: SerialProfile): SerialProfile {
@@ -714,50 +868,58 @@ function resolveSerialProfile(profile?: SerialProfile): SerialProfile {
   };
 }
 
-export function describeConnectionError(error: unknown) {
+export function describeConnectionError(error: unknown, lang: Lang = "en") {
   const raw = (error instanceof Error ? error.message : String(error || "")).toLowerCase();
-  if (!raw) return "Live session could not be opened.";
+  if (!raw) return t("conn.error.message.generic", lang);
 
   // Categorize common SSH errors
   if (/host_key_mismatch/i.test(raw)) {
-    return `Host key mismatch — the server fingerprint changed. The connection was blocked to protect this session.`;
+    return t("conn.error.message.hostKeyMismatch", lang);
   }
   if (/host_key_rejected/i.test(raw)) {
-    return `Host key rejected — connection cancelled before authentication.`;
+    return t("conn.error.message.hostKeyRejected", lang);
   }
   if (/host_key_timeout/i.test(raw)) {
-    return `Host key confirmation timed out — reconnect and choose whether to trust this host.`;
+    return t("conn.error.message.hostKeyTimeout", lang);
   }
   if (/host_key_store_failed/i.test(raw)) {
-    return `Host key could not be stored locally. Try accepting once or check Netssh's local data permissions.`;
+    return t("conn.error.message.hostKeyStoreFailed", lang);
+  }
+  if (/auth_timeout|authentication timed out|password authentication timed out|keyboard-interactive authentication timed out/i.test(raw)) {
+    return t("conn.error.message.authTimeout", lang);
   }
   if (/dns|resolve|could not resolve|lookup|host.?name|getaddrinfo|name or service not known|no address associated|nodename nor servname/i.test(raw)) {
-    return `DNS resolution failed — Netssh cannot resolve this hostname. Check the asset hostname/IP, local DNS suffix, VPN DNS, or hosts file.`;
+    return t("conn.error.message.dns", lang);
   }
   if (/no route|network is unreachable|network unreachable|host unreachable|enetunreach|ehostunreach/i.test(raw)) {
-    return `Route unavailable — there is no network path to the target. Check VPN, site routing, gateway, VLAN, or firewall policy.`;
+    return t("conn.error.message.route", lang);
   }
   if (/connection refused|actively refused|econnrefused|refused/i.test(raw)) {
-    return `SSH service or port rejected the connection — verify the SSH daemon is running and the configured port is open.`;
+    return t("conn.error.message.refused", lang);
   }
   if (/timeout|timed out|no response/i.test(raw)) {
-    return `Connection timed out — no response from the target port. Check IP address, routing, firewall, security group, or VPN.`;
+    return t("conn.error.message.timeout", lang);
   }
-  if (/no_credentials/i.test(raw)) {
-    return `No credentials provided — edit this host to set a password or SSH identity file, then reconnect.`;
+  if (/password_required|no_credentials/i.test(raw)) {
+    return t("conn.error.message.passwordRequired", lang);
   }
   if (/username_invalid/i.test(raw)) {
-    return `Invalid username — username contains whitespace or special characters (: or @).`;
+    return t("conn.error.message.username", lang);
   }
   if (/key_passphrase_needed|passphrase|encrypted private key|unable to decrypt|bad decrypt|invalid passphrase/i.test(raw)) {
-    return `SSH key passphrase required — this private key is encrypted or the passphrase is wrong. Add the correct passphrase and reconnect.`;
+    return t("conn.error.message.passphrase", lang);
   }
   if (/auth|permission denied|password|publickey|keyboard-interactive|no supported auth|all authentication methods failed/i.test(raw)) {
-    return `Authentication failed — the server rejected the username, password, or SSH key. Check account policy, AD/TACACS login, and allowed auth methods.`;
+    return t("conn.error.message.auth", lang);
   }
   if (/reset|broken pipe|connection reset|disconnect/i.test(raw)) {
-    return `Connection reset — the session was unexpectedly closed. Server may have dropped the connection.`;
+    return t("conn.error.message.reset", lang);
   }
 
-  return raw || "Live session could not be opened.";
+  return raw || t("conn.error.message.generic", lang);
+}
+
+export function isPasswordRecoverableError(error: unknown) {
+  const raw = (error instanceof Error ? error.message : String(error || "")).toLowerCase();
+  return /password_required|no_credentials|password_incorrect|auth_timeout|authentication timed out|permission denied|publickey|keyboard-interactive|no supported auth|all authentication methods failed/i.test(raw);
 }

@@ -34,8 +34,8 @@ Files that must stay aligned:
 Change only `$newTag`.
 
 ```powershell
-$oldTag = "v1.1.15"
-$newTag = "v1.1.16"
+$oldTag = "v1.1.16"
+$newTag = "v1.1.17"
 
 $oldVersion = $oldTag -replace '^v', ''
 $newVersion = $newTag -replace '^v', ''

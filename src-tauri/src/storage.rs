@@ -1,4 +1,5 @@
 // Local metadata storage. SQLite under %APPDATA%\Netssh\db.sqlite.
+// E2E can set NETSSH_DATA_DIR to isolate test state from a user's real app data.
 //
 // What's stored:  hosts (extra metadata on top of ssh_config — tags, notes,
 //                 pin state, hue, last_seen, latency snapshot)
@@ -19,9 +20,13 @@ use std::path::PathBuf;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 pub fn db_path() -> Result<PathBuf> {
-    let dir = dirs::data_dir()
-        .ok_or_else(|| anyhow::anyhow!("no AppData dir"))?
-        .join("Netssh");
+    let dir = if let Ok(path) = std::env::var("NETSSH_DATA_DIR") {
+        PathBuf::from(path)
+    } else {
+        dirs::data_dir()
+            .ok_or_else(|| anyhow::anyhow!("no AppData dir"))?
+            .join("Netssh")
+    };
     std::fs::create_dir_all(&dir)?;
     Ok(dir.join("db.sqlite"))
 }
@@ -121,6 +126,11 @@ pub fn get_app_state(conn: &Connection, key: &str) -> Result<Option<String>> {
 
 pub fn put_app_state(conn: &Connection, key: &str, value: &str) -> Result<()> {
     put_setting(conn, key, value)
+}
+
+pub fn delete_app_state(conn: &Connection, key: &str) -> Result<()> {
+    conn.execute("DELETE FROM settings WHERE key = ?1", params![key])?;
+    Ok(())
 }
 
 pub fn list_trusted_host_fingerprints(

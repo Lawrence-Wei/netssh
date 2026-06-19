@@ -6,10 +6,11 @@
  *
  * Run: npm test
  */
-import { describe, it, expect, beforeEach } from "vitest";
+import { describe, it, expect, beforeEach, vi } from "vitest";
 import { render, screen, fireEvent, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { createElement } from "react";
+import { getCurrentWindow } from "@tauri-apps/api/window";
 import App from "../pages/App";
 import { ConfirmProvider } from "../components/ConfirmDialog";
 import { APP_VERSION } from "../config/app";
@@ -156,7 +157,8 @@ describe("1. App Shell", () => {
     renderApp();
     const tb = document.querySelector(".titlebar")!;
     expect(within(tb).getByText("Netssh")).toBeTruthy();
-    expect(within(tb).getByText(`v${APP_VERSION}`)).toBeTruthy();
+    expect(within(tb).queryByText(`v${APP_VERSION}`)).toBeFalsy();
+    expect(tb.querySelector(".titlebar-sidebar-toggle")).toBeTruthy();
     expect(tb.querySelectorAll(".win-controls button").length).toBe(3);
   });
 
@@ -178,6 +180,53 @@ describe("2. TitleBar", () => {
   it("Session menu exists", () => {
     renderApp();
     expect(document.querySelector(".app-menu")).toBeTruthy();
+  });
+
+  it("places the Session menu after the Home tab", () => {
+    renderApp();
+    const tabstrip = document.querySelector(".tabstrip")!;
+    const children = Array.from(tabstrip.children);
+    const homeTab = children.find((child) => child.classList.contains("tab") && child.textContent?.includes("Home"));
+    const sessionMenu = tabstrip.querySelector(".app-menu");
+
+    expect(homeTab).toBeTruthy();
+    expect(sessionMenu).toBeTruthy();
+    expect(children.indexOf(sessionMenu!)).toBeGreaterThan(children.indexOf(homeTab!));
+  });
+
+  it("double-clicking the Session titlebar area toggles maximize", async () => {
+    renderApp();
+    const win = getCurrentWindow();
+    vi.mocked(win.toggleMaximize).mockClear();
+
+    fireEvent.doubleClick(screen.getByText("Session"));
+
+    await waitFor(() => {
+      expect(win.toggleMaximize).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  it("double-clicking empty tabstrip chrome toggles maximize", async () => {
+    renderApp();
+    const win = getCurrentWindow();
+    vi.mocked(win.toggleMaximize).mockClear();
+
+    fireEvent.doubleClick(document.querySelector(".tabstrip")!);
+
+    await waitFor(() => {
+      expect(win.toggleMaximize).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  it("double-clicking a tab does not toggle maximize", async () => {
+    renderApp();
+    const win = getCurrentWindow();
+    vi.mocked(win.toggleMaximize).mockClear();
+
+    fireEvent.doubleClick(document.querySelector(".tab")!);
+
+    await Promise.resolve();
+    expect(win.toggleMaximize).not.toHaveBeenCalled();
   });
 
   it("settings icon button opens settings nav", async () => {
@@ -257,14 +306,13 @@ describe("3. Sidebar", () => {
   it("device sidebar can hide and expand", async () => {
     const { user } = renderApp();
     const shell = document.querySelector(".shell") as HTMLElement;
-    await user.click(within(sidebar()).getByTitle("Hide devices"));
+    await user.click(screen.getByTitle("Hide devices"));
     await waitFor(() => {
       expect(document.querySelector(".sidebar")).toBeFalsy();
     });
     expect(shell.style.gridTemplateColumns).toBe("minmax(0, 1fr)");
-    const restore = document.querySelector(".sidebar-restore") as HTMLElement;
-    expect(restore).toBeTruthy();
-    await user.click(restore);
+    expect(document.querySelector(".sidebar-restore")).toBeFalsy();
+    await user.click(screen.getByTitle("Show devices"));
     await waitFor(() => {
       expect(document.querySelector(".sidebar")).toBeTruthy();
     });
@@ -367,6 +415,21 @@ describe("4. Landing / Home Page", () => {
     expect(document.querySelector(".asset-board")).toBeFalsy();
     expect(document.querySelectorAll(".topology-site").length).toBeGreaterThan(0);
   });
+
+  it("sidebar search also narrows the home topology map", async () => {
+    seedChineseTopologyHome();
+    const { user } = renderApp();
+    const searchInput = sidebar().querySelector(".search input") as HTMLInputElement;
+    const topology = document.querySelector(".topology-panel") as HTMLElement;
+
+    await user.type(searchInput, "ecs");
+
+    await waitFor(() => {
+      expect(within(topology).getByText("ecs")).toBeTruthy();
+      expect(within(topology).queryByText("asus-router")).toBeFalsy();
+      expect(within(topology).queryByText("switch")).toBeFalsy();
+    });
+  });
 });
 
 // ============================================================
@@ -439,6 +502,35 @@ describe("5. HostDetail & Editor", () => {
       expect(screen.getByText(/Edit host/i)).toBeTruthy();
     });
   });
+
+  it("connected session tab context menu can edit host", async () => {
+    const { user } = renderApp();
+    await user.click(within(sidebar()).getByText("Add host"));
+    await waitFor(() => screen.getByText(/Edit host/i));
+
+    const aliasInput = screen.getByPlaceholderText(/my-server/i);
+    await user.clear(aliasInput);
+    await user.type(aliasInput, "tab-edit-host");
+    await user.click(screen.getByText("Save"));
+    await waitFor(() => screen.getByText("Connect"));
+
+    await user.click(screen.getByText("Connect"));
+    await waitFor(() => {
+      expect(document.querySelector(".terminal-wrap")).toBeTruthy();
+    });
+
+    const sessionTab = document.querySelector(".tab.active") as HTMLElement;
+    expect(sessionTab).toBeTruthy();
+    fireEvent.contextMenu(sessionTab);
+
+    const menu = document.querySelector(".context-menu") as HTMLElement;
+    expect(menu).toBeTruthy();
+    await user.click(within(menu).getByText(/Edit host/i));
+
+    await waitFor(() => {
+      expect(screen.getByText(/Edit host/i)).toBeTruthy();
+    });
+  });
 });
 
 // ============================================================
@@ -452,14 +544,24 @@ describe("6. Settings", () => {
     }, { timeout: 2000 });
   }
 
-  it("8 nav sections in sidebar", async () => {
+  it("9 nav sections in sidebar", async () => {
     const { user } = renderApp();
     await open(user);
     const nav = document.querySelector(".settings-nav")!;
     [
       "Appearance", "Language & region", "Local shells",
-      "SSH keys", "Credentials", "Terminal", "Shortcuts", "Advanced",
+      "SSH keys", "Credentials", "Terminal", "Shortcuts", "Advanced", "About",
     ].forEach((l) => expect(within(nav).getByText(l)).toBeTruthy());
+  });
+
+  it("About section shows the app version", async () => {
+    const { user } = renderApp();
+    await open(user);
+    await user.click(screen.getByText("About"));
+    await waitFor(() => {
+      expect(screen.getByText("About Netssh")).toBeTruthy();
+    });
+    expect(screen.getByText(APP_VERSION)).toBeTruthy();
   });
 
   it("Language section shows Follow system toggle", async () => {

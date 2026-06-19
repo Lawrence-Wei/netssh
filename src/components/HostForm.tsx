@@ -79,7 +79,7 @@ export function HostEditorFull({
 
     const portNum = Number(port);
     if (!Number.isFinite(portNum) || portNum < 1 || portNum > 65535 || !Number.isInteger(portNum)) {
-      setPortError(lang === "zh" ? "端口必须在 1-65535 之间" : "Port must be 1-65535");
+      setPortError(t("host.error.portRange", lang));
       return;
     }
     setPortError("");
@@ -110,7 +110,7 @@ export function HostEditorFull({
         <div className="host-editor-full__head">
           <h2>
             <span style={{ color: "var(--text-mute)", fontWeight: 400 }}>
-              {lang === "zh" ? "编辑主机" : "Edit host"}
+              {t("host.editor.title", lang)}
             </span>
             <span style={{ marginLeft: 8, color: "var(--accent)" }}>{host.alias}</span>
           </h2>
@@ -118,44 +118,14 @@ export function HostEditorFull({
         </div>
 
         <div className="host-editor-full__body">
-          {/* Basic information */}
-          <section className="host-editor-section">
-            <h3 className="host-editor-section__title">
-              {lang === "zh" ? "基础信息" : "Basic information"}
-            </h3>
-            <div className="host-editor-full__grid">
-              <label>
-                <span className="k">{t("host.field.alias", lang)}</span>
-                <input
-                  value={draft.alias}
-                  onChange={(e) => setDraft({ ...draft, alias: e.target.value })}
-                  placeholder="my-server"
-                />
-              </label>
-              <label>
-                <span className="k">{t("host.field.role", lang)}</span>
-                <input
-                  value={draft.role || ""}
-                  onChange={(e) => setDraft({ ...draft, role: e.target.value })}
-                  placeholder={lang === "zh" ? "例如 gateway, nas, web" : "e.g. gateway, nas, web"}
-                />
-              </label>
-              <label>
-                <span className="k">{lang === "zh" ? "设备类型" : "Device type"}</span>
-                <input
-                  value={(draft.tags || []).join(", ")}
-                  onChange={(e) => setDraft({ ...draft, tags: e.target.value.split(",").map((s) => s.trim()).filter(Boolean) })}
-                  placeholder="ubuntu, raspberry, zspace, openwrt..."
-                />
-              </label>
-              <label>
-                <span className="k">{lang === "zh" ? "备注" : "Notes"}</span>
-                <input
-                  value={draft.notes || ""}
-                  onChange={(e) => setDraft({ ...draft, notes: e.target.value })}
-                  placeholder={lang === "zh" ? "备注..." : "Notes..."}
-                />
-              </label>
+          <section className="host-editor-section host-editor-section--connection">
+            <div className="host-editor-section__head">
+              <h3 className="host-editor-section__title">
+                {t("host.editor.connectionRequired", lang)}
+              </h3>
+              <span className="host-editor-section__badge">{connectionSectionTitle}</span>
+            </div>
+            <div className={"host-editor-connect-grid host-editor-connect-grid--" + connectionType}>
               <label>
                 <span className="k">{t("host.field.connectionType", lang)}</span>
                 <select
@@ -167,59 +137,8 @@ export function HostEditorFull({
                   <option value="serial">{t("host.connection.serial", lang)}</option>
                 </select>
               </label>
-            </div>
-          </section>
-
-          {/* Connection information */}
-          <section className="host-editor-section">
-            <h3 className="host-editor-section__title">
-              {connectionSectionTitle}
-            </h3>
-            <div className="host-editor-full__grid">
-              <label>
-                <span className="k">{t("host.field.env", lang)}</span>
-                <select
-                  value={draft.env || ""}
-                  onChange={(e) => setDraft({ ...draft, env: e.target.value || undefined })}
-                >
-                  <option value="">--</option>
-                  <option value="prod">{lang === "zh" ? "生产" : "Production"}</option>
-                  <option value="stage">{lang === "zh" ? "预发" : "Staging"}</option>
-                  <option value="dev">{lang === "zh" ? "开发" : "Development"}</option>
-                </select>
-              </label>
               {connectionType === "ssh" ? (
                 <>
-                  {credentials.length > 0 && (
-                    <label style={{ gridColumn: "1 / -1" }}>
-                      <span className="k">{t("host.field.credentialProfile", lang)}</span>
-                      <select
-                        value={draft.credentialProfileId || ""}
-                        onChange={(e) => {
-                          const id = e.target.value;
-                          if (!id) {
-                            setDraft({ ...draft, credentialProfileId: undefined });
-                            return;
-                          }
-                          const cred = credentials.find((i) => i.id === id);
-                          if (!cred) return;
-                          setDraft({
-                            ...draft,
-                            credentialProfileId: cred.id,
-                            user: cred.user,
-                            identityFile: cred.identityFile,
-                          });
-                        }}
-                      >
-                        <option value="">{t("host.field.credentialProfilePlaceholder", lang)}</option>
-                        {credentials.map((cred) => (
-                          <option key={cred.id} value={cred.id}>
-                            {cred.group} · {cred.name} ({cred.user}){cred.identityFile ? ` - ${cred.identityFile.split(/[\\/]/).pop()}` : ""}
-                          </option>
-                        ))}
-                      </select>
-                    </label>
-                  )}
                   <label>
                     <span className="k">{t("host.field.hostname", lang)}</span>
                     <input
@@ -254,74 +173,127 @@ export function HostEditorFull({
                     {portError && <span className="field-error">{portError}</span>}
                   </label>
                 </>
-                ) : (
-                  <>
-                    <label style={{ gridColumn: "1 / -1" }}>
-                      <span className="k">{t("host.field.serialPreset", lang)}</span>
-                      <select
-                        value={draft.serialProfile?.presetId ?? "custom"}
-                        onChange={(e) => {
-                          const presetId = e.target.value;
-                          if (presetId === "custom") {
-                            setDraft({ ...draft, serialProfile: { ...serialProfile } });
-                            setSerialError("");
-                            return;
-                          }
-                          const preset = SERIAL_PRESETS.find((item) => item.id === presetId);
-                          if (!preset) return;
-                          setDraft({
-                            ...draft,
-                            serialProfile: {
-                              ...preset.profile,
-                              portName: serialProfile.portName,
-                              presetId,
-                            },
-                          });
+              ) : (
+                <>
+                  <label>
+                    <span className="k">{t("host.field.serialPort", lang)}</span>
+                    <input
+                      value={serialProfile.portName || ""}
+                      onChange={(e) => setDraft({
+                        ...draft,
+                        serialProfile: {
+                          ...serialProfile,
+                          portName: e.target.value,
+                        },
+                      })}
+                      onBlur={() => setSerialError("")}
+                    />
+                    {serialError && <span className="field-error">{serialError}</span>}
+                  </label>
+                  <label>
+                    <span className="k">{t("host.field.serialPreset", lang)}</span>
+                    <select
+                      value={draft.serialProfile?.presetId ?? "custom"}
+                      onChange={(e) => {
+                        const presetId = e.target.value;
+                        if (presetId === "custom") {
+                          setDraft({ ...draft, serialProfile: { ...serialProfile } });
                           setSerialError("");
-                        }}
-                      >
-                        <option value="custom">{t("host.field.serialPresetCustom", lang)}</option>
-                        {SERIAL_PRESETS.map((preset) => (
-                          <option key={preset.id} value={preset.id}>
-                            {preset.label}
-                          </option>
-                        ))}
-                      </select>
-                    </label>
-                    <label>
-                      <span className="k">{t("host.field.serialPort", lang)}</span>
-                      <input
-                        value={serialProfile.portName || ""}
-                        onChange={(e) => setDraft({
+                          return;
+                        }
+                        const preset = SERIAL_PRESETS.find((item) => item.id === presetId);
+                        if (!preset) return;
+                        setDraft({
+                          ...draft,
+                          serialProfile: {
+                            ...preset.profile,
+                            portName: serialProfile.portName,
+                            presetId,
+                          },
+                        });
+                        setSerialError("");
+                      }}
+                    >
+                      <option value="custom">{t("host.field.serialPresetCustom", lang)}</option>
+                      {SERIAL_PRESETS.map((preset) => (
+                        <option key={preset.id} value={preset.id}>
+                          {preset.label}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  <label>
+                    <span className="k">{t("host.field.serialBaudRate", lang)}</span>
+                    <input
+                      type="text"
+                      inputMode="numeric"
+                      value={String(serialProfile.baudRate)}
+                      onChange={(e) => {
+                        const value = e.target.value.replace(/[^\d]/g, "");
+                        setDraft({
                           ...draft,
                           serialProfile: {
                             ...serialProfile,
-                            portName: e.target.value,
+                            baudRate: value ? Number(value) : 0,
                           },
-                        })}
-                        onBlur={() => setSerialError("")}
-                      />
-                    </label>
+                        });
+                        setSerialError("");
+                      }}
+                    />
+                  </label>
+                </>
+              )}
+            </div>
+
+            <div className="host-editor-advanced">
+              <div className="host-editor-advanced__head">
+                <span className="eyebrow">{t("manual.advanced.title", lang)}</span>
+              </div>
+              <div className={"host-editor-advanced-grid host-editor-advanced-grid--" + connectionType}>
+                {connectionType === "ssh" ? (
+                  <>
+                    {credentials.length > 0 && (
+                      <label>
+                        <span className="k">{t("host.field.credentialProfile", lang)}</span>
+                        <select
+                          value={draft.credentialProfileId || ""}
+                          onChange={(e) => {
+                            const id = e.target.value;
+                            if (!id) {
+                              setDraft({ ...draft, credentialProfileId: undefined });
+                              return;
+                            }
+                            const cred = credentials.find((i) => i.id === id);
+                            if (!cred) return;
+                            setDraft({
+                              ...draft,
+                              credentialProfileId: cred.id,
+                              user: cred.user,
+                              identityFile: cred.identityFile,
+                            });
+                          }}
+                        >
+                          <option value="">{t("host.field.credentialProfilePlaceholder", lang)}</option>
+                          {credentials.map((cred) => (
+                            <option key={cred.id} value={cred.id}>
+                              {cred.group} · {cred.name} ({cred.user}){cred.identityFile ? ` - ${cred.identityFile.split(/[\\/]/).pop()}` : ""}
+                            </option>
+                          ))}
+                        </select>
+                      </label>
+                    )}
                     <label>
-                      <span className="k">{t("host.field.serialBaudRate", lang)}</span>
+                      <span className="k">{t("manual.field.identityFile", lang)}</span>
                       <input
-                        type="text"
-                        inputMode="numeric"
-                        value={String(serialProfile.baudRate)}
-                        onChange={(e) => {
-                          const value = e.target.value.replace(/[^\d]/g, "");
-                          setDraft({
-                            ...draft,
-                            serialProfile: {
-                              ...serialProfile,
-                              baudRate: value ? Number(value) : 0,
-                            },
-                          });
-                          setSerialError("");
-                        }}
+                        value={draft.identityFile || ""}
+                        onChange={(e) => setDraft({ ...draft, identityFile: e.target.value || undefined })}
+                        placeholder="~/.ssh/id_rsa"
+                        autoComplete="off"
                       />
-                      {serialError && <span className="field-error">{serialError}</span>}
                     </label>
+                  </>
+                ) : (
+                  <>
                     <label>
                       <span className="k">{t("host.field.serialDataBits", lang)}</span>
                       <select
@@ -428,8 +400,53 @@ export function HostEditorFull({
                     </label>
                   </>
                 )}
+              </div>
+            </div>
+          </section>
+
+          <section className="host-editor-section">
+            <h3 className="host-editor-section__title">
+              {t("host.editor.assetSection", lang)}
+            </h3>
+            <div className="host-editor-full__grid">
               <label>
-                <span className="k">{lang === "zh" ? "部署范围" : "Deploy scope"}</span>
+                <span className="k">{t("host.field.alias", lang)}</span>
+                <input
+                  value={draft.alias}
+                  onChange={(e) => setDraft({ ...draft, alias: e.target.value })}
+                  placeholder="my-server"
+                />
+              </label>
+              <label>
+                <span className="k">{t("host.field.env", lang)}</span>
+                <select
+                  value={draft.env || ""}
+                  onChange={(e) => setDraft({ ...draft, env: e.target.value || undefined })}
+                >
+                  <option value="">--</option>
+                  <option value="prod">{t("host.env.prod", lang)}</option>
+                  <option value="stage">{t("host.env.stage", lang)}</option>
+                  <option value="dev">{t("host.env.dev", lang)}</option>
+                </select>
+              </label>
+              <label>
+                <span className="k">{t("host.field.role", lang)}</span>
+                <input
+                  value={draft.role || ""}
+                  onChange={(e) => setDraft({ ...draft, role: e.target.value })}
+                  placeholder="gateway, nas, web"
+                />
+              </label>
+              <label>
+                <span className="k">{t("host.field.tags", lang)}</span>
+                <input
+                  value={(draft.tags || []).join(", ")}
+                  onChange={(e) => setDraft({ ...draft, tags: e.target.value.split(",").map((s) => s.trim()).filter(Boolean) })}
+                  placeholder="huawei, cisco, ubuntu, raspberry, luckfox, zspace, openwrt..."
+                />
+              </label>
+              <label>
+                <span className="k">{t("host.field.deployScope", lang)}</span>
                 <select
                   value={deployScope(draft) === "cloud" ? "cloud" : "local"}
                   onChange={(e) => setDraft({ ...draft, deployScope: e.target.value as DeployScope })}
@@ -439,7 +456,7 @@ export function HostEditorFull({
                 </select>
               </label>
               <label>
-                <span className="k">{lang === "zh" ? "设备类型" : "Device type"}</span>
+                <span className="k">{t("host.field.deviceType", lang)}</span>
                 <select
                   value={draft.iconOverride || deviceTypeFromHost(draft)}
                   onChange={(e) => {
@@ -451,35 +468,46 @@ export function HostEditorFull({
                     }
                   }}
                 >
-                  <option value="auto">{lang === "zh" ? "自动识别" : "Auto detect"}</option>
-                  <option value="router">{lang === "zh" ? "路由器 / 网关" : "Router / Gateway"}</option>
+                  <option value="auto">{t("host.device.auto", lang)}</option>
+                  <option value="router">{t("host.device.router", lang)}</option>
+                  <option value="huawei">{t("host.device.huawei", lang)}</option>
+                  <option value="cisco">{t("host.device.cisco", lang)}</option>
                   <option value="openwrt">OpenWrt</option>
                   <option value="istoreos">iStoreOS</option>
-                  <option value="nas">{lang === "zh" ? "NAS / 存储" : "NAS / Storage"}</option>
+                  <option value="nas">{t("host.device.nas", lang)}</option>
                   <option value="zspace">ZSpace / Zima</option>
+                  <option value="luckfox">Luckfox</option>
                   <option value="raspberry">Raspberry Pi</option>
                   <option value="ubuntu">Ubuntu</option>
                   <option value="windows">Windows</option>
                   <option value="macos">macOS</option>
                   <option value="linux">Linux</option>
-                  <option value="server">{lang === "zh" ? "服务器" : "Server"}</option>
+                  <option value="server">{t("host.device.server", lang)}</option>
                 </select>
               </label>
               <label>
-                <span className="k">{lang === "zh" ? "云厂商" : "Cloud provider"}</span>
+                <span className="k">{t("host.field.cloudProvider", lang)}</span>
                 <select
                   value={draft.cloudProvider || ""}
                   onChange={(e) => setDraft({ ...draft, cloudProvider: (e.target.value || undefined) as Host["cloudProvider"] })}
                 >
-                  <option value="">{lang === "zh" ? "无" : "None"}</option>
+                  <option value="">{t("common.none", lang)}</option>
                   <option value="aliyun">Aliyun</option>
                   <option value="tencent">Tencent</option>
                   <option value="aws">AWS</option>
                   <option value="azure">Azure</option>
                   <option value="gcp">GCP</option>
                   <option value="cloudflare">Cloudflare</option>
-                  <option value="other">{lang === "zh" ? "其他" : "Other"}</option>
+                  <option value="other">{t("common.other", lang)}</option>
                 </select>
+              </label>
+              <label>
+                <span className="k">{t("host.field.notes", lang)}</span>
+                <input
+                  value={draft.notes || ""}
+                  onChange={(e) => setDraft({ ...draft, notes: e.target.value })}
+                  placeholder={t("host.field.notes", lang)}
+                />
               </label>
             </div>
           </section>
@@ -487,7 +515,7 @@ export function HostEditorFull({
           {/* Site / group */}
           <section className="host-editor-section">
             <h3 className="host-editor-section__title">
-              {lang === "zh" ? "站点 / 分组" : "Site / group"}
+              {t("host.editor.siteSection", lang)}
             </h3>
             <div className="host-editor-full__grid">
               <label>

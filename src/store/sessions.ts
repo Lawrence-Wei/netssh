@@ -14,7 +14,7 @@ interface SessionsState {
   openEphemeralHost: (h: Host) => void;
   connectActive: () => void;
   disconnectTab: (id: string) => void;
-  openLocalShell: (shellId?: string, title?: string) => void;
+  openLocalShell: (shellId?: string, title?: string, shellPath?: string) => void;
   openSettings: () => void;
   openSnippets: () => void;
   closeTab: (id: string) => void;
@@ -100,10 +100,10 @@ export const useSessions = create<SessionsState>((set, get) => ({
     set({ tabs: get().tabs.map((t) => t.id === id ? { ...t, connected: false } : t) });
   },
 
-  openLocalShell: (shellId = "pwsh", title = "PowerShell") => {
+  openLocalShell: (shellId = "pwsh", title = "PowerShell", shellPath) => {
     const id = `tab-local-${Date.now()}`;
     set({
-      tabs: [...get().tabs, { id, kind: "local", shellId, title, hue: "#60a5fa", connected: true }],
+      tabs: [...get().tabs, { id, kind: "local", shellId, shellPath, title, hue: "#60a5fa", connected: true }],
       activeTabId: id,
     });
   },

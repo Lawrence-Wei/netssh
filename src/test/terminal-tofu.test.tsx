@@ -12,6 +12,7 @@ const host: Host = {
   hostname: "192.168.10.2",
   user: "admin",
   port: 22,
+  identityFile: "C:\\Users\\lawrence\\.ssh\\id_ed25519",
   group: "lab",
   status: "off",
 };

@@ -1,368 +1,239 @@
 #!/usr/bin/env npx tsx
 /**
- * Browser-based E2E test runner for Netssh frontend.
+ * Safe browser E2E runner for the Vite preview/dev UI.
  *
- * Tests the React UI against the Vite dev server using a real browser (Edge/Chrome).
- * The Tauri backend is mocked (same as vitest setup).
- *
- * Usage:
- *   1. Terminal 1: npm run dev          (starts Vite on :1420)
- *   2. Terminal 2: npx tsx scripts/e2e-browser.ts
- *
- * Requirements: msedgedriver in PATH (installed by e2e-quick.ps1)
+ * This runner never kills a user's Edge processes. It launches a fresh
+ * temporary browser profile, drives the current UI, and removes the profile
+ * when the WebDriver session ends.
  */
 
-import { spawn, execSync } from "node:child_process";
-import { resolve, dirname } from "node:path";
-import { fileURLToPath } from "node:url";
+import { mkdtempSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { remote, type Browser } from "webdriverio";
 
-const __dirname = dirname(fileURLToPath(import.meta.url));
-const projectRoot = resolve(__dirname, "..");
-
-// ── Helpers ───────────────────────────────────────────────
-
-function log(msg: string, color: "green" | "red" | "yellow" | "cyan" = "cyan") {
-  const codes: Record<string, string> = {
-    green: "\x1b[32m", red: "\x1b[31m", yellow: "\x1b[33m", cyan: "\x1b[36m",
-  };
-  console.log(`${codes[color]}${msg}\x1b[0m`);
-}
-
-function sleep(ms: number) {
-  return new Promise((r) => setTimeout(r, ms));
-}
-
-// ── Test Suites ───────────────────────────────────────────
+type Color = "green" | "red" | "yellow" | "cyan";
 
 interface TestCase {
   name: string;
   run: (browser: Browser) => Promise<void>;
 }
 
-// Simpler selectors that work with browser-based WebDriver
-const suites: Record<string, TestCase[]> = {
-  "Render Tests": [
-    {
-      name: "app-window is rendered",
-      run: async (b) => {
-        const el = await b.$(".app-window");
-        if (!(await el.isExisting())) throw new Error(".app-window missing");
-      },
-    },
-    {
-      name: "titlebar is rendered",
-      run: async (b) => {
-        const el = await b.$(".titlebar");
-        if (!(await el.isExisting())) throw new Error(".titlebar missing");
-      },
-    },
-    {
-      name: "sidebar is rendered",
-      run: async (b) => {
-        const el = await b.$(".sidebar");
-        if (!(await el.isExisting())) throw new Error(".sidebar missing");
-      },
-    },
-    {
-      name: "workspace is rendered",
-      run: async (b) => {
-        const el = await b.$(".workspace");
-        if (!(await el.isExisting())) throw new Error(".workspace missing");
-      },
-    },
-    {
-      name: "page title is Netssh",
-      run: async (b) => {
-        const title = await b.getTitle();
-        if (title !== "Netssh") throw new Error(`title is "${title}"`);
-      },
-    },
-  ],
+const baseUrl = process.env.NETSSH_E2E_BASE_URL || "http://localhost:1420/";
+const edgeBinary =
+  process.env.NETSSH_E2E_EDGE_BINARY ||
+  "C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe";
+const headless = process.env.NETSSH_E2E_HEADLESS !== "0";
+const tempProfile = mkdtempSync(join(tmpdir(), "netssh-browser-e2e-"));
+const screenshotDir = mkdtempSync(join(tmpdir(), "netssh-browser-e2e-failures-"));
 
-  "Sidebar Tests": [
-    {
-      name: "host rows exist",
-      run: async (b) => {
-        const rows = await b.$$(".host-row");
-        if (rows.length === 0) throw new Error("no host rows");
-      },
-    },
-    {
-      name: "host rows show alias text",
-      run: async (b) => {
-        const alias = await b.$(".host-row .host-alias");
-        if (!(await alias.isExisting())) throw new Error(".host-alias missing");
-        const txt = await alias.getText();
-        if (!txt.trim()) throw new Error("alias is empty");
-      },
-    },
-    {
-      name: "search input exists",
-      run: async (b) => {
-        const inp = await b.$(".search input");
-        if (!(await inp.isExisting())) throw new Error("search input missing");
-      },
-    },
-    {
-      name: "click host row opens detail panel",
-      run: async (b) => {
-        const rows = await b.$$(".host-row");
-        if (rows.length === 0) return;
-        await rows[0].click();
-        await sleep(500);
-        const header = await b.$(".host-detail-header__alias");
-        if (!(await header.isExisting()))
-          throw new Error("detail header not shown");
-      },
-    },
-    {
-      name: "detail shows Connect button",
-      run: async (b) => {
-        const btn = await b.$(".host-detail-header__actions .btn");
-        if (!(await btn.isExisting())) throw new Error("Connect btn missing");
-        const txt = await btn.getText();
-        if (!txt.trim()) throw new Error("Connect btn has no text");
-      },
-    },
-    {
-      name: "click brand button goes home",
-      run: async (b) => {
-        const brand = await b.$(".titlebar-brand");
-        await brand.click();
-        await sleep(300);
-        const landing = await b.$(".landing");
-        if (!(await landing.isExisting()))
-          throw new Error("landing not shown");
-      },
-    },
-  ],
+function log(message: string, color: Color = "cyan") {
+  const codes: Record<Color, string> = {
+    green: "\x1b[32m",
+    red: "\x1b[31m",
+    yellow: "\x1b[33m",
+    cyan: "\x1b[36m",
+  };
+  console.log(`${codes[color]}${message}\x1b[0m`);
+}
 
-  "Settings Tests": [
-    {
-      name: "gear button opens settings",
-      run: async (b) => {
-        const gear = await b.$(".titlebar .icon-btn");
-        await gear.click();
-        await sleep(500);
-        const panel = await b.$(".settings");
-        if (!(await panel.isExisting())) throw new Error("settings missing");
-      },
-    },
-    {
-      name: "three theme cards present",
-      run: async (b) => {
-        const cards = await b.$$(".theme-card");
-        if (cards.length !== 3)
-          throw new Error(`expected 3 cards, got ${cards.length}`);
-      },
-    },
-    {
-      name: "click theme card changes active state",
-      run: async (b) => {
-        const inactive = await b.$$(".theme-card:not(.active)");
-        if (inactive.length === 0) return;
-        const preview = await inactive[0].getAttribute("data-theme-preview");
-        await inactive[0].click();
-        await sleep(300);
-        // Check the card is now active
-        const cls = await inactive[0].getAttribute("class");
-        if (!cls.includes("active"))
-          throw new Error("card did not become active");
+function sleep(ms: number) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
 
-        // Check data-theme on html
-        const html = await b.$("html");
-        const theme = await html.getAttribute("data-theme");
-        if (theme !== preview)
-          throw new Error(`expected ${preview}, got ${theme}`);
-      },
+async function waitForApp(browser: Browser) {
+  await browser.waitUntil(
+    async () => {
+      const shell = await browser.$(".app-window");
+      return (await shell.isExisting()) && (await shell.isDisplayed());
     },
-    {
-      name: "switch language tab in settings",
-      run: async (b) => {
-        const navBtns = await b.$$(".settings-nav button");
-        if (navBtns.length < 2) return;
-        await navBtns[1].click();
-        await sleep(300);
-        const section = await b.$(".settings-section");
-        if (!(await section.isExisting()))
-          throw new Error("section not found after switching");
-      },
-    },
-  ],
-};
+    { timeout: 15_000, timeoutMsg: "App shell did not render" },
+  );
+}
 
-// ── Main ──────────────────────────────────────────────────
+async function expectExists(browser: Browser, selector: string, label = selector) {
+  const el = await browser.$(selector);
+  if (!(await el.isExisting())) throw new Error(`${label} missing`);
+  return el;
+}
+
+async function goHome(browser: Browser) {
+  await (await expectExists(browser, ".titlebar-brand", "brand button")).click();
+  await browser.waitUntil(
+    async () => await (await browser.$(".topology-panel")).isExisting(),
+    { timeout: 5_000, timeoutMsg: "Home topology did not appear" },
+  );
+}
+
+async function addHost(browser: Browser, alias: string, hostname: string, user: string) {
+  await goHome(browser);
+  const quickButtons = await browser.$$(".sidebar-quick__btn");
+  if (quickButtons.length < 1) throw new Error("sidebar quick add button missing");
+  await quickButtons[0].click();
+
+  const editor = await expectExists(browser, ".host-editor-full", "host editor");
+  await (await editor.$('input[placeholder="my-server"]')).setValue(alias);
+  await (await editor.$('input[placeholder*="192.168.1.1"]')).setValue(hostname);
+  await (await editor.$('input[placeholder="root"]')).setValue(user);
+
+  const footerButtons = await editor.$$(".host-editor-full__foot .btn");
+  if (footerButtons.length === 0) throw new Error("host editor save button missing");
+  await footerButtons[footerButtons.length - 1].click();
+
+  await browser.waitUntil(
+    async () => {
+      const title = await browser.$(".host-detail-header__alias");
+      return (await title.isExisting()) && (await title.getText()) === alias;
+    },
+    { timeout: 5_000, timeoutMsg: `Host ${alias} was not saved` },
+  );
+}
+
+async function browserText(browser: Browser, selector = "body") {
+  return (await browser.$(selector)).getText();
+}
+
+const tests: TestCase[] = [
+  {
+    name: "app shell renders",
+    run: async (browser) => {
+      await expectExists(browser, ".titlebar", "titlebar");
+      await expectExists(browser, ".sidebar", "sidebar");
+      await expectExists(browser, ".workspace", "workspace");
+      await expectExists(browser, ".topology-panel", "topology panel");
+    },
+  },
+  {
+    name: "settings gear opens settings",
+    run: async (browser) => {
+      await (await expectExists(browser, ".titlebar-settings-btn", "settings gear")).click();
+      await expectExists(browser, ".settings-nav", "settings nav");
+      const cards = await browser.$$(".theme-card");
+      if (cards.length !== 3) throw new Error(`expected 3 theme cards, got ${cards.length}`);
+    },
+  },
+  {
+    name: "can add hosts through current editor",
+    run: async (browser) => {
+      await addHost(browser, "e2e-router", "10.20.30.1", "admin");
+      await addHost(browser, "e2e-ecs", "10.20.30.2", "root");
+      const body = await browserText(browser);
+      if (!body.includes("e2e-ecs")) throw new Error("saved host is not visible");
+    },
+  },
+  {
+    name: "sidebar search narrows topology",
+    run: async (browser) => {
+      await goHome(browser);
+      await (await expectExists(browser, ".sidebar .search input", "sidebar search")).setValue("e2e-ecs");
+      await sleep(500);
+      const topology = await browserText(browser, ".topology-panel");
+      if (!topology.includes("e2e-ecs")) throw new Error("matching host not in topology");
+      if (topology.includes("e2e-router")) throw new Error("nonmatching host remained in topology");
+    },
+  },
+  {
+    name: "manual connection opens browser fallback terminal",
+    run: async (browser) => {
+      await (await expectExists(browser, ".tab-new", "new tab button")).click();
+      const card = await expectExists(browser, ".manual-card", "manual connection card");
+      const inputs = await card.$$("input");
+      if (inputs.length < 3) throw new Error("manual connection inputs missing");
+      await inputs[0].setValue("10.0.0.50");
+      await inputs[1].setValue("root");
+      await inputs[2].setValue("secret");
+      await (await card.$(".manual-card__foot--primary .btn")).click();
+      await browser.waitUntil(
+        async () => await (await browser.$(".terminal-wrap, .xterm-mount .xterm")).isExisting(),
+        { timeout: 6_000, timeoutMsg: "terminal surface did not open" },
+      );
+      const body = await browserText(browser);
+      if (/transformcallback|Connection failed|无法打开 SSH 会话/i.test(body)) {
+        throw new Error("manual connection showed a browser fallback error");
+      }
+    },
+  },
+  {
+    name: "browser console has no severe errors",
+    run: async (browser) => {
+      const logs = await browser.getLogs("browser").catch(() => []);
+      const severe = logs
+        .filter((entry) => String(entry.level).toUpperCase() === "SEVERE")
+        .map((entry) => entry.message)
+        .filter((message) => !/favicon/i.test(message));
+      if (severe.length) throw new Error(severe.join("\n"));
+    },
+  },
+];
 
 async function main() {
-  log("══ Netssh Browser E2E ══", "cyan");
+  log("== Netssh Browser E2E ==", "cyan");
+  log(`Base URL: ${baseUrl}`, "yellow");
+  log(`Temp profile: ${tempProfile}`, "yellow");
 
-  // 1. Check dev server
-  log("Checking Vite dev server...", "yellow");
-  let devReady = false;
-  for (let i = 0; i < 10; i++) {
-    try {
-      const resp = await fetch("http://localhost:1420");
-      if (resp.ok) { devReady = true; break; }
-    } catch {}
-    await sleep(1000);
-  }
-  if (!devReady) {
-    log("Vite dev server not running. Start with: npm run dev", "red");
-    process.exit(1);
-  }
-  log("Vite dev server ready", "green");
-
-  // 2. Kill stale msedge processes that might interfere
-  try { execSync("taskkill /f /im msedge.exe 2>nul", { stdio: "ignore" }); } catch {}
-
-  // 3. Start msedgedriver
-  log("Starting msedgedriver...", "yellow");
-  const driver = spawn("msedgedriver", ["--port=9515"], {
-    stdio: "ignore",
-  });
-  await sleep(2000);
-
-  // Check driver
   try {
-    const r = await fetch("http://127.0.0.1:9515/status");
-    if (!r.ok) throw new Error("not ok");
-    log("msedgedriver ready", "green");
+    const response = await fetch(baseUrl);
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
   } catch {
-    log("msedgedriver failed to start", "red");
-    driver.kill();
+    log("Vite dev server is not reachable. Start it with: npm run dev", "red");
     process.exit(1);
   }
 
-  // 4. Create browser session
-  log("Starting Edge browser...", "yellow");
-  let browser: Browser;
-  try {
-    browser = await remote({
-      hostname: "127.0.0.1",
-      port: 9515,
-      path: "/",
-      protocol: "http",
-      capabilities: {
-        browserName: "msedge",
-        "ms:edgeOptions": {
-          args: ["--headless=new", "--window-size=1280,800", "--no-sandbox"],
-          binary: "C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe",
-        },
-      },
-      waitforTimeout: 10_000,
-    });
-    log("Browser session created", "green");
-  } catch (err: any) {
-    log(`Failed: ${err.message}`, "red");
-    driver.kill();
-    process.exit(1);
-  }
+  const args = [
+    `--user-data-dir=${tempProfile}`,
+    "--window-size=1440,960",
+    "--disable-gpu",
+    "--no-sandbox",
+  ];
+  if (headless) args.unshift("--headless=new");
 
-  // 5. Navigate to the app
-  await browser.url("http://localhost:1420");
-  await sleep(2000); // Let React render
-  log("Navigated to app", "green");
-
-  // Inject test hosts into localStorage so sidebar has data
-  log("Injecting test hosts...", "yellow");
-  await browser.execute(() => {
-    const testHosts = [
-      {
-        id: "test-host-1",
-        alias: "Test Ubuntu Server",
-        hostname: "192.168.1.10",
-        user: "admin",
-        port: 22,
-        role: "linux",
-        tags: [],
-        hue: 0,
-        favorite: false,
-        group: "Servers",
-        createdAt: Date.now(),
-        updatedAt: Date.now(),
+  const browser = await remote({
+    logLevel: "error",
+    capabilities: {
+      browserName: "MicrosoftEdge",
+      "ms:edgeOptions": {
+        binary: edgeBinary,
+        args,
       },
-      {
-        id: "test-host-2",
-        alias: "Test Router",
-        hostname: "10.0.0.1",
-        user: "root",
-        port: 22,
-        role: "router",
-        tags: ["production"],
-        hue: 120,
-        favorite: true,
-        group: "Network",
-        createdAt: Date.now(),
-        updatedAt: Date.now(),
-      },
-      {
-        id: "test-host-3",
-        alias: "Test Switch",
-        hostname: "10.0.0.2",
-        user: "admin",
-        port: 22,
-        role: "switch",
-        tags: ["staging"],
-        hue: 240,
-        favorite: false,
-        group: "Network",
-        createdAt: Date.now(),
-        updatedAt: Date.now(),
-      },
-    ];
-    localStorage.setItem(
-      "netssh.hosts",
-      JSON.stringify({
-        state: { hosts: testHosts, groups: [{ id: "group-1", name: "Network" }, { id: "group-2", name: "Servers" }] },
-        version: 0,
-      }),
-    );
+      "goog:loggingPrefs": { browser: "ALL" },
+    },
+    waitforTimeout: 10_000,
   });
-  // Reload to pick up the injected hosts
-  await browser.url("http://localhost:1420");
-  await sleep(1500);
-  log("Test hosts injected", "green");
 
-  // 6. Run tests
   let passed = 0;
   let failed = 0;
 
-  for (const [suiteName, tests] of Object.entries(suites)) {
-    log(`\n── ${suiteName} ──`, "cyan");
+  try {
+    await browser.url(baseUrl);
+    await waitForApp(browser);
+
     for (const test of tests) {
       try {
         await test.run(browser);
-        log(`  ✓ ${test.name}`, "green");
-        passed++;
-      } catch (err: any) {
-        log(`  ✗ ${test.name}`, "red");
-        log(`    ${err.message}`, "red");
-        failed++;
-        try {
-          const ts = Date.now();
-          await browser.saveScreenshot(`./e2e-failure-browser-${ts}.png`);
-          log(`    screenshot: e2e-failure-browser-${ts}.png`, "yellow");
-        } catch {}
+        passed += 1;
+        log(`  OK ${test.name}`, "green");
+      } catch (error) {
+        failed += 1;
+        const message = error instanceof Error ? error.message : String(error);
+        log(`  FAIL ${test.name}`, "red");
+        log(`       ${message}`, "red");
+        const screenshot = join(screenshotDir, `${Date.now()}-${test.name.replace(/[^a-z0-9]+/gi, "-").toLowerCase()}.png`);
+        await browser.saveScreenshot(screenshot).catch(() => undefined);
+        log(`       screenshot: ${screenshot}`, "yellow");
       }
     }
+  } finally {
+    await browser.deleteSession().catch(() => undefined);
   }
 
-  // 7. Report
-  log(`\n═══════════════════════════════`, "cyan");
-  log(`  Passed: ${passed}`, "green");
-  if (failed > 0) log(`  Failed: ${failed}`, "red");
-  log(`  Total:  ${passed + failed}`, "cyan");
-  log(`═══════════════════════════════`, "cyan");
-
-  // 8. Cleanup
-  await browser.deleteSession();
-  driver.kill();
-  process.exit(failed > 0 ? 1 : 0);
+  log(`\nPassed: ${passed}`, "green");
+  if (failed) log(`Failed: ${failed}`, "red");
+  log(`Total: ${passed + failed}`, "cyan");
+  process.exit(failed ? 1 : 0);
 }
 
-main().catch((err) => {
-  log(`FATAL: ${err.message}`, "red");
-  console.error(err);
+main().catch((error) => {
+  log(`FATAL: ${error instanceof Error ? error.message : String(error)}`, "red");
+  console.error(error);
   process.exit(1);
 });

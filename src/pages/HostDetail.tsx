@@ -19,6 +19,8 @@ interface HostDetailProps {
   snippets: Snippet[];
   quickCmds: QuickCommand[];
   hosts: Host[];
+  hostScopeFiltered?: boolean;
+  inventoryHostCount?: number;
   onRunSnippet: (snippet: Snippet | QuickCommand) => void;
   groups: Group[];
   editing: boolean;
@@ -44,6 +46,8 @@ export function HostDetail({
   snippets,
   quickCmds,
   hosts,
+  hostScopeFiltered = false,
+  inventoryHostCount,
   onRunSnippet,
   groups,
   editing,
@@ -73,6 +77,8 @@ export function HostDetail({
         lang={lang}
         groups={groups}
         hosts={hosts}
+        hostScopeFiltered={hostScopeFiltered}
+        inventoryHostCount={inventoryHostCount ?? hosts.length}
         onManualConnect={onManualConnect}
         onAddHost={onAddHost}
         onAddGroup={onAddGroup}
@@ -323,6 +329,8 @@ function Landing({
   lang,
   groups,
   hosts,
+  hostScopeFiltered,
+  inventoryHostCount,
   onManualConnect,
   onAddHost,
   onAddGroup,
@@ -335,6 +343,8 @@ function Landing({
   lang: Lang;
   groups: Group[];
   hosts: Host[];
+  hostScopeFiltered: boolean;
+  inventoryHostCount: number;
   onManualConnect: (host: Host) => void;
   onAddHost: (host: Omit<Host, "id"> & { id?: string }) => Host;
   onAddGroup: (name: string, subnet?: string) => Group;
@@ -348,7 +358,7 @@ function Landing({
   const [showSwitches, setShowSwitches] = useState(true);
   const [showDevices, setShowDevices] = useState(true);
   const [manualOpen, setManualOpen] = useState(false);
-  const showSetupActions = hosts.length === 0;
+  const showSetupActions = inventoryHostCount === 0;
 
   return (
     <div className="landing landing--home-map">
@@ -435,6 +445,7 @@ function Landing({
           showRouters={showRouters}
           showSwitches={showSwitches}
           showDevices={showDevices}
+          hostScopeFiltered={hostScopeFiltered}
         />
       </div>
       {manualOpen && <ManualConnectCard lang={lang} onManualConnect={onManualConnect} compact />}

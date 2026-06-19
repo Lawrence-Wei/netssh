@@ -184,6 +184,9 @@ export const useHosts = create<HostsState>()(
               port: fresh.port ?? h.port,
               identityFile: fresh.identityFile ?? h.identityFile,
               aliases: fresh.aliases ?? h.aliases,
+              role: fresh.role ?? h.role,
+              tags: mergeTags(h.tags, fresh.tags),
+              iconOverride: fresh.iconOverride ?? h.iconOverride,
               source: fresh.source ?? h.source,
               group: fresh.group && !isUnassignedGroup(fresh.group)
                 ? resolveKnownGroupId(fresh.group, get().groups)
@@ -373,3 +376,14 @@ export const useHosts = create<HostsState>()(
     }
   )
 );
+
+function mergeTags(current?: string[], incoming?: string[]) {
+  if (!incoming?.length) return current;
+  const tags = [...(current || [])];
+  for (const tag of incoming) {
+    if (!tags.some((item) => item.toLowerCase() === tag.toLowerCase())) {
+      tags.push(tag);
+    }
+  }
+  return tags;
+}

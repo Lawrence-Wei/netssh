@@ -14,10 +14,12 @@ describe("sshOpen payload mapping", () => {
       identityFile: "/home/ops/.ssh/id_rsa",
       password: "P@ssw0rd",
       passphrase: "secret",
+      terminalLocale: "en_US.UTF-8",
+      terminalTimezone: "UTC",
     });
 
-    expect(invokeSpy).toHaveBeenCalledWith("ssh_open", {
-      args: {
+    expect(invokeSpy).toHaveBeenCalledWith("ssh_open", expect.objectContaining({
+      args: expect.objectContaining({
         alias: "lab-switch-1",
         host: "10.1.20.5",
         user: "ops",
@@ -25,8 +27,10 @@ describe("sshOpen payload mapping", () => {
         identity_file: "/home/ops/.ssh/id_rsa",
         password: "P@ssw0rd",
         passphrase: "secret",
-      },
-    });
+        terminal_locale: "en_US.UTF-8",
+        terminal_timezone: "UTC",
+      }),
+    }));
   });
 });
 

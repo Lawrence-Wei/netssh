@@ -5,17 +5,19 @@
  */
 
 import { browser, $, $$, expect } from "@wdio/globals";
+import { goHome, openSettings, waitForAppShell } from "./helpers";
 
 describe("Netssh — Settings Panel", () => {
+  before(async () => {
+    await waitForAppShell();
+  });
+
   //
   // ── Open Settings ───────────────────────────────────────
   //
   it("should open settings via the gear button", async () => {
-    const gearBtn = await $(".titlebar .icon-btn");
-    await gearBtn.click();
-    await browser.pause(500);
+    await openSettings();
 
-    // Settings wrapper should appear
     const settings = await $(".settings");
     await expect(settings).toBePresent();
   });
@@ -75,13 +77,23 @@ describe("Netssh — Settings Panel", () => {
     }
   });
 
+  it("should show app version in the about section", async () => {
+    const navButtons = await $$(".settings-nav button");
+    const aboutBtn = navButtons[navButtons.length - 1];
+    await aboutBtn.click();
+
+    const pane = await $(".settings-pane");
+    await expect(pane).toBePresent();
+    const text = await pane.getText();
+    expect(text).toMatch(/(About Netssh|关于 Netssh)/);
+    expect(text).toMatch(/\b\d+\.\d+\.\d+\b/);
+  });
+
   //
   // ── Close Settings ──────────────────────────────────────
   //
   it("should close settings and return to home", async () => {
-    const brandBtn = await $(".titlebar-brand");
-    await brandBtn.click();
-    await browser.pause(300);
+    await goHome();
 
     const landing = await $(".landing");
     await expect(landing).toBePresent();

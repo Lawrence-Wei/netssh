@@ -1,6 +1,5 @@
-import type { MouseEvent, ReactNode } from "react";
+import { Fragment, type MouseEvent, type ReactNode } from "react";
 import { t } from "../utils/i18n";
-import { APP_VERSION } from "../config/app";
 import type { Host, Lang, Tab } from "../config/types";
 import { brandIcon } from "../components/BrandIcons";
 import { Icon } from "../components/Icons";
@@ -13,6 +12,7 @@ interface TitleBarProps {
   activeTabId: string;
   onSelectTab: (id: string) => void;
   onCloseTab: (id: string) => void;
+  onTabContextMenu?: (event: MouseEvent<HTMLDivElement>, tab: Tab) => void;
   onNewTab: () => void;
   onNewLocalShell: () => void;
   onConnectActive: () => void;
@@ -31,6 +31,7 @@ export function TitleBar({
   activeTabId,
   onSelectTab,
   onCloseTab,
+  onTabContextMenu,
   onNewTab,
   onNewLocalShell,
   onConnectActive,
@@ -44,79 +45,85 @@ export function TitleBar({
   const canConnect = activeTab?.kind === "host" && !!activeTab.hostId && !activeTab.connected;
   const canDisconnect = activeTab?.kind === "host" && !!activeTab.connected;
   const settingsLabel = t("titlebar.settings", lang);
+  const hasHomeTab = tabs.some(isHomeTab);
+  const sessionMenu = (
+    <nav className="app-menu" aria-label={lang === "zh" ? "会话菜单" : "Session menu"}>
+      <MenuButton label={lang === "zh" ? "会话" : "Session"}>
+        <MenuItem onClick={onNewTab} icon={Icon.plus} label={lang === "zh" ? "新会话" : "New session"} />
+        <MenuItem onClick={onNewLocalShell} icon={Icon.shell} label={lang === "zh" ? "本地 Shell" : "Local shell"} />
+        <MenuSeparator />
+        <MenuItem
+          onClick={onConnectActive}
+          icon={Icon.power}
+          label={lang === "zh" ? "连接当前主机" : "Connect active host"}
+          disabled={!canConnect}
+        />
+        <MenuItem
+          onClick={onDisconnectActive}
+          icon={Icon.close}
+          label={lang === "zh" ? "断开当前会话" : "Disconnect active session"}
+          disabled={!canDisconnect}
+        />
+      </MenuButton>
+    </nav>
+  );
 
   return (
     <div className="titlebar" data-tauri-drag-region onDoubleClick={(event) => titlebarDoubleClicked(event)}>
-      <button
-        className="titlebar-brand"
-        onClick={onGoHome}
-        title={t("titlebar.goHome", lang)}
-        type="button"
-      >
-        <span className="mark">
-          <svg viewBox="0 0 13 13" fill="none">
-            <path d="M2 3L5.5 6.5L2 10M6.5 10H11" stroke="white" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
-          </svg>
-        </span>
-        <span className="name">{t("app.name", lang)}</span>
-        <span className="sub" title={t("app.versionLabel", lang, { version: APP_VERSION })}>
-          v{APP_VERSION}
-        </span>
-      </button>
+      <div className="titlebar-left">
+        <button
+          className="titlebar-brand"
+          onClick={onGoHome}
+          title={t("titlebar.goHome", lang)}
+          type="button"
+        >
+          <span className="mark">
+            <svg viewBox="0 0 13 13" fill="none">
+              <path d="M2 3L5.5 6.5L2 10M6.5 10H11" stroke="white" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+            </svg>
+          </span>
+          <span className="name">{t("app.name", lang)}</span>
+        </button>
+        <button
+          className="icon-btn titlebar-sidebar-toggle"
+          onClick={onToggleSidebar}
+          title={sidebarCollapsed ? t("sidebar.action.show", lang) : t("sidebar.action.hide", lang)}
+          aria-label={sidebarCollapsed ? t("sidebar.action.show", lang) : t("sidebar.action.hide", lang)}
+          type="button"
+        >
+          {sidebarCollapsed ? Icon.sidebarShow : Icon.sidebarHide}
+        </button>
+      </div>
 
-      <nav className="app-menu" aria-label={lang === "zh" ? "会话菜单" : "Session menu"}>
-        <MenuButton label={lang === "zh" ? "会话" : "Session"}>
-          <MenuItem onClick={onNewTab} icon={Icon.plus} label={lang === "zh" ? "新会话" : "New session"} />
-          <MenuItem onClick={onNewLocalShell} icon={Icon.shell} label={lang === "zh" ? "本地 Shell" : "Local shell"} />
-          <MenuSeparator />
-          <MenuItem
-            onClick={onConnectActive}
-            icon={Icon.power}
-            label={lang === "zh" ? "连接当前主机" : "Connect active host"}
-            disabled={!canConnect}
-          />
-          <MenuItem
-            onClick={onDisconnectActive}
-            icon={Icon.close}
-            label={lang === "zh" ? "断开当前会话" : "Disconnect active session"}
-            disabled={!canDisconnect}
-          />
-        </MenuButton>
-      </nav>
-
-      <div className="tabstrip">
+      <div className="tabstrip" data-tauri-drag-region>
         {tabs.map((tab) => (
-          <div
-            key={tab.id}
-            className={"tab " + (tab.id === activeTabId ? "active" : "")}
-            onClick={() => onSelectTab(tab.id)}
-            title={displayTabTitle(tab, lang)}
-          >
-            <span className="tab-icon" style={{ color: tab.hue || "var(--accent)" }}>
-              {tabIcon(tab, hosts, ephemeralHosts)}
-            </span>
-            <span className="label">{displayTabTitle(tab, lang)}</span>
-            {!tab.pinned && (
-              <button className="x" onClick={(event) => closeClicked(event, tab.id, onCloseTab)} aria-label={`Close ${displayTabTitle(tab, lang)}`}>
-                {Icon.x}
-              </button>
-            )}
-          </div>
+          <Fragment key={tab.id}>
+            <div
+              className={"tab " + (tab.id === activeTabId ? "active" : "")}
+              onClick={() => onSelectTab(tab.id)}
+              onContextMenu={(event) => onTabContextMenu?.(event, tab)}
+              title={displayTabTitle(tab, lang)}
+            >
+              <span className="tab-icon" style={{ color: tab.hue || "var(--accent)" }}>
+                {tabIcon(tab, hosts, ephemeralHosts)}
+              </span>
+              <span className="label">{displayTabTitle(tab, lang)}</span>
+              {!tab.pinned && (
+                <button className="x" onClick={(event) => closeClicked(event, tab.id, onCloseTab)} aria-label={`Close ${displayTabTitle(tab, lang)}`}>
+                  {Icon.x}
+                </button>
+              )}
+            </div>
+            {isHomeTab(tab) && sessionMenu}
+          </Fragment>
         ))}
+        {!hasHomeTab && sessionMenu}
         <button className="tab-new" onClick={onNewTab} title={t("titlebar.newtab", lang)} aria-label={t("titlebar.newtab", lang)}>
           {Icon.plus}
         </button>
       </div>
 
       <div className="titlebar-actions">
-        <button
-          className="icon-btn sidebar-toggle-btn"
-          onClick={onToggleSidebar}
-          title={sidebarCollapsed ? t("sidebar.action.show", lang) : t("sidebar.action.hide", lang)}
-          aria-label={sidebarCollapsed ? t("sidebar.action.show", lang) : t("sidebar.action.hide", lang)}
-        >
-          {sidebarCollapsed ? Icon.sidebarShow : Icon.sidebarHide}
-        </button>
         <button
           className="icon-btn titlebar-settings-btn"
           onClick={onOpenSettings}
@@ -154,6 +161,10 @@ function displayTabTitle(tab: Tab, lang: Lang) {
   return tab.title;
 }
 
+function isHomeTab(tab: Tab) {
+  return tab.kind === "home" || tab.title === "Home";
+}
+
 function MenuButton({ label, children }: { label: string; children: ReactNode }) {
   return (
     <div className="menu-root">
@@ -188,7 +199,14 @@ function MenuSeparator() {
 
 function titlebarDoubleClicked(event: MouseEvent<HTMLDivElement>) {
   const target = event.target as HTMLElement | null;
-  if (target?.closest("button") || target?.closest(".tabstrip")) return;
+  if (!target) return;
+  if (target.closest(".tab")) return;
+  if (target.closest(".tab-new")) return;
+  if (target.closest(".win-controls")) return;
+  if (target.closest(".titlebar-left")) return;
+  if (target.closest(".titlebar-actions")) return;
+  if (target.closest(".menu-popover")) return;
+  if (target.closest("button") && !target.closest(".menu-trigger")) return;
   void windowAction("toggleMaximize");
 }
 
@@ -202,13 +220,7 @@ async function windowAction(action: "minimize" | "toggleMaximize" | "close") {
     const { getCurrentWindow } = await import("@tauri-apps/api/window");
     const current = getCurrentWindow();
     if (action === "minimize") await current.minimize();
-    if (action === "toggleMaximize") {
-      if (await current.isMaximized()) {
-        await current.unmaximize();
-      } else {
-        await current.maximize();
-      }
-    }
+    if (action === "toggleMaximize") await current.toggleMaximize();
     if (action === "close") await current.close();
   } catch {
     // Vite/browser preview has no native window controls.

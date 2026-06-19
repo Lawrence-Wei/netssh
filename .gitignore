@@ -25,5 +25,7 @@ Thumbs.db
 
 # Test
 coverage/
+test/e2e/logs/
+test/e2e/artifacts/
 e2e-failure*.png
 e2e-failure-browser*.png

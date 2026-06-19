@@ -11,6 +11,9 @@ export type SerialParity = "none" | "odd" | "even" | "mark" | "space";
 export type SerialStopBits = 1 | 1.5 | 2;
 export type SerialFlowControl = "none" | "software" | "hardware";
 export type SerialLineEnding = "none" | "lf" | "cr" | "crlf";
+export type TerminalCursorStyle = "block" | "underline" | "bar";
+export type TerminalLocale = "system" | "C.UTF-8" | "en_US.UTF-8" | "zh_CN.UTF-8";
+export type TerminalTimezone = "system" | "Asia/Shanghai" | "UTC";
 export type AssetType =
   | "switch"
   | "router"
@@ -89,6 +92,7 @@ export interface Tab {
   kind: "host" | "local" | "settings" | "snippets" | "home";
   hostId?: string;
   shellId?: string;
+  shellPath?: string;
   title: string;
   hue?: string;
   connected?: boolean;

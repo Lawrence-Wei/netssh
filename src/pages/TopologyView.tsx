@@ -19,6 +19,7 @@ interface TopologyViewProps {
   showRouters: boolean;
   showSwitches: boolean;
   showDevices: boolean;
+  hostScopeFiltered?: boolean;
 }
 
 export function TopologyView({
@@ -30,6 +31,7 @@ export function TopologyView({
   showRouters,
   showSwitches,
   showDevices,
+  hostScopeFiltered = false,
 }: TopologyViewProps) {
   const grouped = groupHostsForDisplay(hosts, groups, t("groups.unassigned", lang))
     .map(({ group, hosts: groupHosts }) => ({
@@ -53,8 +55,8 @@ export function TopologyView({
       </div>
       {hosts.length === 0 ? (
         <div className="topology-empty">
-          <strong>{t("topology.empty.title", lang)}</strong>
-          <span>{t("topology.empty.desc", lang)}</span>
+          <strong>{t(hostScopeFiltered ? "topology.empty.filtered.title" : "topology.empty.title", lang)}</strong>
+          <span>{t(hostScopeFiltered ? "topology.empty.filtered.desc" : "topology.empty.desc", lang)}</span>
         </div>
       ) : (
         <div className="topology-sites">

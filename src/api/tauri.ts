@@ -14,6 +14,8 @@ function isMissingTauriError(error: unknown) {
     message.includes("reading 'invoke'") ||
     message.includes('reading "invoke"') ||
     message.includes("__TAURI_INTERNALS__") ||
+    message.includes("transformCallback") ||
+    message.includes("transformcallback") ||
     message.includes("Tauri API")
   );
 }
@@ -48,6 +50,11 @@ function browserInvokeFallback<T>(cmd: string, args?: InvokeArgs): T {
       return localStateGet(args?.key) as T;
     case "app_state_put":
       localStatePut(args?.key, args?.value);
+      return undefined as T;
+    case "app_state_delete":
+      if (typeof window !== "undefined" && typeof args?.key === "string") {
+        window.localStorage.removeItem(args.key);
+      }
       return undefined as T;
     case "connection_log_open":
       return `browser-log-${Date.now()}` as T;
@@ -123,6 +130,8 @@ export interface SshOpenArgs {
   password?: string;
   passphrase?: string;
   skipOpenSshKnownHosts?: boolean;
+  terminalLocale?: string;
+  terminalTimezone?: string;
 }
 
 export async function sshOpen(args: SshOpenArgs): Promise<string> {
@@ -136,6 +145,8 @@ export async function sshOpen(args: SshOpenArgs): Promise<string> {
       password: args.password,
       passphrase: args.passphrase,
       skip_open_ssh_known_hosts: args.skipOpenSshKnownHosts,
+      terminal_locale: args.terminalLocale,
+      terminal_timezone: args.terminalTimezone,
     },
   });
 }
@@ -151,8 +162,17 @@ export async function sshClose(id: string): Promise<void> {
 
 // ─── local PTYs ────────────────────────────────────────────────────────────
 
-export async function ptyOpen(shellId: string): Promise<string> {
-  return invoke<string>("pty_open", { shellId });
+export async function ptyOpen(
+  shellId: string | undefined,
+  shellPath?: string,
+  terminalEnv?: { terminalLocale?: string; terminalTimezone?: string }
+): Promise<string> {
+  return invoke<string>("pty_open", {
+    shellId,
+    shellPath,
+    terminalLocale: terminalEnv?.terminalLocale,
+    terminalTimezone: terminalEnv?.terminalTimezone,
+  });
 }
 export async function ptySend(id: string, data: Uint8Array): Promise<void> {
   return invoke("pty_send", { id, data: Array.from(data) });
@@ -258,6 +278,10 @@ export async function appStatePut(key: string, value: string): Promise<void> {
   return invoke("app_state_put", { key, value });
 }
 
+export async function appStateDelete(key: string): Promise<void> {
+  return invoke("app_state_delete", { key });
+}
+
 // ─── event subscriptions ───────────────────────────────────────────────────
 
 export type DataEventHandler = (b64: string) => void;
@@ -280,6 +304,29 @@ export async function onSerialData(id: string, fn: DataEventHandler): Promise<Un
 }
 export async function onSerialExit(id: string, fn: ExitEventHandler): Promise<UnlistenFn> {
   return listen(`serial:${id}:exit`, () => fn());
+}
+
+export interface SshHostMetadata {
+  session_id: string;
+  alias: string;
+  host: string;
+  port: number;
+  remote_hostname?: string;
+  os_id?: string;
+  os_name?: string;
+  os_pretty_name?: string;
+  kernel?: string;
+  model?: string;
+  icon_override?: string;
+  icon_confidence: number;
+  role?: string;
+  tags: string[];
+}
+
+export type SshHostMetadataHandler = (event: SshHostMetadata) => void;
+
+export async function onSshHostMetadata(fn: SshHostMetadataHandler): Promise<UnlistenFn> {
+  return listen<SshHostMetadata>("ssh:host-metadata", (e) => fn(e.payload));
 }
 
 // ─── connection logs ─────────────────────────────────────────────────────

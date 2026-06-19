@@ -1,72 +1,115 @@
 #!/usr/bin/env pwsh
-# 快速 E2E 测试 — 兼容 debug/release，自动清理
 param(
-    [string]$Profile = "debug"
+    [ValidateSet("debug", "release")]
+    [string]$Profile = "debug",
+    [int]$DriverPort = 0
 )
 
-$ErrorActionPreference = "Continue"
-$projectRoot = (Get-Location).Path
-$driverPort = 4444
-
-# 选二进制
+$ErrorActionPreference = "Stop"
+$projectRoot = Split-Path -Parent $PSScriptRoot
 $bin = if ($Profile -eq "release") {
-    "$projectRoot\src-tauri\target\release\netssh.exe"
+    Join-Path $projectRoot "src-tauri\target\release\netssh.exe"
 } else {
-    "$projectRoot\src-tauri\target\debug\netssh.exe"
+    Join-Path $projectRoot "src-tauri\target\debug\netssh.exe"
+}
+$dataDir = Join-Path $env:TEMP ("netssh-e2e-data-" + [guid]::NewGuid().ToString("N"))
+
+function Get-FreeTcpPort {
+    $listener = [System.Net.Sockets.TcpListener]::new([System.Net.IPAddress]::Loopback, 0)
+    $listener.Start()
+    try {
+        return ([System.Net.IPEndPoint]$listener.LocalEndpoint).Port
+    } finally {
+        $listener.Stop()
+    }
 }
 
-Write-Host "Binary: $bin" -ForegroundColor Cyan
-if (-not (Test-Path $bin)) { Write-Host "Not found! Run cargo build first." -ForegroundColor Red; exit 1 }
+function Ensure-EdgeDriver {
+    $currentPath = (Get-Command msedgedriver -ErrorAction SilentlyContinue).Source
+    if ($currentPath) {
+        Write-Host "msedgedriver found: $currentPath" -ForegroundColor Green
+        return
+    }
 
-# 确保 msedgedriver 可用
-$driver = Get-Command msedgedriver -ErrorAction SilentlyContinue
-if (-not $driver) {
-    Write-Host "msedgedriver not in PATH. Installing..." -ForegroundColor Yellow
+    Write-Host "msedgedriver not in PATH. Installing to ~/.cargo/bin..." -ForegroundColor Yellow
     $wv2 = Get-ItemProperty "HKLM:\SOFTWARE\WOW6432Node\Microsoft\EdgeUpdate\Clients\{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}" -ErrorAction SilentlyContinue
-    $ver = $wv2.pv; $url = "https://msedgedriver.microsoft.com/$ver/edgedriver_win64.zip"
-    $zip = "$env:TEMP\msedgedriver_quick.zip"; $out = "$env:TEMP\msedgedriver_quick"
-    $wc = New-Object System.Net.WebClient; $wc.Headers.Add("User-Agent", "Mozilla/5.0")
+    if (-not $wv2) {
+        $wv2 = Get-ItemProperty "HKLM:\SOFTWARE\Microsoft\EdgeUpdate\Clients\{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}" -ErrorAction SilentlyContinue
+    }
+    if (-not $wv2) { throw "WebView2 runtime not found; install Microsoft Edge WebView2 Runtime first." }
+
+    $ver = $wv2.pv
+    $url = "https://msedgedriver.microsoft.com/$ver/edgedriver_win64.zip"
+    $zip = Join-Path $env:TEMP "msedgedriver_$ver.zip"
+    $out = Join-Path $env:TEMP "msedgedriver_$ver"
+    [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
+    $wc = New-Object System.Net.WebClient
+    $wc.Headers.Add("User-Agent", "Mozilla/5.0")
     $wc.DownloadFile($url, $zip)
     Expand-Archive $zip $out -Force
-    Copy-Item "$out\msedgedriver.exe" "$env:USERPROFILE\.cargo\bin\msedgedriver.exe" -Force
-    Write-Host "Installed." -ForegroundColor Green
+
+    $targetDir = Join-Path $env:USERPROFILE ".cargo\bin"
+    New-Item -ItemType Directory -Path $targetDir -Force | Out-Null
+    Copy-Item (Join-Path $out "msedgedriver.exe") (Join-Path $targetDir "msedgedriver.exe") -Force
 }
 
-# 干掉残留
-taskkill /f /im netssh.exe 2>$null | Out-Null
-taskkill /f /im tauri-driver.exe 2>$null | Out-Null
-Start-Sleep 1
-
-# 启动 tauri-driver (后台)
-Write-Host "Starting tauri-driver..." -ForegroundColor Yellow
-$driverJob = Start-Job -Name tauri-driver -ScriptBlock { tauri-driver --port 4444 }
-Start-Sleep 3
-
-# 检查 driver 就绪
-try {
-    $null = Invoke-WebRequest "http://127.0.0.1:4444/status" -TimeoutSec 2 -ErrorAction Stop
-    Write-Host "tauri-driver ready" -ForegroundColor Green
-} catch {
-    Write-Host "tauri-driver FAILED to start" -ForegroundColor Red
-    Receive-Job $driverJob; Remove-Job $driverJob -Force; exit 1
+function Wait-Driver([int]$Port) {
+    for ($i = 0; $i -lt 30; $i++) {
+        try {
+            $null = Invoke-WebRequest "http://127.0.0.1:$Port/status" -TimeoutSec 1 -ErrorAction Stop
+            return
+        } catch {
+            Start-Sleep -Milliseconds 500
+        }
+    }
+    throw "tauri-driver did not become ready on port $Port"
 }
 
-# 跑 wdio
-Write-Host "Running E2E tests..." -ForegroundColor Yellow
 Push-Location $projectRoot
-npx wdio run wdio.conf.ts
-$exitCode = $LASTEXITCODE
-Pop-Location
+$driverJob = $null
+try {
+    if (-not (Test-Path $bin)) {
+        throw "Binary not found: $bin. Run cargo build --manifest-path src-tauri/Cargo.toml first."
+    }
 
-# 清理
-Write-Host "Cleaning up..." -ForegroundColor Yellow
-taskkill /f /im netssh.exe 2>$null | Out-Null
-Stop-Job -Name tauri-driver -ErrorAction SilentlyContinue | Out-Null
-Remove-Job -Name tauri-driver -Force -ErrorAction SilentlyContinue | Out-Null
-taskkill /f /im tauri-driver.exe 2>$null | Out-Null
-Start-Sleep 1
+    if ($DriverPort -le 0) {
+        $DriverPort = Get-FreeTcpPort
+    }
 
-Get-Process netssh, tauri-driver -ErrorAction SilentlyContinue | Select-Object Name, Id
+    $portOwner = Get-NetTCPConnection -LocalPort $DriverPort -ErrorAction SilentlyContinue | Select-Object -First 1
+    if ($portOwner) {
+        throw "Port $DriverPort is already in use by PID $($portOwner.OwningProcess). Set -DriverPort to another value."
+    }
+
+    Ensure-EdgeDriver
+    New-Item -ItemType Directory -Path $dataDir -Force | Out-Null
+
+    Write-Host "Binary: $bin" -ForegroundColor Cyan
+    Write-Host "Driver port: $DriverPort" -ForegroundColor Cyan
+    Write-Host "NETSSH_DATA_DIR: $dataDir" -ForegroundColor Cyan
+
+    $driverJob = Start-Job -Name "netssh-e2e-tauri-driver" -ScriptBlock {
+        param($Port, $DataDir)
+        $env:NETSSH_DATA_DIR = $DataDir
+        tauri-driver --port $Port
+    } -ArgumentList $DriverPort, $dataDir
+
+    Wait-Driver $DriverPort
+    Write-Host "tauri-driver ready" -ForegroundColor Green
+
+    $env:NETSSH_DATA_DIR = $dataDir
+    $env:NETSSH_E2E_DRIVER_PORT = [string]$DriverPort
+    $env:NETSSH_E2E_APP = $bin
+
+    npx wdio run wdio.conf.ts
+    $exitCode = $LASTEXITCODE
+} finally {
+    if ($driverJob) {
+        Stop-Job $driverJob -ErrorAction SilentlyContinue | Out-Null
+        Remove-Job $driverJob -Force -ErrorAction SilentlyContinue | Out-Null
+    }
+    Pop-Location
+}
 
 if ($exitCode -eq 0) {
     Write-Host "ALL E2E PASSED" -ForegroundColor Green

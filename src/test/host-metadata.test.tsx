@@ -5,7 +5,8 @@ import { Sidebar } from "../layouts/Sidebar";
 import { ConfirmProvider } from "../components/ConfirmDialog";
 import { useHosts } from "../store/hosts";
 import { displayGroupName, groupHostsForDisplay } from "../utils/groups";
-import { deployScopeLabel } from "../utils/deployScope";
+import { deployScopeLabel, deviceTypeFromHost } from "../utils/deployScope";
+import { brandLabel } from "../components/BrandIcons";
 import type { Group, Host } from "../config/types";
 
 const groups: Group[] = [{ id: "unassigned", name: "Unassigned", color: "#897e6e" }];
@@ -178,6 +179,23 @@ describe("host metadata", () => {
   it("localizes deployment scope labels", () => {
     expect(deployScopeLabel("local", "zh")).toBe("本地");
     expect(deployScopeLabel("cloud", "zh")).toBe("云端");
+  });
+
+  it("recognizes Luckfox devices for brand icons", () => {
+    const luckfoxHost = host("luckfox", "luckfox-picokvm", {
+      tags: ["Luckfox PicoKVM"],
+    });
+    expect(deviceTypeFromHost(luckfoxHost)).toBe("luckfox");
+    expect(brandLabel(luckfoxHost)).toBe("Luckfox");
+  });
+
+  it("maps explicit and inferred device icons to brand labels", () => {
+    expect(brandLabel(host("huawei", "core-s5700"))).toBe("Huawei Switch");
+    expect(brandLabel(host("cisco", "lab-catalyst"))).toBe("Cisco");
+    expect(brandLabel(host("mac", "operator-laptop", { iconOverride: "macos" }))).toBe("macOS");
+    expect(brandLabel(host("nas", "storage-box", { iconOverride: "nas" }))).toBe("NAS / Storage");
+    expect(brandLabel(host("qnap", "qnap-nas"))).toBe("QNAP");
+    expect(brandLabel(host("metrics", "metrics", { tags: ["ubuntu", "observability"] }))).toBe("Ubuntu");
   });
 
   it("filters sidebar hosts by favorites and recent connections", async () => {
