@@ -6,6 +6,8 @@
 @import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap');
 
 :root {
+  color-scheme: dark;
+
   /* === type === */
   --font-display: "Space Grotesk", "Segoe UI", system-ui, sans-serif;
   --font-body: "Space Grotesk", "Segoe UI", system-ui, sans-serif;
@@ -289,7 +291,7 @@ input, textarea { background: none; border: 0; outline: none; }
 .titlebar-brand .mark svg { width: 13px; height: 13px; }
 .titlebar-brand .name { color: var(--text); }
 .titlebar-brand .sub {
-  color: var(--text-mute);
+  color: var(--text-dim);
   font-size: 11px;
   font-weight: 400;
   margin-left: 6px;
@@ -515,6 +517,21 @@ input, textarea { background: none; border: 0; outline: none; }
 .sidebar-title {
   display: flex; align-items: center; justify-content: space-between;
 }
+.sidebar-title__actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.sidebar-title__toggle {
+  width: 24px;
+  height: 24px;
+  background: var(--glass);
+  border-color: var(--glass-stroke);
+}
+.sidebar-title__toggle svg {
+  width: 12px;
+  height: 12px;
+}
 .sidebar-title h2 {
   font-family: var(--font-display);
   font-weight: 500;
@@ -530,6 +547,41 @@ input, textarea { background: none; border: 0; outline: none; }
   background: var(--glass);
   border-radius: 999px;
   border: 1px solid var(--glass-stroke);
+}
+.sidebar-restore {
+  position: absolute;
+  top: 12px;
+  left: 10px;
+  z-index: 8;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  height: 30px;
+  padding: 0 10px;
+  border-radius: var(--radius-sm);
+  color: var(--text-dim);
+  background: color-mix(in srgb, var(--bg-elev-2), transparent 8%);
+  border: 1px solid var(--glass-stroke-strong);
+  box-shadow: 0 12px 28px -20px rgba(0, 0, 0, 0.75);
+  backdrop-filter: blur(18px) saturate(140%);
+  transition: color .15s, background .15s, border-color .15s, transform .15s;
+}
+.sidebar-restore:hover {
+  color: var(--text);
+  background: var(--glass-strong);
+  border-color: var(--accent);
+  transform: translateX(2px);
+}
+.sidebar-restore svg {
+  width: 14px;
+  height: 14px;
+  flex-shrink: 0;
+}
+.sidebar-restore span {
+  font-family: var(--font-display);
+  font-size: 11px;
+  font-weight: 600;
+  white-space: nowrap;
 }
 .search {
   position: relative;
@@ -931,6 +983,12 @@ input, textarea { background: none; border: 0; outline: none; }
 .conn-icon svg {
   width: 13px;
   height: 13px;
+}
+.conn-icon img.brand-img {
+  width: 14px;
+  height: 14px;
+  object-fit: contain;
+  display: block;
 }
 .conn-bar .status {
   display: flex; align-items: center; gap: 6px;
@@ -2052,6 +2110,7 @@ input, textarea { background: none; border: 0; outline: none; }
 select {
   appearance: none;
   -webkit-appearance: none;
+  color-scheme: dark;
   /** Draw the down arrow with CSS gradients so the color follows --text-dim. */
   background-image:
     linear-gradient(45deg, transparent 50%, var(--text-dim) 50%),
@@ -2060,6 +2119,29 @@ select {
   background-size: 5px 5px, 5px 5px;
   background-repeat: no-repeat;
   padding-right: 30px;
+}
+select:open {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-soft);
+}
+select option,
+select optgroup {
+  background-color: var(--bg-elev-2);
+  color: var(--text);
+  font-family: var(--font-mono);
+}
+select option:hover,
+select option:focus {
+  background-color: var(--bg-elev-3);
+  color: var(--text);
+}
+select option:checked {
+  background-color: var(--bg-elev-3);
+  box-shadow: 0 0 0 9999px rgba(var(--accent-r), var(--accent-g), var(--accent-b), 0.18) inset;
+  color: var(--text);
+}
+select option:disabled {
+  color: var(--text-mute);
 }
 
 /* ============================================================
@@ -2433,6 +2515,12 @@ body.reduce-motion *::after {
 .topology-node__icon svg {
   width: 14px;
   height: 14px;
+}
+.topology-node__icon img.brand-img {
+  width: 14px;
+  height: 14px;
+  object-fit: contain;
+  display: block;
 }
 .topology-node__label {
   overflow: hidden;

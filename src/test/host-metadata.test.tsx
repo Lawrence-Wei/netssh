@@ -71,6 +71,41 @@ describe("host metadata", () => {
     expect(updated?.status).toBe("ok");
   });
 
+  it("normalizes uppercase unassigned groups during import and persistence", () => {
+    const created = useHosts.getState().importHosts([
+      {
+        alias: "prgw-lan",
+        hostname: "192.168.77.1",
+        user: "root",
+        port: 22,
+        group: "UNASSIGNED",
+      },
+    ]);
+
+    expect(created).toHaveLength(1);
+    expect(created[0].group).toBe("unassigned");
+    expect(useHosts.getState().groups.filter((group) => group.id === "unassigned")).toHaveLength(1);
+    expect(useHosts.getState().groups.some((group) => group.name === "UNASSIGNED")).toBe(false);
+
+    useHosts.setState((state) => ({
+      ...state,
+      hosts: [
+        host("legacy", "legacy-router", { group: "unassigned-legacy" }),
+      ],
+      groups: [
+        { id: "unassigned", name: "Unassigned", color: "#897e6e" },
+        { id: "unassigned-legacy", name: "UNASSIGNED", color: "#776655" },
+      ],
+    }), true);
+
+    const persisted = useHosts.persist.getOptions().partialize?.(useHosts.getState()) as {
+      hosts: Host[];
+      groups: Group[];
+    };
+    expect(persisted.groups).toEqual([{ id: "unassigned", name: "Unassigned", color: "#897e6e" }]);
+    expect(persisted.hosts[0].group).toBe("unassigned");
+  });
+
   it("filters sidebar hosts by favorites and recent connections", async () => {
     renderSidebar([
       host("favorite", "favorite-sw", { favorite: true }),

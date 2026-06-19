@@ -24,6 +24,7 @@ interface SidebarProps {
   onAddHostQuick: () => void;
   onRemoveHosts: (ids: string[]) => void;
   onToggleFavorite: (hostId: string) => void;
+  onCollapseSidebar?: () => void;
 }
 
 export function Sidebar({
@@ -42,6 +43,7 @@ export function Sidebar({
   onAddHostQuick,
   onRemoveHosts,
   onToggleFavorite,
+  onCollapseSidebar,
 }: SidebarProps) {
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
   const [dragOverGroup, setDragOverGroup] = useState<GroupId | null>(null);
@@ -85,7 +87,8 @@ export function Sidebar({
     }));
     const knownIds = new Set(groups.map((g) => g.id));
     const orphans = filtered.filter((host) => !knownIds.has(host.group));
-    if (orphans.length) {
+    const alreadyHasUnassigned = groups.some((g) => g.id === "unassigned");
+    if (orphans.length && !alreadyHasUnassigned) {
       buckets.push({
         id: "unassigned" as GroupId,
         name: t("groups.unassigned", lang),
@@ -144,7 +147,20 @@ export function Sidebar({
       <div className="sidebar-head">
         <div className="sidebar-title">
           <span className="eyebrow">{t("sidebar.eyebrow", lang)}</span>
-          <span className="count">{filtered.length}</span>
+          <span className="sidebar-title__actions">
+            <span className="count">{filtered.length}</span>
+            {onCollapseSidebar && (
+              <button
+                type="button"
+                className="icon-btn sidebar-title__toggle"
+                title={t("sidebar.action.hide", lang)}
+                aria-label={t("sidebar.action.hide", lang)}
+                onClick={onCollapseSidebar}
+              >
+                {Icon.sidebarHide}
+              </button>
+            )}
+          </span>
         </div>
         <div className="search">
           {Icon.search}

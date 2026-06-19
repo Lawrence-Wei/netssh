@@ -52,10 +52,12 @@ describe("TerminalPane TOFU host key challenge", () => {
       can_remember: true,
     }));
 
-    expect(await screen.findByText("Trust this SSH host?")).toBeTruthy();
+    expect(await screen.findByText("New Host Key")).toBeTruthy();
+    expect(screen.getByText(/entry for 192\.168\.10\.2, port 22/)).toBeTruthy();
     expect(screen.getByText("SHA256:abc123")).toBeTruthy();
 
-    await user.click(screen.getByText("Trust and connect"));
+    expect(screen.queryByRole("button", { name: "Accept once" })).toBeFalsy();
+    await user.click(screen.getByText("Accept and Save"));
 
     await waitFor(() => {
       expect(invoke).toHaveBeenCalledWith("ssh_host_key_decide", {
@@ -65,7 +67,7 @@ describe("TerminalPane TOFU host key challenge", () => {
     });
   });
 
-  it("shows mismatch as dangerous without trust-and-remember but has accept-once", async () => {
+  it("shows mismatch as dangerous without any accept action", async () => {
     render(<TerminalPane lang="en" host={host} />);
 
     await waitFor(() => {
@@ -86,8 +88,8 @@ describe("TerminalPane TOFU host key challenge", () => {
     }));
 
     expect(await screen.findByText("Host key changed")).toBeTruthy();
-    expect(screen.queryByRole("button", { name: "Trust and connect" })).toBeFalsy();
-    expect(screen.getByRole("button", { name: "Accept once" })).toBeTruthy();
-    expect(screen.getByRole("button", { name: "Cancel connection" })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Accept and Save" })).toBeFalsy();
+    expect(screen.queryByRole("button", { name: "Accept once" })).toBeFalsy();
+    expect(screen.getByRole("button", { name: "Cancel" })).toBeTruthy();
   });
 });

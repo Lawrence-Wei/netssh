@@ -1,5 +1,6 @@
 import type { MouseEvent, ReactNode } from "react";
 import { t } from "../utils/i18n";
+import { APP_VERSION } from "../config/app";
 import type { Host, Lang, Tab } from "../config/types";
 import { brandIcon } from "../components/BrandIcons";
 import { Icon } from "../components/Icons";
@@ -57,6 +58,9 @@ export function TitleBar({
           </svg>
         </span>
         <span className="name">{t("app.name", lang)}</span>
+        <span className="sub" title={t("app.versionLabel", lang, { version: APP_VERSION })}>
+          v{APP_VERSION}
+        </span>
       </button>
 
       <nav className="app-menu" aria-label={lang === "zh" ? "Session menu" : "Session menu"}>
@@ -107,7 +111,8 @@ export function TitleBar({
         <button
           className="icon-btn sidebar-toggle-btn"
           onClick={onToggleSidebar}
-          title={sidebarCollapsed ? (lang === "zh" ? "Show sidebar" : "Show sidebar") : (lang === "zh" ? "Hide sidebar" : "Hide sidebar")}
+          title={sidebarCollapsed ? t("sidebar.action.show", lang) : t("sidebar.action.hide", lang)}
+          aria-label={sidebarCollapsed ? t("sidebar.action.show", lang) : t("sidebar.action.hide", lang)}
         >
           {sidebarCollapsed ? Icon.sidebarShow : Icon.sidebarHide}
         </button>

@@ -167,7 +167,7 @@ describe("凭据管理", () => {
 // 4. Host key 挑战流程 (TOFU)
 // ============================================================
 describe("Host Key TOFU 挑战", () => {
-  it("接收 unknown host key → 显示 Accept Once / Trust / Reject", async () => {
+  it("接收 unknown host key → 可接受并保存或取消", async () => {
     const { onHostKeyChallenge } = await import("../api/tauri");
     const listenMock = (await import("@tauri-apps/api/event")).listen as ReturnType<typeof vi.fn>;
 

@@ -12,6 +12,7 @@ import userEvent from "@testing-library/user-event";
 import { createElement } from "react";
 import App from "../pages/App";
 import { ConfirmProvider } from "../components/ConfirmDialog";
+import { APP_VERSION } from "../config/app";
 
 // ============================================================
 // Store reset between tests.
@@ -79,6 +80,7 @@ describe("1. App Shell", () => {
     renderApp();
     const tb = document.querySelector(".titlebar")!;
     expect(within(tb).getByText("Netssh")).toBeTruthy();
+    expect(within(tb).getByText(`v${APP_VERSION}`)).toBeTruthy();
     expect(tb.querySelectorAll(".win-controls button").length).toBe(3);
   });
 
@@ -148,6 +150,20 @@ describe("3. Sidebar", () => {
   it("4 sidebar-quick buttons", () => {
     renderApp();
     expect(sidebar().querySelectorAll(".sidebar-quick__btn").length).toBe(4);
+  });
+
+  it("device sidebar can hide and expand", async () => {
+    const { user } = renderApp();
+    await user.click(within(sidebar()).getByTitle("Hide devices"));
+    await waitFor(() => {
+      expect(document.querySelector(".sidebar")).toBeFalsy();
+    });
+    const restore = document.querySelector(".sidebar-restore") as HTMLElement;
+    expect(restore).toBeTruthy();
+    await user.click(restore);
+    await waitFor(() => {
+      expect(document.querySelector(".sidebar")).toBeTruthy();
+    });
   });
 
   it("Add host opens editor without appearing in sidebar", async () => {

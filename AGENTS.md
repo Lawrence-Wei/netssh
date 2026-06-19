@@ -25,6 +25,10 @@ Do not turn this project into a generic chat terminal or marketing page. It is a
 - `tools/`: validation, build helper, and development scripts
 - `releases/`: versioned release packages, release notes, and archived artifacts
 
+## Build Artifacts
+- Put all compiled, packaged, installer, and release outputs under `D:\projects\netssh\releases`.
+- Do not commit generated binaries, installers, archives, or other build outputs; keep them ignored by `.gitignore`.
+
 ## Required References
 Before autonomous iterations, read:
 - `.ai/product-vision.md`

@@ -55,12 +55,19 @@ pub struct HostKeyChallenge {
     pub can_remember: bool,
 }
 
-#[derive(Debug, Clone, serde::Deserialize)]
+#[derive(Debug, Clone, serde::Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum HostKeyDecision {
     AcceptOnce,
     AcceptAndRemember,
     Reject,
+}
+
+#[derive(Debug, PartialEq, Eq)]
+enum HostKeyDecisionPolicy {
+    AcceptOnce,
+    AcceptAndRemember,
+    Reject(&'static str),
 }
 
 enum SshCommand {
@@ -134,80 +141,40 @@ impl Handler for ClientHandler {
             .remove(&challenge_id);
 
         match decision {
-            Ok(Ok(HostKeyDecision::AcceptOnce)) if status == "unknown" => {
-                info!("Host key accepted (once)");
-                Ok(true)
-            }
-            Ok(Ok(HostKeyDecision::AcceptOnce)) if status == "mismatch" => {
-                info!("Key mismatch — user accepted once");
-                Ok(true)
-            }
-            Ok(Ok(HostKeyDecision::AcceptAndRemember)) if status == "mismatch" => {
-                info!("Key mismatch — user accepted and will update stored key");
-                match storage::open().and_then(|conn| {
-                    // Remove old entries for this host:port, then store new fingerprint
-                    if let Err(e) = storage::remove_trusted_host_key(
-                        &conn,
-                        &self.host,
-                        self.port,
-                    ) {
-                        warn!(error = %e, "Failed to remove old host key entries");
-                    }
-                    storage::remember_trusted_host_key(
-                        &conn,
-                        &self.host,
-                        self.port,
-                        &key_type,
-                        &fingerprint,
-                    )
-                }) {
-                    Ok(()) => {
-                        info!("Host key updated in trusted_host_keys");
-                        Ok(true)
-                    }
-                    Err(e) => {
-                        error!(error = %e, "Failed to store host key");
-                        set_host_key_error(&self.last_host_key_error, "host_key_store_failed");
-                        Ok(false)
+            Ok(Ok(decision)) => match host_key_decision_policy(status, decision) {
+                HostKeyDecisionPolicy::AcceptOnce => {
+                    info!("Host key accepted (once)");
+                    Ok(true)
+                }
+                HostKeyDecisionPolicy::AcceptAndRemember => {
+                    info!("Host key accepted and will be remembered");
+                    match storage::open().and_then(|conn| {
+                        storage::remember_trusted_host_key(
+                            &conn,
+                            &self.host,
+                            self.port,
+                            &key_type,
+                            &fingerprint,
+                        )
+                    }) {
+                        Ok(()) => {
+                            info!("Host key stored in trusted_host_keys");
+                            Ok(true)
+                        }
+                        Err(e) => {
+                            error!(error = %e, "Failed to store host key");
+                            set_host_key_error(&self.last_host_key_error, "host_key_store_failed");
+                            Ok(false)
+                        }
                     }
                 }
-            }
-            Ok(Ok(HostKeyDecision::AcceptAndRemember)) if status == "unknown" => {
-                info!("Host key accepted and will be remembered");
-                match storage::open().and_then(|conn| {
-                    storage::remember_trusted_host_key(
-                        &conn,
-                        &self.host,
-                        self.port,
-                        &key_type,
-                        &fingerprint,
-                    )
-                }) {
-                    Ok(()) => {
-                        info!("Host key stored in trusted_host_keys");
-                        Ok(true)
-                    }
-                    Err(e) => {
-                        error!(error = %e, "Failed to store host key");
-                        set_host_key_error(&self.last_host_key_error, "host_key_store_failed");
-                        Ok(false)
-                    }
+                HostKeyDecisionPolicy::Reject(error_code) => {
+                    set_host_key_error(&self.last_host_key_error, error_code);
+                    Ok(false)
                 }
-            }
-            Ok(Ok(HostKeyDecision::Reject)) => {
-                set_host_key_error(&self.last_host_key_error, "host_key_rejected");
-                Ok(false)
-            }
-            Ok(Ok(_)) if status == "mismatch" => {
-                set_host_key_error(&self.last_host_key_error, "host_key_mismatch");
-                Ok(false)
-            }
+            },
             Ok(Err(_)) | Err(_) => {
                 set_host_key_error(&self.last_host_key_error, "host_key_timeout");
-                Ok(false)
-            }
-            _ => {
-                set_host_key_error(&self.last_host_key_error, "host_key_rejected");
                 Ok(false)
             }
         }
@@ -595,6 +562,20 @@ fn set_host_key_error(slot: &Arc<StdMutex<Option<String>>>, value: &str) {
     *slot.lock().unwrap_or_else(|e| e.into_inner()) = Some(value.to_string());
 }
 
+fn host_key_decision_policy(status: &str, decision: HostKeyDecision) -> HostKeyDecisionPolicy {
+    match (status, decision) {
+        ("unknown", HostKeyDecision::AcceptOnce) => HostKeyDecisionPolicy::AcceptOnce,
+        ("unknown", HostKeyDecision::AcceptAndRemember) => {
+            HostKeyDecisionPolicy::AcceptAndRemember
+        }
+        (_, HostKeyDecision::Reject) => HostKeyDecisionPolicy::Reject("host_key_rejected"),
+        ("mismatch", HostKeyDecision::AcceptOnce | HostKeyDecision::AcceptAndRemember) => {
+            HostKeyDecisionPolicy::Reject("host_key_mismatch")
+        }
+        _ => HostKeyDecisionPolicy::Reject("host_key_rejected"),
+    }
+}
+
 // ─── key_type_name helper ────────────────────────────────────────────────
 
 fn key_type_name(key: &PublicKey) -> String {
@@ -691,5 +672,29 @@ mod tests {
     #[test]
     fn host_matches_comma_separated_entries() {
         assert!(host_matches("example.com,192.0.2.1", "192.0.2.1", 22));
+    }
+
+    #[test]
+    fn unknown_host_key_can_be_accepted_and_saved() {
+        assert_eq!(
+            host_key_decision_policy("unknown", HostKeyDecision::AcceptAndRemember),
+            HostKeyDecisionPolicy::AcceptAndRemember
+        );
+    }
+
+    #[test]
+    fn mismatched_host_key_accept_once_is_blocked() {
+        assert_eq!(
+            host_key_decision_policy("mismatch", HostKeyDecision::AcceptOnce),
+            HostKeyDecisionPolicy::Reject("host_key_mismatch")
+        );
+    }
+
+    #[test]
+    fn mismatched_host_key_accept_and_remember_is_blocked() {
+        assert_eq!(
+            host_key_decision_policy("mismatch", HostKeyDecision::AcceptAndRemember),
+            HostKeyDecisionPolicy::Reject("host_key_mismatch")
+        );
     }
 }

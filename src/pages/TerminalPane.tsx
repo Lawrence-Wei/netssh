@@ -509,7 +509,12 @@ function HostKeyChallengeOverlay({
     <div className={"host-key-challenge" + (isMismatch ? " host-key-challenge--danger" : "")}>
       <span className="eyebrow">{t("hostkey.eyebrow", lang)}</span>
       <h2>{t(isMismatch ? "hostkey.mismatch.title" : "hostkey.unknown.title", lang)}</h2>
-      <p>{t(isMismatch ? "hostkey.mismatch.body" : "hostkey.unknown.body", lang)}</p>
+      <p>
+        {t(isMismatch ? "hostkey.mismatch.body" : "hostkey.unknown.body", lang, {
+          host: challenge.host,
+          port: challenge.port,
+        })}
+      </p>
       <div className="host-key-challenge__grid">
         <span className="k">{t("hostkey.field.host", lang)}</span>
         <span className="v">{challenge.host}:{challenge.port}</span>
@@ -531,10 +536,12 @@ function HostKeyChallengeOverlay({
         <button className="btn ghost" disabled={submitting} onClick={() => onDecide("reject")}>
           {t("hostkey.action.reject", lang)}
         </button>
-        <button className="btn ghost" disabled={submitting} onClick={() => onDecide("accept_once")}>
-          {t("hostkey.action.acceptOnce", lang)}
-        </button>
-        {challenge.can_remember && (
+        {!isMismatch && !challenge.can_remember && (
+          <button className="btn ghost" disabled={submitting} onClick={() => onDecide("accept_once")}>
+            {t("hostkey.action.acceptOnce", lang)}
+          </button>
+        )}
+        {!isMismatch && challenge.can_remember && (
           <button className="btn" disabled={submitting} onClick={() => onDecide("accept_and_remember")}>
             {t("hostkey.action.trust", lang)}
           </button>

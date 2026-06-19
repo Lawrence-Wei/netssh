@@ -2,11 +2,13 @@
 node_modules/
 dist/
 target/
+src-tauri/target/
 *.log
 
-# Release artifacts (too large, use GitHub Releases instead)
-release/
-releases/
+# Release artifacts stay local under D:\projects\netssh\releases
+/release/
+/releases/*
+!/releases/.gitignore
 
 # Code intelligence cache
 .codegraph/
@@ -16,9 +18,6 @@ releases/
 .idea/
 .DS_Store
 Thumbs.db
-
-# Tauri
-src-tauri/target/
 
 # Env
 .env

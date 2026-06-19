@@ -15,6 +15,7 @@ import { detectSystemLang, t } from "../utils/i18n";
 import type { Host, Snippet } from "../config/types";
 import type { QueuedCommand } from "./TerminalPane";
 import { useConfirm } from "../components/ConfirmDialog";
+import { Icon } from "../components/Icons";
 
 export default function App() {
   const {
@@ -136,7 +137,9 @@ export default function App() {
     const saved = Number(window.localStorage.getItem("netssh.sidebarWidth"));
     return Number.isFinite(saved) && saved >= 240 && saved <= 460 ? saved : 320;
   });
-  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(
+    () => window.localStorage.getItem("netssh.sidebarCollapsed") === "true"
+  );
   const sidebarVisible = !sidebarCollapsed;
   const queueTimerRef = useRef(0);
   const confirm = useConfirm();
@@ -226,6 +229,14 @@ export default function App() {
     if (!sidebarVisible) return "0px 0px minmax(0, 1fr)";
     return `${sidebarWidth}px 6px minmax(0, 1fr)`;
   }, [sidebarWidth, sidebarVisible]);
+
+  const updateSidebarCollapsed = (next: boolean | ((current: boolean) => boolean)) => {
+    setSidebarCollapsed((current) => {
+      const resolved = typeof next === "function" ? next(current) : next;
+      window.localStorage.setItem("netssh.sidebarCollapsed", resolved ? "true" : "false");
+      return resolved;
+    });
+  };
 
   const startSidebarResize = (event: ReactPointerEvent<HTMLDivElement>) => {
     event.preventDefault();
@@ -332,10 +343,23 @@ export default function App() {
         }}
         onOpenSettings={openSettings}
         sidebarCollapsed={sidebarCollapsed}
-        onToggleSidebar={() => setSidebarCollapsed((c) => !c)}
+        onToggleSidebar={() => updateSidebarCollapsed((current) => !current)}
       />
 
       <div className="shell shell--no-rail" style={{ gridTemplateColumns: shellColumns } as CSSProperties}>
+        {!sidebarVisible && (
+          <button
+            type="button"
+            className="sidebar-restore"
+            title={t("sidebar.action.show", lang)}
+            aria-label={t("sidebar.action.show", lang)}
+            onClick={() => updateSidebarCollapsed(false)}
+          >
+            {Icon.sidebarShow}
+            <span>{t("sidebar.action.show", lang)}</span>
+          </button>
+        )}
+
         {sidebarVisible && (
           <Sidebar
             lang={lang}
@@ -352,6 +376,7 @@ export default function App() {
             onMoveHostToGroup={moveHostToGroup}
             onRemoveHosts={(ids) => ids.forEach((id) => removeHost(id))}
             onToggleFavorite={toggleFavorite}
+            onCollapseSidebar={() => updateSidebarCollapsed(true)}
             onAddHostQuick={() => {
               const created = addHost({
                 alias: "",

@@ -6,7 +6,7 @@ import { createJSONStorage, persist } from "zustand/middleware";
 import { HOST_GROUPS, MOCK_HOSTS } from "../config/defaults";
 import { parseSshConfig } from "../api/tauri";
 import { slugify } from "../utils/slugify";
-import type { Host, Group } from "../config/types";
+import type { Host, Group, GroupId } from "../config/types";
 import { appStorage } from "./persistence";
 
 interface HostsState {
@@ -28,9 +28,105 @@ interface HostsState {
 }
 
 const HUES = ["#285c5f", "#b06438", "#6e8b57", "#7c5a8c", "#a32a26", "#3b6e8f"];
+const UNASSIGNED_GROUP_ID = "unassigned";
 
 function nextHue(index: number) {
   return HUES[index % HUES.length];
+}
+
+function groupKey(value?: string | null) {
+  return slugify(value || "");
+}
+
+function isUnassignedGroup(value?: string | null) {
+  return groupKey(value) === UNASSIGNED_GROUP_ID;
+}
+
+function buildGroupLookup(groups: Group[]) {
+  const lookup = new Map<string, GroupId>();
+  groups.forEach((group) => {
+    const id = String(group.id || "").trim();
+    const name = String(group.name || "").trim();
+    if (id) lookup.set(id.toLowerCase(), group.id);
+    const idKey = groupKey(id);
+    if (idKey) lookup.set(idKey, group.id);
+    const nameKey = groupKey(name);
+    if (nameKey) lookup.set(nameKey, group.id);
+  });
+  lookup.set(UNASSIGNED_GROUP_ID, UNASSIGNED_GROUP_ID);
+  return lookup;
+}
+
+function resolveKnownGroupId(value: string | undefined, groups: Group[]) {
+  const raw = String(value || "").trim();
+  if (!raw || isUnassignedGroup(raw)) return UNASSIGNED_GROUP_ID;
+
+  const lookup = buildGroupLookup(groups);
+  return lookup.get(raw.toLowerCase()) || lookup.get(groupKey(raw)) || raw;
+}
+
+function normalizeHostsData(hosts: Host[], groups: Group[]) {
+  const remap = new Map<string, GroupId>();
+  const lookup = new Map<string, GroupId>();
+  const normalizedGroups: Group[] = [];
+
+  const remember = (raw: string | undefined, id: GroupId) => {
+    const trimmed = String(raw || "").trim();
+    if (!trimmed) return;
+    remap.set(trimmed, id);
+    lookup.set(trimmed.toLowerCase(), id);
+    const key = groupKey(trimmed);
+    if (key) lookup.set(key, id);
+  };
+
+  const addGroup = (group: Group) => {
+    const rawId = String(group.id || "").trim();
+    const rawName = String(group.name || "").trim();
+    if (!rawId && !rawName) return;
+
+    if (isUnassignedGroup(rawId) || isUnassignedGroup(rawName)) {
+      const existing = lookup.get(UNASSIGNED_GROUP_ID);
+      if (!existing) {
+        const fallback = HOST_GROUPS.find((item) => item.id === UNASSIGNED_GROUP_ID);
+        normalizedGroups.push(fallback || { id: UNASSIGNED_GROUP_ID, name: "Unassigned", color: "#897e6e" });
+        lookup.set(UNASSIGNED_GROUP_ID, UNASSIGNED_GROUP_ID);
+      }
+      remember(rawId, UNASSIGNED_GROUP_ID);
+      remember(rawName, UNASSIGNED_GROUP_ID);
+      return;
+    }
+
+    const id = (rawId || groupKey(rawName)) as GroupId;
+    const duplicate = lookup.get(id.toLowerCase()) || lookup.get(groupKey(id)) || lookup.get(groupKey(rawName));
+    if (duplicate) {
+      remember(rawId, duplicate);
+      remember(rawName, duplicate);
+      return;
+    }
+
+    const normalized = {
+      ...group,
+      id,
+      name: rawName || id,
+    };
+    normalizedGroups.push(normalized);
+    remember(rawId, normalized.id);
+    remember(rawName, normalized.id);
+  };
+
+  HOST_GROUPS.forEach(addGroup);
+  groups.forEach(addGroup);
+
+  const normalizedHosts = hosts.map((host) => {
+    const rawGroup = String(host.group || "").trim();
+    const group = remap.get(rawGroup) || lookup.get(rawGroup.toLowerCase()) || lookup.get(groupKey(rawGroup)) || UNASSIGNED_GROUP_ID;
+    return group === host.group ? host : { ...host, group };
+  });
+
+  return {
+    hosts: normalizedHosts,
+    groups: normalizedGroups,
+  };
 }
 
 export const useHosts = create<HostsState>()(
@@ -56,7 +152,9 @@ export const useHosts = create<HostsState>()(
               identityFile: fresh.identityFile ?? h.identityFile,
               aliases: fresh.aliases ?? h.aliases,
               source: fresh.source ?? h.source,
-              group: fresh.group && fresh.group !== "unassigned" ? fresh.group : h.group,
+              group: fresh.group && !isUnassignedGroup(fresh.group)
+                ? resolveKnownGroupId(fresh.group, get().groups)
+                : h.group,
             };
           });
           parsed.forEach((host, index) => {
@@ -65,7 +163,7 @@ export const useHosts = create<HostsState>()(
             merged.push({
               ...host,
               id: host.id || `cfg-${host.alias}`,
-              group: host.group || "unassigned",
+              group: resolveKnownGroupId(host.group, get().groups),
               hue: host.hue || nextHue(existing.length + index),
               status: host.status || "off",
               latency: host.latency ?? null,
@@ -111,6 +209,7 @@ export const useHosts = create<HostsState>()(
         const host: Host = {
           ...raw,
           id,
+          group: resolveKnownGroupId(raw.group, get().groups),
           port: raw.port ?? 22,
           status: raw.status ?? "off",
           hue: raw.hue ?? nextHue(get().hosts.length),
@@ -129,7 +228,7 @@ export const useHosts = create<HostsState>()(
         const nextGroups: Group[] = [...groups];
         list.forEach((raw, idx) => {
           if (raw.alias && existingAliases.has(raw.alias.toLowerCase())) return;
-          let groupId = raw.group || "unassigned";
+          let groupId = resolveKnownGroupId(raw.group, nextGroups);
           if (!knownGroupIds.has(groupId)) {
             const slug = slugify(groupId) || `site-${Date.now()}-${idx}`;
             const id = knownGroupIds.has(slug) ? `${slug}-${Date.now()}` : slug;
@@ -163,8 +262,11 @@ export const useHosts = create<HostsState>()(
       },
 
       updateHost: (id, patch) => {
+        const nextPatch = patch.group
+          ? { ...patch, group: resolveKnownGroupId(patch.group, get().groups) }
+          : patch;
         set({
-          hosts: get().hosts.map((h) => (h.id === id ? { ...h, ...patch } : h)),
+          hosts: get().hosts.map((h) => (h.id === id ? { ...h, ...nextPatch } : h)),
         });
       },
 
@@ -173,6 +275,10 @@ export const useHosts = create<HostsState>()(
       },
 
       addGroup: (name, subnet) => {
+        const existingId = resolveKnownGroupId(name, get().groups);
+        const existing = get().groups.find((group) => group.id === existingId);
+        if (existing) return existing;
+
         const slug = slugify(name) || `site-${Date.now()}`;
         const id = get().groups.find((g) => g.id === slug)
           ? `${slug}-${Date.now()}`
@@ -204,9 +310,10 @@ export const useHosts = create<HostsState>()(
       },
 
       moveHostToGroup: (hostId, groupId) => {
+        const targetGroupId = resolveKnownGroupId(groupId, get().groups);
         set({
           hosts: get().hosts.map((host) =>
-            host.id === hostId ? { ...host, group: groupId } : host
+            host.id === hostId ? { ...host, group: targetGroupId } : host
           ),
         });
       },
@@ -214,9 +321,21 @@ export const useHosts = create<HostsState>()(
     {
       name: "netssh.hosts",
       storage: createJSONStorage(() => appStorage),
+      merge: (persistedState, currentState) => {
+        const persisted = persistedState as Partial<Pick<HostsState, "hosts" | "groups">> | undefined;
+        const data = normalizeHostsData(
+          persisted?.hosts || currentState.hosts,
+          persisted?.groups || currentState.groups
+        );
+        return {
+          ...currentState,
+          hosts: data.hosts,
+          groups: data.groups,
+        };
+      },
       partialize: (state) => ({
-        hosts: state.hosts.map(({ ephemeralPassword: _ephemeralPassword, ...rest }) => rest),
-        groups: state.groups,
+        hosts: normalizeHostsData(state.hosts, state.groups).hosts.map(({ ephemeralPassword: _ephemeralPassword, ...rest }) => rest),
+        groups: normalizeHostsData(state.hosts, state.groups).groups,
       }),
     }
   )
