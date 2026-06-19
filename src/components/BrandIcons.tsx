@@ -108,9 +108,9 @@ const BRAND_RULES: BrandRule[] = [
   },
   {
     id: "asus",
-    test: /asus|rog\b|tuf\b/i,
+    test: /asus|asuswrt|rog\b|tuf\b|aimesh|rt[-_ ]?a[ctx]|gt[-_ ]?a[ctx]/i,
     icon: <img src={asusImg} alt="ASUS" className="brand-img" />,
-    label: "ASUS",
+    label: "ASUS Router",
   },
   {
     id: "ubuntu",

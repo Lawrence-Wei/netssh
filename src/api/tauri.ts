@@ -132,6 +132,7 @@ export interface SshOpenArgs {
   skipOpenSshKnownHosts?: boolean;
   terminalLocale?: string;
   terminalTimezone?: string;
+  deviceHint?: string;
 }
 
 export async function sshOpen(args: SshOpenArgs): Promise<string> {
@@ -147,6 +148,7 @@ export async function sshOpen(args: SshOpenArgs): Promise<string> {
       skip_open_ssh_known_hosts: args.skipOpenSshKnownHosts,
       terminal_locale: args.terminalLocale,
       terminal_timezone: args.terminalTimezone,
+      device_hint: args.deviceHint,
     },
   });
 }
@@ -158,6 +160,12 @@ export async function sshResize(id: string, cols: number, rows: number): Promise
 }
 export async function sshClose(id: string): Promise<void> {
   return invoke("ssh_close", { id });
+}
+export async function sshDetach(id: string): Promise<void> {
+  return invoke("ssh_detach", { id });
+}
+export async function sshReattach(id: string): Promise<void> {
+  return invoke("ssh_reattach", { id });
 }
 
 // ─── local PTYs ────────────────────────────────────────────────────────────

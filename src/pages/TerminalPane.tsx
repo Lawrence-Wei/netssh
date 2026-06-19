@@ -19,6 +19,8 @@ import {
   ptyResize,
   ptySend,
   sshClose,
+  sshDetach,
+  sshReattach,
   sshForgetTrustedHostKey,
   sshHostKeyDecide,
   sshOpen,
@@ -33,12 +35,14 @@ import { t } from "../utils/i18n";
 import { SERIAL_PRESETS } from "../config/defaults";
 import { useCredentials } from "../store/credentials";
 import { useSettings } from "../store/settings";
+import { registerLiveSession, getLiveSession, removeLiveSession } from "../utils/liveSessions";
 
 import type { Host, Lang, SerialProfile, TerminalLocale, TerminalTimezone } from "../config/types";
 import { Icon } from "../components/Icons";
 import { createDemoShell } from "../utils/demoShell";
 import { brandIcon } from "../components/BrandIcons";
 import type { HostKeyChallenge, HostKeyDecision } from "../api/tauri";
+import { deviceTypeFromHost } from "../utils/deployScope";
 
 export interface QueuedCommand {
   cmd: string;
@@ -51,6 +55,8 @@ interface TerminalPaneProps {
   shellId?: string;
   shellPath?: string;
   shellTitle?: string;
+  /** If set, reattach to an existing live SSH session instead of opening a new one. */
+  reattachSessionId?: string;
   onClose?: () => void;
   onRetry?: () => void;
   onEditHost?: () => void;
@@ -73,7 +79,7 @@ interface PendingHostKeyDecision {
   decision: HostKeyDecision;
 }
 
-export function TerminalPane({ lang, host, shellId, shellPath, shellTitle, onClose, onRetry, onEditHost, runQueue }: TerminalPaneProps) {
+export function TerminalPane({ lang, host, shellId, shellPath, shellTitle, reattachSessionId, onClose, onRetry, onEditHost, runQueue }: TerminalPaneProps) {
   const mountRef = useRef<HTMLDivElement>(null);
   const termRef = useRef<XTerm | null>(null);
   const fitRef = useRef<FitAddon | null>(null);
@@ -378,18 +384,31 @@ export function TerminalPane({ lang, host, shellId, shellPath, shellTitle, onClo
             // Ignore logging failures, still attempt the SSH connection.
             connectionLogIdRef.current = null;
           }
-          const id = await sshOpen({
-            alias: host.alias,
-            host: host.hostname,
-            user: username,
-            port: host.port,
-            identityFile,
-            password,
-            skipOpenSshKnownHosts,
-            ...resolveTerminalEnv(terminalLocale, terminalTimezone),
-          });
+          let id: string;
+          const liveSession = getLiveSession(host.id);
+          if (liveSession) {
+            // Reattach to the existing background session.
+            await sshReattach(liveSession);
+            id = liveSession;
+          } else {
+            id = await sshOpen({
+              alias: host.alias,
+              host: host.hostname,
+              user: username,
+              port: host.port,
+              identityFile,
+              password,
+              skipOpenSshKnownHosts,
+              deviceHint: host.iconOverride || deviceTypeFromHost(host),
+              ...resolveTerminalEnv(terminalLocale, terminalTimezone),
+            });
+            registerLiveSession(host.id, id);
+          }
           if (disposed) {
-            await sshClose(id);
+            if (!liveSession) {
+              await sshClose(id);
+              removeLiveSession(host.id);
+            }
             await closeConnectionLog("disposed before first paint", null);
             return;
           }
@@ -436,7 +455,7 @@ export function TerminalPane({ lang, host, shellId, shellPath, shellTitle, onClo
       unlistenExit?.();
       const id = sessionIdRef.current;
       if (id && modeRef.current === "ssh") {
-        void sshClose(id);
+        void sshDetach(id);
         void closeConnectionLog();
       }
       if (id && modeRef.current === "serial") void serialClose(id);
@@ -450,6 +469,7 @@ export function TerminalPane({ lang, host, shellId, shellPath, shellTitle, onClo
     shellId,
     shellPath,
     shellTitle,
+    reattachSessionId,
     retryNonce,
     skipOpenSshKnownHosts,
     sessionPassword,
@@ -873,6 +893,15 @@ export function describeConnectionError(error: unknown, lang: Lang = "en") {
   if (!raw) return t("conn.error.message.generic", lang);
 
   // Categorize common SSH errors
+  if (/kex_no_common_algorithm/i.test(raw)) {
+    return t("conn.error.message.kexNoCommonAlgorithm", lang);
+  }
+  if (/host_key_algo_no_common/i.test(raw)) {
+    return t("conn.error.message.hostKeyAlgoNoCommon", lang);
+  }
+  if (/algo_no_common/i.test(raw)) {
+    return t("conn.error.message.algoNoCommon", lang);
+  }
   if (/host_key_mismatch/i.test(raw)) {
     return t("conn.error.message.hostKeyMismatch", lang);
   }

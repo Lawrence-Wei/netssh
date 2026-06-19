@@ -189,6 +189,15 @@ describe("host metadata", () => {
     expect(brandLabel(luckfoxHost)).toBe("Luckfox");
   });
 
+  it("recognizes ASUS routers before generic Linux icons", () => {
+    const asusHost = host("asus", "asus-router", {
+      tags: ["linux", "router"],
+    });
+    expect(deviceTypeFromHost(asusHost)).toBe("asus");
+    expect(brandLabel(asusHost)).toBe("ASUS Router");
+    expect(brandLabel(host("asus-override", "router", { iconOverride: "asus" }))).toBe("ASUS Router");
+  });
+
   it("maps explicit and inferred device icons to brand labels", () => {
     expect(brandLabel(host("huawei", "core-s5700"))).toBe("Huawei Switch");
     expect(brandLabel(host("cisco", "lab-catalyst"))).toBe("Cisco");

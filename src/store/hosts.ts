@@ -26,6 +26,7 @@ interface HostsState {
   renameGroup: (id: string, name: string, subnet?: string) => void;
   removeGroup: (id: string) => void;
   moveHostToGroup: (hostId: string, groupId: string) => void;
+  reorderHost: (hostId: string, targetOrder: number, targetGroupId?: string) => void;
 }
 
 const HUES = ["#285c5f", "#b06438", "#6e8b57", "#7c5a8c", "#a32a26", "#3b6e8f"];
@@ -351,6 +352,19 @@ export const useHosts = create<HostsState>()(
           hosts: get().hosts.map((host) =>
             host.id === hostId ? { ...host, group: targetGroupId } : host
           ),
+        });
+      },
+
+      reorderHost: (hostId, targetOrder, targetGroupId) => {
+        set({
+          hosts: get().hosts.map((host) => {
+            if (host.id !== hostId) return host;
+            const next = { ...host, order: targetOrder };
+            if (targetGroupId !== undefined) {
+              next.group = resolveKnownGroupId(targetGroupId, get().groups);
+            }
+            return next;
+          }),
         });
       },
     }),

@@ -6,6 +6,13 @@ import { listen } from "@tauri-apps/api/event";
 import { TerminalPane } from "../pages/TerminalPane";
 import type { Host } from "../config/types";
 
+vi.mock("../utils/liveSessions", () => ({
+  registerLiveSession: vi.fn(),
+  getLiveSession: vi.fn(() => undefined),
+  removeLiveSession: vi.fn(),
+  resetLiveSessions: vi.fn(),
+}));
+
 const host: Host = {
   id: "host-tofu",
   alias: "switch-core",

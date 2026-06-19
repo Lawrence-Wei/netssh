@@ -41,6 +41,24 @@ describe("TerminalPane connection state", () => {
     }
   });
 
+  it("passes a Huawei device hint to SSH open", async () => {
+    const invokeMock = vi.mocked(invoke);
+    const defaultInvoke = invokeMock.getMockImplementation();
+    if (defaultInvoke) invokeMock.mockImplementation(defaultInvoke);
+    invokeMock.mockClear();
+
+    render(<TerminalPane lang="en" host={{ ...keyHost, iconOverride: "huawei" }} />);
+
+    await waitFor(() => {
+      expect(invokeMock).toHaveBeenCalledWith("ssh_open", {
+        args: expect.objectContaining({
+          host: keyHost.hostname,
+          device_hint: "huawei",
+        }),
+      });
+    });
+  });
+
   it("prompts for a password before opening SSH when no credential or key is available", async () => {
     const invokeMock = vi.mocked(invoke);
     const defaultInvoke = invokeMock.getMockImplementation();

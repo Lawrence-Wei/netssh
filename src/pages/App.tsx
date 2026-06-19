@@ -32,6 +32,7 @@ export default function App() {
     renameGroup,
     removeGroup,
     moveHostToGroup,
+    reorderHost,
     loadFromSshConfig,
   } = useHosts(
     (s) => ({
@@ -47,6 +48,7 @@ export default function App() {
       renameGroup: s.renameGroup,
       removeGroup: s.removeGroup,
       moveHostToGroup: s.moveHostToGroup,
+      reorderHost: s.reorderHost,
       loadFromSshConfig: s.loadFromSshConfig,
     }),
     shallow
@@ -163,6 +165,7 @@ export default function App() {
     }
     setEditingHostId(null);
   };
+  const finishEditing = () => setEditingHostId(null);
   const [importOpen, setImportOpen] = useState(false);
   const [sidebarWidth, setSidebarWidth] = useState(() => {
     const saved = Number(window.localStorage.getItem("netssh.sidebarWidth"));
@@ -469,6 +472,7 @@ export default function App() {
             onRenameGroup={renameGroup}
             onRemoveGroup={removeGroup}
             onMoveHostToGroup={moveHostToGroup}
+            onReorderHost={reorderHost}
             onRemoveHosts={(ids) => ids.forEach((id) => removeHost(id))}
             onToggleFavorite={toggleFavorite}
             query={hostQuery}
@@ -528,6 +532,7 @@ export default function App() {
           editingHostId={editingHostId}
           setEditingHostId={setEditingHostId}
           cancelHostEdit={cancelEditCleanup}
+          finishHostEdit={finishEditing}
           onAddHost={addHost}
           onUpdateHost={updateHost}
           onRemoveHost={(id) => {

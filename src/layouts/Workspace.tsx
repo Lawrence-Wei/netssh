@@ -33,6 +33,7 @@ interface WorkspaceProps {
   editingHostId: string | null;
   setEditingHostId: (id: string | null) => void;
   cancelHostEdit: () => void;
+  finishHostEdit: () => void;
   onAddHost: (host: Omit<Host, "id"> & { id?: string }) => Host;
   onUpdateHost: (id: string, patch: Partial<Host>) => void;
   onRemoveHost: (id: string) => void;
@@ -67,6 +68,7 @@ export function Workspace({
   editingHostId,
   setEditingHostId,
   cancelHostEdit,
+  finishHostEdit,
   onAddHost,
   onUpdateHost,
   onRemoveHost,
@@ -86,7 +88,6 @@ export function Workspace({
     }),
     shallow
   );
-  const splitSet = new Set(splitTabIds);
 
   const splitTabs = useMemo(() => {
     if (splitTabIds.length < 2) return [] as Tab[];
@@ -207,6 +208,7 @@ export function Workspace({
           editing={false}
           startEditing={() => {}}
           cancelEditing={cancelHostEdit}
+          finishEditing={finishHostEdit}
           onUpdateHost={onUpdateHost}
           onRemoveHost={onRemoveHost}
           onAddHost={onAddHost}
@@ -236,6 +238,7 @@ export function Workspace({
           editing={editingHostId === activeHost?.id}
           startEditing={() => activeHost && setEditingHostId(activeHost.id)}
           cancelEditing={cancelHostEdit}
+          finishEditing={finishHostEdit}
           onUpdateHost={onUpdateHost}
           onRemoveHost={onRemoveHost}
           onAddHost={(host) => {
@@ -269,17 +272,6 @@ export function Workspace({
             }}
             runQueue={runQueue}
           />
-          <button
-            className={"split-toggle" + (splitSet.has(tab.id) ? " active" : "")}
-            onClick={() => toggleSplit(tab.id)}
-            title={lang === "zh" ? "Toggle quad view" : "Toggle quad view"}
-            aria-label={lang === "zh" ? "Toggle quad view" : "Toggle quad view"}
-          >
-            <svg viewBox="0 0 14 14" width="13" height="13" fill="none">
-              <rect x="1" y="1" width="12" height="12" rx="1.5" stroke="currentColor" strokeWidth="1.2" />
-              <path d="M7 1v12M1 7h12" stroke="currentColor" strokeWidth="1.2" />
-            </svg>
-          </button>
         </div>
       )}
     </main>

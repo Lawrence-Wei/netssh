@@ -1,0 +1,91 @@
+- generic [ref=e3]:
+  - generic [ref=e4]:
+    - generic [ref=e5]:
+      - button "Netssh" [ref=e6] [cursor=pointer]:
+        - img [ref=e8]
+        - generic [ref=e10]: Netssh
+      - button "Hide devices" [ref=e11] [cursor=pointer]:
+        - img [ref=e12]
+    - generic [ref=e14]:
+      - generic "Home" [ref=e15]:
+        - generic [ref=e18]: Home
+      - navigation "Session menu" [ref=e19]:
+        - button "Session" [ref=e21] [cursor=pointer]
+      - button "New tab" [ref=e22] [cursor=pointer]:
+        - img [ref=e23]
+    - button "Settings" [ref=e26] [cursor=pointer]:
+      - img [ref=e27]
+    - generic [ref=e30]:
+      - button "Minimize" [ref=e31] [cursor=pointer]:
+        - img [ref=e32]
+      - button "Maximize" [ref=e33] [cursor=pointer]:
+        - img [ref=e34]
+      - button "Close" [ref=e36] [cursor=pointer]:
+        - img [ref=e37]
+  - generic [ref=e39]:
+    - complementary [ref=e40]:
+      - generic [ref=e41]:
+        - generic [ref=e42]:
+          - generic [ref=e43]: Devices
+          - generic [ref=e45]: "0"
+        - generic [ref=e46]:
+          - img
+          - textbox "Search hosts, tags, IPs…" [ref=e47]
+          - generic [ref=e48]: Ctrl + K
+        - generic [ref=e49]:
+          - button "All" [ref=e50] [cursor=pointer]
+          - button "Favorites" [ref=e51] [cursor=pointer]
+          - button "Recent" [ref=e52] [cursor=pointer]
+          - button "Local" [ref=e53] [cursor=pointer]
+          - button "Cloud" [ref=e54] [cursor=pointer]
+        - generic [ref=e55]:
+          - button "Add host" [ref=e56] [cursor=pointer]:
+            - img [ref=e57]
+            - generic [ref=e59]: Add host
+          - button "Import" [ref=e60] [cursor=pointer]:
+            - img [ref=e61]
+            - generic [ref=e64]: Import
+          - button "# New site" [ref=e65] [cursor=pointer]:
+            - generic [ref=e66]: "#"
+            - generic [ref=e67]: New site
+        - button "Batch" [ref=e69] [cursor=pointer]:
+          - img [ref=e70]
+          - generic [ref=e73]: Batch
+    - separator "Drag to resize the sidebar. Double-click to reset." [ref=e75]
+    - main [ref=e76]:
+      - generic [ref=e77]:
+        - generic [ref=e78]:
+          - generic [ref=e79]:
+            - text: Home
+            - heading "Topology map" [level=1] [ref=e80]
+            - paragraph [ref=e81]: Map sites, routers, switches, and connected devices for day-to-day network operations.
+          - generic [ref=e82]:
+            - button "Quad view" [disabled]:
+              - img
+              - generic: Quad view
+            - button "Show manual connection" [ref=e83] [cursor=pointer]:
+              - generic [ref=e84]: Show manual connection
+        - generic [ref=e85]:
+          - button "Import hosts" [ref=e86] [cursor=pointer]:
+            - img [ref=e87]
+            - generic [ref=e90]: Import hosts
+          - button "Add host" [ref=e91] [cursor=pointer]:
+            - img [ref=e92]
+            - generic [ref=e94]: Add host
+          - button "New site" [ref=e95] [cursor=pointer]:
+            - img [ref=e96]
+            - generic [ref=e98]: New site
+        - generic [ref=e99]:
+          - generic [ref=e100]:
+            - generic [ref=e101]: Topology filter
+            - generic [ref=e102]:
+              - button "Routers" [ref=e103] [cursor=pointer]
+              - button "Switches" [ref=e104] [cursor=pointer]
+              - button "Devices" [ref=e105] [cursor=pointer]
+          - generic [ref=e106]:
+            - generic [ref=e107]:
+              - generic [ref=e108]: Network topology
+              - generic [ref=e109]: Inferred by site
+            - generic [ref=e110]:
+              - strong [ref=e111]: No topology yet
+              - generic [ref=e112]: Import or add hosts to build the site map.

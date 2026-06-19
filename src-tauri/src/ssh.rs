@@ -29,6 +29,8 @@ pub struct SshSession {
     id: String,
     handle: Arc<Mutex<Handle<ClientHandler>>>,
     commands: UnboundedSender<SshCommand>,
+    /// True when the frontend tab closed but the session should stay alive.
+    pub detached: bool,
 }
 
 struct ClientHandler {
@@ -120,6 +122,7 @@ printf '__NETSSH_END__\n'"#;
 const NETWORK_METADATA_COMMANDS: &[&str] = &["display version", "show version"];
 const SSH_TCP_CONNECT_TIMEOUT: Duration = Duration::from_secs(8);
 const SSH_AUTH_ATTEMPT_TIMEOUT: Duration = Duration::from_secs(12);
+const NETWORK_DEVICE_HINTS: &[&str] = &["huawei", "cisco"];
 
 #[async_trait]
 impl Handler for ClientHandler {
@@ -234,12 +237,52 @@ impl SshSession {
         challenge_registry: HostKeyChallengeRegistry,
     ) -> Result<Self> {
         let mut config = client::Config::default();
-        // Add legacy ssh-rsa host key algorithm for router/embedded device compatibility.
+        // ── Legacy algorithm compatibility for routers / switches / embedded devices ──
+        //
+        // Many Cisco IOS / IOS XE / Nexus, Huawei VRP, and older embedded Linux
+        // devices only offer SHA-1 based KEX, host key, and MAC algorithms.
+        // russh implements them but excludes them from the safe defaults since
+        // SHA-1 is considered broken.  Netssh adds them at the *end* of each
+        // preference list so that modern (safe) algorithms are always tried first,
+        // and the old variants are only used as a last-resort fallback.
         {
-            let mut keys: Vec<russh_keys::key::Name> = config.preferred.key.to_vec();
-            if !keys.iter().any(|k| k.0 == russh_keys::key::SSH_RSA.0) {
-                keys.insert(0, russh_keys::key::SSH_RSA);
-                config.preferred.key = std::borrow::Cow::Owned(keys);
+            // Inject SHA-1 KEX algorithms at the end so they are only
+            // negotiated when the server offers nothing else.
+            // Note: diffie-hellman-group-exchange-sha1 is not available in
+            // russh 0.46; only group1-sha1 and group14-sha1 are included.
+            {
+                let mut kex_list: Vec<russh::kex::Name> = config.preferred.kex.to_vec();
+                for legacy in [russh::kex::DH_G14_SHA1, russh::kex::DH_G1_SHA1] {
+                    if !kex_list.iter().any(|k| k.as_ref() == legacy.as_ref()) {
+                        kex_list.push(legacy);
+                    }
+                }
+                config.preferred.kex = std::borrow::Cow::Owned(kex_list);
+            }
+
+            // 注入 SHA-1 MAC 算法，同样放在末尾作为备选。
+            {
+                let mut mac_list: Vec<russh::mac::Name> = config.preferred.mac.to_vec();
+                for legacy in [russh::mac::HMAC_SHA1, russh::mac::HMAC_SHA1_ETM] {
+                    if !mac_list.iter().any(|m| m.as_ref() == legacy.as_ref()) {
+                        mac_list.push(legacy);
+                    }
+                }
+                config.preferred.mac = std::borrow::Cow::Owned(mac_list);
+            }
+
+            // 注入 ssh-rsa 主机密钥算法，同样放在末尾作为备选。
+            //
+            // 华为 VRP 交换机（如 S5700 V200R022）通常只提供 ssh-rsa 作为主机密钥算法，
+            // 不支持现代 rsa-sha2-256 / rsa-sha2-512。russh 0.46 的安全默认列表中已移除
+            // ssh-rsa（SHA-1 被认为不安全），因此必须显式加回才能与这些设备完成协商。
+            {
+                let mut key_list: Vec<russh_keys::key::Name> = config.preferred.key.to_vec();
+                let ssh_rsa = russh_keys::key::SSH_RSA;
+                if !key_list.iter().any(|k| k.as_ref() == ssh_rsa.as_ref()) {
+                    key_list.push(ssh_rsa);
+                }
+                config.preferred.key = std::borrow::Cow::Owned(key_list);
             }
         }
         let config = Arc::new(config);
@@ -341,8 +384,22 @@ impl SshSession {
                     error!(error = %host_key_error, "SSH handshake failed due to host key");
                     return Err(anyhow!("{host_key_error}"));
                 }
+                let err_str = e.to_string();
+                // Classify the error so the frontend can show a meaningful message.
+                if err_str.contains("No common Kex") {
+                    error!(error = %e, "SSH KEX algorithm negotiation failed (no overlap with server)");
+                    return Err(anyhow!("kex_no_common_algorithm: {err_str}"));
+                }
+                if err_str.contains("No common Key") {
+                    error!(error = %e, "SSH host key algorithm negotiation failed (no overlap with server)");
+                    return Err(anyhow!("host_key_algo_no_common: {err_str}"));
+                }
+                if err_str.contains("No common") {
+                    error!(error = %e, "SSH algorithm negotiation failed");
+                    return Err(anyhow!("algo_no_common: {err_str}"));
+                }
                 error!(error = %e, "SSH handshake / key exchange error");
-                return Err(anyhow!("network_unreachable: {}", e));
+                return Err(anyhow!("network_unreachable: {err_str}"));
             }
         };
 
@@ -402,42 +459,31 @@ impl SshSession {
         if !authed {
             if let Some(ref password) = password {
                 validate_username(&args.user)?;
-                info!(user = %args.user, host = %args.host, "Attempting password auth");
-                let ok = match tokio::time::timeout(
-                    SSH_AUTH_ATTEMPT_TIMEOUT,
-                    handle.authenticate_password(&args.user, password),
-                )
-                .await
-                {
-                    Ok(result) => result.map_err(|e| {
-                        error!(error = %e, "Password auth protocol error");
-                        anyhow!("auth_error: {}", e)
-                    })?,
-                    Err(_) => {
-                        error!(
-                            user = %args.user,
-                            host = %args.host,
-                            timeout_ms = SSH_AUTH_ATTEMPT_TIMEOUT.as_millis() as u64,
-                            "Password auth timed out"
-                        );
-                        return Err(anyhow!(
-                            "auth_timeout: password authentication timed out for {}@{}",
-                            args.user,
-                            args.host
-                        ));
-                    }
-                };
-                if ok {
-                    info!(user = %args.user, "Password auth succeeded");
-                } else {
-                    info!(user = %args.user, "Password auth rejected, trying keyboard-interactive");
+                let prefer_keyboard_interactive = prefers_keyboard_interactive(&args);
+
+                if prefer_keyboard_interactive {
+                    info!(
+                        user = %args.user,
+                        host = %args.host,
+                        device_hint = ?clean_device_hint(args.device_hint.as_deref()),
+                        "Attempting keyboard-interactive auth before password auth"
+                    );
                     let keyboard_ok = match tokio::time::timeout(
                         SSH_AUTH_ATTEMPT_TIMEOUT,
                         try_keyboard_interactive_auth(&mut handle, &args.user, password),
                     )
                     .await
                     {
-                        Ok(result) => result?,
+                        Ok(Ok(ok)) => ok,
+                        Ok(Err(err)) => {
+                            warn!(
+                                user = %args.user,
+                                host = %args.host,
+                                error = %err,
+                                "Keyboard-interactive auth failed, falling back to password auth"
+                            );
+                            false
+                        }
                         Err(_) => {
                             error!(
                                 user = %args.user,
@@ -452,15 +498,64 @@ impl SshSession {
                             ));
                         }
                     };
-                    if !keyboard_ok {
-                        warn!(user = %args.user, host = %args.host, "Password and keyboard-interactive rejected by server");
-                        return Err(anyhow!(
-                            "password_incorrect: password rejected for {}@{}",
-                            args.user,
-                            args.host
-                        ));
+
+                    if keyboard_ok {
+                        info!(user = %args.user, "Keyboard-interactive auth succeeded");
+                    } else {
+                        info!(user = %args.user, "Keyboard-interactive auth rejected, trying password auth");
+                        let password_ok =
+                            try_password_auth_with_timeout(&mut handle, &args.user, &args.host, password)
+                                .await?;
+                        if !password_ok {
+                            warn!(user = %args.user, host = %args.host, "Keyboard-interactive and password auth rejected by server");
+                            return Err(anyhow!(
+                                "password_incorrect: password rejected for {}@{}",
+                                args.user,
+                                args.host
+                            ));
+                        }
+                        info!(user = %args.user, "Password auth succeeded");
                     }
-                    info!(user = %args.user, "Keyboard-interactive auth succeeded");
+                } else {
+                    info!(user = %args.user, host = %args.host, "Attempting password auth");
+                    let ok =
+                        try_password_auth_with_timeout(&mut handle, &args.user, &args.host, password)
+                            .await?;
+                    if ok {
+                        info!(user = %args.user, "Password auth succeeded");
+                    } else {
+                        info!(user = %args.user, "Password auth rejected, trying keyboard-interactive");
+                        let keyboard_ok = match tokio::time::timeout(
+                            SSH_AUTH_ATTEMPT_TIMEOUT,
+                            try_keyboard_interactive_auth(&mut handle, &args.user, password),
+                        )
+                        .await
+                        {
+                            Ok(result) => result?,
+                            Err(_) => {
+                                error!(
+                                    user = %args.user,
+                                    host = %args.host,
+                                    timeout_ms = SSH_AUTH_ATTEMPT_TIMEOUT.as_millis() as u64,
+                                    "Keyboard-interactive auth timed out"
+                                );
+                                return Err(anyhow!(
+                                    "auth_timeout: keyboard-interactive authentication timed out for {}@{}",
+                                    args.user,
+                                    args.host
+                                ));
+                            }
+                        };
+                        if !keyboard_ok {
+                            warn!(user = %args.user, host = %args.host, "Password and keyboard-interactive rejected by server");
+                            return Err(anyhow!(
+                                "password_incorrect: password rejected for {}@{}",
+                                args.user,
+                                args.host
+                            ));
+                        }
+                        info!(user = %args.user, "Keyboard-interactive auth succeeded");
+                    }
                 }
             } else {
                 validate_username(&args.user)?;
@@ -485,26 +580,36 @@ impl SshSession {
             }
         }
 
-        match detect_host_metadata(&mut handle, id, &args).await {
-            Ok(Some(metadata)) => {
-                debug!(
-                    alias = %args.alias,
-                    host = %args.host,
-                    icon = ?metadata.icon_override,
-                    "SSH host metadata detected"
-                );
-                let _ = app.emit("ssh:host-metadata", metadata);
-            }
-            Ok(None) => {
-                debug!(alias = %args.alias, host = %args.host, "No SSH host metadata detected");
-            }
-            Err(err) => {
-                debug!(
-                    alias = %args.alias,
-                    host = %args.host,
-                    error = %err,
-                    "SSH host metadata detection skipped"
-                );
+        if let Some(metadata) = metadata_from_device_hint(id, &args) {
+            debug!(
+                alias = %args.alias,
+                host = %args.host,
+                icon = ?metadata.icon_override,
+                "SSH host metadata inferred from device hint"
+            );
+            let _ = app.emit("ssh:host-metadata", metadata);
+        } else {
+            match detect_host_metadata(&mut handle, id, &args).await {
+                Ok(Some(metadata)) => {
+                    debug!(
+                        alias = %args.alias,
+                        host = %args.host,
+                        icon = ?metadata.icon_override,
+                        "SSH host metadata detected"
+                    );
+                    let _ = app.emit("ssh:host-metadata", metadata);
+                }
+                Ok(None) => {
+                    debug!(alias = %args.alias, host = %args.host, "No SSH host metadata detected");
+                }
+                Err(err) => {
+                    debug!(
+                        alias = %args.alias,
+                        host = %args.host,
+                        error = %err,
+                        "SSH host metadata detection skipped"
+                    );
+                }
             }
         }
 
@@ -586,6 +691,7 @@ impl SshSession {
             id: id.to_string(),
             handle: Arc::new(Mutex::new(handle)),
             commands: tx,
+            detached: false,
         })
     }
 
@@ -611,6 +717,18 @@ impl SshSession {
                 .await;
         });
         Ok(())
+    }
+
+    /// Detach the session — keep the SSH connection and remote shell alive
+    /// but stop the frontend I/O task.  The session can be reattached later.
+    pub fn detach(&mut self) {
+        self.detached = true;
+    }
+
+    /// Reattach a previously detached session so the frontend can resume
+    /// sending/receiving data.
+    pub fn reattach(&mut self) {
+        self.detached = false;
     }
 }
 
@@ -879,6 +997,7 @@ fn parse_remote_probe(output: &str) -> RemoteProbe {
 }
 
 fn infer_icon_override(alias: &str, host: &str, probe: &RemoteProbe) -> (Option<String>, u8) {
+    let name_text = format!("{alias} {host}").to_lowercase();
     let remote_text = [
         probe.remote_hostname.as_deref(),
         probe.os_id.as_deref(),
@@ -909,6 +1028,25 @@ fn infer_icon_override(alias: &str, host: &str, probe: &RemoteProbe) -> (Option<
     if contains_any(&remote_text, &["raspberry pi", "raspbian", "raspberrypi"]) {
         return (Some("raspberry".into()), 95);
     }
+    if contains_any(
+        &remote_text,
+        &[
+            "asuswrt",
+            "asuswrt-merlin",
+            "asus router",
+            "asus wireless",
+            "asus",
+            "rog rapture",
+            "aimesh",
+            "rt-ac",
+            "rt-ax",
+            "gt-ac",
+            "gt-ax",
+            "tuf-ax",
+        ],
+    ) {
+        return (Some("asus".into()), 95);
+    }
     if contains_any(&remote_text, &["huawei", "vrp", "s5700", "s6700", "cloudengine"]) {
         return (Some("huawei".into()), 90);
     }
@@ -936,11 +1074,27 @@ fn infer_icon_override(alias: &str, host: &str, probe: &RemoteProbe) -> (Option<
     if contains_any(&remote_text, &["microsoft", "windows"]) {
         return (Some("windows".into()), 90);
     }
+    if contains_any(
+        &name_text,
+        &[
+            "asus",
+            "asuswrt",
+            "rog-rapture",
+            "rog rapture",
+            "aimesh",
+            "rt-ac",
+            "rt-ax",
+            "gt-ac",
+            "gt-ax",
+            "tuf-ax",
+        ],
+    ) {
+        return (Some("asus".into()), 85);
+    }
     if contains_any(&remote_text, &["linux"]) || probe.os_id.is_some() {
         return (Some("linux".into()), 70);
     }
 
-    let name_text = format!("{alias} {host}").to_lowercase();
     if contains_any(&name_text, &["huawei", "s5700", "s6700"]) {
         return (Some("huawei".into()), 55);
     }
@@ -981,7 +1135,7 @@ fn infer_role(alias: &str, probe: &RemoteProbe, icon: Option<&str>) -> Option<St
 
     match icon {
         Some("proxmox") => Some("hypervisor".into()),
-        Some("openwrt") | Some("istoreos") => Some("router".into()),
+        Some("openwrt") | Some("istoreos") | Some("asus") => Some("router".into()),
         Some("huawei") | Some("cisco") if contains_any(&text, &["switch", "s5700", "s6700", "catalyst"]) => {
             Some("switch".into())
         }
@@ -1122,13 +1276,45 @@ async fn try_publickey_auth(
     Ok(ok)
 }
 
+async fn try_password_auth_with_timeout(
+    handle: &mut Handle<ClientHandler>,
+    user: &str,
+    host: &str,
+    password: &str,
+) -> Result<bool> {
+    match tokio::time::timeout(
+        SSH_AUTH_ATTEMPT_TIMEOUT,
+        handle.authenticate_password(user, password),
+    )
+    .await
+    {
+        Ok(result) => result.map_err(|e| {
+            error!(error = %e, "Password auth protocol error");
+            anyhow!("auth_error: {}", e)
+        }),
+        Err(_) => {
+            error!(
+                user = %user,
+                host = %host,
+                timeout_ms = SSH_AUTH_ATTEMPT_TIMEOUT.as_millis() as u64,
+                "Password auth timed out"
+            );
+            Err(anyhow!(
+                "auth_timeout: password authentication timed out for {}@{}",
+                user,
+                host
+            ))
+        }
+    }
+}
+
 async fn try_keyboard_interactive_auth(
     handle: &mut Handle<ClientHandler>,
     user: &str,
     password: &str,
 ) -> Result<bool> {
     let mut response = handle
-        .authenticate_keyboard_interactive_start(user, Some("password".to_string()))
+        .authenticate_keyboard_interactive_start(user, None)
         .await
         .map_err(|e| anyhow!("keyboard_interactive_error: {}", e))?;
 
@@ -1157,7 +1343,7 @@ fn keyboard_interactive_responses(prompts: &[Prompt], password: &str) -> Vec<Str
     let mut responses = Vec::with_capacity(prompts.len());
     for prompt in prompts {
         let text = prompt.prompt.to_lowercase();
-        if !used_password && (!prompt.echo || text.contains("password") || text.contains("密码")) {
+        if !used_password && is_password_prompt(&text, prompt.echo) {
             responses.push(password.to_string());
             used_password = true;
         } else {
@@ -1170,6 +1356,14 @@ fn keyboard_interactive_responses(prompts: &[Prompt], password: &str) -> Vec<Str
     responses
 }
 
+fn is_password_prompt(text: &str, echo: bool) -> bool {
+    !echo
+        || text.contains("password")
+        || text.contains("passcode")
+        || text.contains("密码")
+        || text.contains("口令")
+}
+
 fn validate_username(user: &str) -> Result<()> {
     if user.trim().is_empty() || user.chars().any(|c| c.is_whitespace() || c == ':') {
         warn!(user = %user, "Username validation failed locally");
@@ -1179,6 +1373,60 @@ fn validate_username(user: &str) -> Result<()> {
         ));
     }
     Ok(())
+}
+
+fn clean_device_hint(value: Option<&str>) -> Option<String> {
+    let hint = value?.trim().to_lowercase();
+    if hint.is_empty() || hint.contains('\0') {
+        None
+    } else {
+        Some(hint)
+    }
+}
+
+fn prefers_keyboard_interactive(args: &SshOpenArgs) -> bool {
+    clean_device_hint(args.device_hint.as_deref())
+        .as_deref()
+        .is_some_and(|hint| NETWORK_DEVICE_HINTS.contains(&hint))
+}
+
+fn metadata_from_device_hint(session_id: &str, args: &SshOpenArgs) -> Option<SshHostMetadata> {
+    let hint = clean_device_hint(args.device_hint.as_deref())?;
+    match hint.as_str() {
+        "huawei" => Some(SshHostMetadata {
+            session_id: session_id.to_string(),
+            alias: args.alias.clone(),
+            host: args.host.clone(),
+            port: args.port,
+            remote_hostname: None,
+            os_id: None,
+            os_name: Some("Huawei VRP".to_string()),
+            os_pretty_name: None,
+            kernel: None,
+            model: None,
+            icon_override: Some("huawei".to_string()),
+            icon_confidence: 100,
+            role: Some("switch".to_string()),
+            tags: vec!["huawei".to_string(), "vrp".to_string()],
+        }),
+        "cisco" => Some(SshHostMetadata {
+            session_id: session_id.to_string(),
+            alias: args.alias.clone(),
+            host: args.host.clone(),
+            port: args.port,
+            remote_hostname: None,
+            os_id: None,
+            os_name: Some("Cisco IOS".to_string()),
+            os_pretty_name: None,
+            kernel: None,
+            model: None,
+            icon_override: Some("cisco".to_string()),
+            icon_confidence: 100,
+            role: Some("switch".to_string()),
+            tags: vec!["cisco".to_string()],
+        }),
+        _ => None,
+    }
 }
 
 // ─── known_hosts ─────────────────────────────────────────────────────────
@@ -1482,6 +1730,29 @@ __NETSSH_END__
     }
 
     #[test]
+    fn host_metadata_probe_prefers_asus_router_over_generic_linux() {
+        let output = r#"__NETSSH_BEGIN__
+NAME="Linux"
+ID=linux
+PRETTY_NAME="Linux"
+__NETSSH_MODEL__=ASUSTeK COMPUTER INC. RT-AX86U
+__NETSSH_HOSTNAME__=asus-router
+__NETSSH_KERNEL__=Linux 4.19.183 aarch64
+__NETSSH_END__
+"#;
+
+        let metadata =
+            host_metadata_from_probe("session-1", "asus-router", "192.168.100.154", 22, output)
+                .expect("metadata");
+        assert_eq!(metadata.icon_override.as_deref(), Some("asus"));
+        assert!(metadata.icon_confidence >= 80);
+        assert_eq!(metadata.role.as_deref(), Some("router"));
+        assert!(metadata.tags.contains(&"asus".to_string()));
+        assert!(metadata.tags.contains(&"router".to_string()));
+        assert!(metadata.tags.contains(&"linux".to_string()));
+    }
+
+    #[test]
     fn network_metadata_probe_detects_huawei_vrp_switch() {
         let output = r#"Huawei Versatile Routing Platform Software
 VRP (R) software, Version 5.170 (S5700 V200R022C00SPC500)
@@ -1538,5 +1809,50 @@ Cisco Catalyst 9300 Switch uptime is 2 weeks
             keyboard_interactive_responses(&prompts, "secret"),
             vec!["secret".to_string(), String::new()]
         );
+    }
+
+    #[test]
+    fn keyboard_interactive_uses_password_for_chinese_passphrase_prompt() {
+        let prompts = vec![Prompt {
+            prompt: "用户口令:".into(),
+            echo: true,
+        }];
+        assert_eq!(
+            keyboard_interactive_responses(&prompts, "secret"),
+            vec!["secret".to_string()]
+        );
+    }
+
+    #[test]
+    fn huawei_device_hint_prefers_keyboard_interactive() {
+        let args = test_ssh_args(Some("huawei"));
+        assert!(prefers_keyboard_interactive(&args));
+        let metadata = metadata_from_device_hint("session-1", &args).expect("metadata");
+        assert_eq!(metadata.icon_override.as_deref(), Some("huawei"));
+        assert_eq!(metadata.role.as_deref(), Some("switch"));
+        assert!(metadata.tags.contains(&"vrp".to_string()));
+    }
+
+    #[test]
+    fn linux_device_hint_keeps_default_auth_order() {
+        let args = test_ssh_args(Some("ubuntu"));
+        assert!(!prefers_keyboard_interactive(&args));
+        assert!(metadata_from_device_hint("session-1", &args).is_none());
+    }
+
+    fn test_ssh_args(device_hint: Option<&str>) -> SshOpenArgs {
+        SshOpenArgs {
+            alias: "switch".to_string(),
+            host: "192.168.100.253".to_string(),
+            user: "admin".to_string(),
+            port: 22,
+            identity_file: None,
+            password: Some("secret".to_string()),
+            passphrase: None,
+            skip_open_ssh_known_hosts: None,
+            terminal_locale: None,
+            terminal_timezone: None,
+            device_hint: device_hint.map(str::to_string),
+        }
     }
 }

@@ -26,6 +26,7 @@ interface HostDetailProps {
   editing: boolean;
   startEditing: () => void;
   cancelEditing: () => void;
+  finishEditing: () => void;
   onUpdateHost: (id: string, patch: Partial<Host>) => void;
   onRemoveHost: (id: string) => void;
   onAddHost: (host: Omit<Host, "id"> & { id?: string }) => Host;
@@ -53,6 +54,7 @@ export function HostDetail({
   editing,
   startEditing,
   cancelEditing,
+  finishEditing,
   onUpdateHost,
   onRemoveHost,
   onAddHost,
@@ -100,7 +102,7 @@ export function HostDetail({
         groups={groups}
         onSave={(patch) => {
           onUpdateHost(host.id, patch);
-          cancelEditing();
+          finishEditing();
         }}
         onCancel={cancelEditing}
         onRemove={() => {

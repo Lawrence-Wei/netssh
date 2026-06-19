@@ -35,6 +35,8 @@ pub fn run() {
             commands::ssh_send,
             commands::ssh_resize,
             commands::ssh_close,
+            commands::ssh_detach,
+            commands::ssh_reattach,
             commands::ssh_host_key_decide,
             commands::ssh_forget_trusted_host_key,
             commands::pty_open,

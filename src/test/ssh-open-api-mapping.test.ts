@@ -16,6 +16,7 @@ describe("sshOpen payload mapping", () => {
       passphrase: "secret",
       terminalLocale: "en_US.UTF-8",
       terminalTimezone: "UTC",
+      deviceHint: "huawei",
     });
 
     expect(invokeSpy).toHaveBeenCalledWith("ssh_open", expect.objectContaining({
@@ -29,6 +30,7 @@ describe("sshOpen payload mapping", () => {
         passphrase: "secret",
         terminal_locale: "en_US.UTF-8",
         terminal_timezone: "UTC",
+        device_hint: "huawei",
       }),
     }));
   });

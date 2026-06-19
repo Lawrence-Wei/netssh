@@ -37,6 +37,7 @@ export function HostEditorFull({
   const [draft, setDraft] = useState<Host>(host);
   const [port, setPort] = useState(String(host.port || 22));
   const [portError, setPortError] = useState("");
+  const [aliasError, setAliasError] = useState("");
   const [serialError, setSerialError] = useState("");
   const [newSite, setNewSite] = useState("");
   const { credentials } = useCredentials();
@@ -53,8 +54,15 @@ export function HostEditorFull({
     setSerialError("");
   }, [host]);
 
-  /** Save after port validation. */
+  /** Save after alias + port validation. */
   const validateAndSave = () => {
+    // Require the alias — a nameless host cannot be identified in the sidebar.
+    if (!draft.alias?.trim()) {
+      setAliasError(t("host.error.aliasRequired", lang));
+      return;
+    }
+    setAliasError("");
+
     if (connectionType === "serial") {
       const serialProfile = normalizeSerialProfile(draft.serialProfile);
       if (!serialProfile.portName?.trim()) {
@@ -413,9 +421,13 @@ export function HostEditorFull({
                 <span className="k">{t("host.field.alias", lang)}</span>
                 <input
                   value={draft.alias}
-                  onChange={(e) => setDraft({ ...draft, alias: e.target.value })}
+                  onChange={(e) => {
+                    setDraft({ ...draft, alias: e.target.value });
+                    if (aliasError && e.target.value.trim()) setAliasError("");
+                  }}
                   placeholder="my-server"
                 />
+                {aliasError && <span className="form-error">{aliasError}</span>}
               </label>
               <label>
                 <span className="k">{t("host.field.env", lang)}</span>
@@ -470,6 +482,7 @@ export function HostEditorFull({
                 >
                   <option value="auto">{t("host.device.auto", lang)}</option>
                   <option value="router">{t("host.device.router", lang)}</option>
+                  <option value="asus">{t("host.device.asus", lang)}</option>
                   <option value="huawei">{t("host.device.huawei", lang)}</option>
                   <option value="cisco">{t("host.device.cisco", lang)}</option>
                   <option value="openwrt">OpenWrt</option>

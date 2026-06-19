@@ -134,6 +134,32 @@ describe("HostEditorFull connection type switching", () => {
     expect(onSave).toHaveBeenCalledWith(expect.objectContaining({ iconOverride: "huawei" }));
   });
 
+  it("offers ASUS router as a device type override", async () => {
+    const onSave = vi.fn();
+    render(
+      <HostEditorFull
+        lang="zh"
+        host={buildHost({ alias: "asus-router" })}
+        groups={groups}
+        onSave={onSave}
+        onCancel={vi.fn()}
+        onRemove={vi.fn()}
+        onAddGroup={vi.fn((name: string) => ({ id: name, name, color: "#000" }))}
+      />
+    );
+
+    const deviceTypeSelect = screen
+      .getAllByLabelText("设备类型")
+      .find((element) => element.tagName === "SELECT") as HTMLSelectElement;
+    expect(deviceTypeSelect).toBeTruthy();
+    expect(Array.from(deviceTypeSelect.options).some((option) => option.value === "asus" && option.textContent === "华硕路由器")).toBe(true);
+
+    await userEvent.selectOptions(deviceTypeSelect, "asus");
+    await userEvent.click(screen.getByText("保存"));
+
+    expect(onSave).toHaveBeenCalledWith(expect.objectContaining({ iconOverride: "asus" }));
+  });
+
   it("offers Cisco switch as a device type override", async () => {
     const onSave = vi.fn();
     render(

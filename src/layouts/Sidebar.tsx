@@ -23,6 +23,7 @@ interface SidebarProps {
   onRenameGroup: (id: GroupId, name: string, subnet?: string) => void;
   onRemoveGroup: (id: GroupId) => void;
   onMoveHostToGroup: (hostId: string, groupId: GroupId) => void;
+  onReorderHost: (hostId: string, targetOrder: number, targetGroupId?: string) => void;
   onAddHostQuick: () => void;
   onRemoveHosts: (ids: string[]) => void;
   onToggleFavorite: (hostId: string) => void;
@@ -45,6 +46,7 @@ export function Sidebar({
   onRenameGroup,
   onRemoveGroup,
   onMoveHostToGroup,
+  onReorderHost,
   onAddHostQuick,
   onRemoveHosts,
   onToggleFavorite,
@@ -55,6 +57,8 @@ export function Sidebar({
 }: SidebarProps) {
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
   const [dragOverGroup, setDragOverGroup] = useState<GroupId | null>(null);
+  const [dragOverHostId, setDragOverHostId] = useState<string | null>(null);
+  const [dropPosition, setDropPosition] = useState<"above" | "below" | null>(null);
   const [internalQuery, setInternalQuery] = useState("");
   const [internalFilter, setInternalFilter] = useState<HostListFilter>("all");
   const [siteEditor, setSiteEditor] = useState(false);
@@ -333,13 +337,16 @@ export function Sidebar({
                 </form>
               )}
               <div className="host-list">
-                {group.hosts.map((host) => {
+                {group.hosts.map((host, hostIndex) => {
                   const live = reachability[host.id];
                   const effStatus = live?.status ?? host.status;
                   const effLatency = live?.latency ?? host.latency;
                   const scope = deployScope(host);
                   const isSelected = selectedIds.has(host.id);
                   const favorite = isFavoriteHost(host);
+                  const isDragOver = dragOverHostId === host.id;
+                  const dndAbove = isDragOver && dropPosition === "above";
+                  const dndBelow = isDragOver && dropPosition === "below";
                   return (
                   <div
                     key={host.id}
@@ -349,12 +356,66 @@ export function Sidebar({
                       event.dataTransfer.setData("text/netssh-host", host.id);
                       event.dataTransfer.effectAllowed = "move";
                     }}
+                    onDragOver={(event) => {
+                      if (batchMode) return;
+                      const dragHostId = event.dataTransfer.types.includes("text/netssh-host")
+                        ? true
+                        : false;
+                      if (!dragHostId) return;
+                      event.preventDefault();
+                      event.dataTransfer.dropEffect = "move";
+                      const rect = event.currentTarget.getBoundingClientRect();
+                      const y = event.clientY - rect.top;
+                      const mid = rect.height / 2;
+                      setDragOverHostId(host.id);
+                      setDropPosition(y < mid ? "above" : "below");
+                    }}
+                    onDragLeave={() => {
+                      setDragOverHostId(null);
+                      setDropPosition(null);
+                    }}
+                    onDrop={(event) => {
+                      event.preventDefault();
+                      const dragHostId = event.dataTransfer.getData("text/netssh-host");
+                      if (!dragHostId || dragHostId === host.id) {
+                        setDragOverHostId(null);
+                        setDropPosition(null);
+                        return;
+                      }
+                      const pos = dropPosition;
+                      if (!pos) {
+                        setDragOverHostId(null);
+                        setDropPosition(null);
+                        return;
+                      }
+                      // Compute new order using the neighbors in the sorted group list.
+                      const neighbors = group.hosts;
+                      let newOrder: number;
+                      if (pos === "above") {
+                        const above = hostIndex > 0 ? neighbors[hostIndex - 1] : null;
+                        const below = neighbors[hostIndex];
+                        const orderAbove = above?.order ?? (hostIndex > 0 ? (neighbors[hostIndex - 1]?.order ?? hostIndex - 1) : 0);
+                        const orderBelow = below?.order ?? hostIndex;
+                        newOrder = reorderBetween(orderAbove, orderBelow, pos);
+                      } else {
+                        const above = neighbors[hostIndex];
+                        const below = hostIndex < neighbors.length - 1 ? neighbors[hostIndex + 1] : null;
+                        const orderAbove = above?.order ?? hostIndex;
+                        const orderBelow = below?.order ?? (hostIndex < neighbors.length - 1 ? (neighbors[hostIndex + 1]?.order ?? hostIndex + 1) : hostIndex + 2);
+                        newOrder = reorderBetween(orderAbove, orderBelow, pos);
+                      }
+                      onReorderHost(dragHostId, newOrder, group.id);
+                      setDragOverHostId(null);
+                      setDropPosition(null);
+                    }}
                     title={`${host.alias} - ${host.user}@${host.hostname}${host.port !== 22 ? `:${host.port}` : ""} - ${statusTooltip(effLatency, effStatus, lang)} - ${recentTooltip(host.lastConnectedAt, lang)}`}
                     className={
                       "host-row" +
                       (host.id === activeHostId ? " active" : "") +
                       (effStatus === "ok" ? " connected" : "") +
-                      (isSelected ? " selected" : "")
+                      (isSelected ? " selected" : "") +
+                      (dndAbove ? " drag-over-above" : "") +
+                      (dndBelow ? " drag-over-below" : "")
                     }
                     onClick={() => {
                       if (batchMode) {
@@ -466,4 +527,16 @@ function formatRecent(timestamp: number, lang: Lang) {
 function recentTooltip(timestamp: number | undefined, lang: Lang) {
   if (!timestamp) return t("host.lastseen.never", lang);
   return lang === "zh" ? `最近连接：${formatRecent(timestamp, lang)}` : `Last connected: ${formatRecent(timestamp, lang)}`;
+}
+
+/** Return a new fractional order value between `above` and `below`.
+ *  Uses averaging for precision gap; if the gap is too narrow, falls back
+ *  to adding a tiny offset. */
+function reorderBetween(orderAbove: number, orderBelow: number, _pos: "above" | "below"): number {
+  const gap = orderBelow - orderAbove;
+  if (gap > 0.001) {
+    return orderAbove + gap / 2;
+  }
+  // Gap exhausted — push a tiny amount below the upper bound.
+  return orderBelow + 0.001;
 }

@@ -474,10 +474,23 @@ input, textarea { background: none; border: 0; outline: none; }
 .titlebar-settings-btn {
   color: var(--text-dim);
 }
+.titlebar-split-btn {
+  color: var(--text-dim);
+}
+.titlebar-split-btn:hover,
 .titlebar-settings-btn:hover {
   color: var(--text);
   background: var(--glass-strong);
   border-color: var(--glass-stroke-strong);
+}
+.titlebar-split-btn.active {
+  color: var(--accent);
+  background: var(--accent-soft);
+  border-color: var(--accent);
+}
+.titlebar-split-btn svg {
+  width: 15px;
+  height: 15px;
 }
 .titlebar-settings-btn svg {
   width: 15px;
@@ -733,6 +746,27 @@ input, textarea { background: none; border: 0; outline: none; }
 .host-row:hover { background: var(--glass); }
 .host-row.active {
   background: linear-gradient(90deg, var(--accent-soft), transparent 80%);
+}
+/* Drag-and-drop reorder indicators */
+.host-row.drag-over-above::before {
+  content: "";
+  position: absolute;
+  top: -1px; left: 18px; right: 8px;
+  height: 2px;
+  background: var(--accent);
+  border-radius: 1px;
+  z-index: 2;
+  pointer-events: none;
+}
+.host-row.drag-over-below::after {
+  content: "";
+  position: absolute;
+  bottom: -1px; left: 18px; right: 8px;
+  height: 2px;
+  background: var(--accent);
+  border-radius: 1px;
+  z-index: 2;
+  pointer-events: none;
 }
 .host-icon {
   width: 22px; height: 22px;
@@ -3460,39 +3494,11 @@ body.reduce-motion *::after {
    Split-screen workspace (2×2 grid, up to four SSH sessions)
    ============================================================ */
 .terminal-wrap {
-  position: relative;
   display: flex;
   flex-direction: column;
   flex: 1;
   min-height: 0;
 }
-.split-toggle {
-  position: absolute;
-  top: 52px;
-  right: 22px;
-  display: inline-flex;
-  align-items: center;
-  width: 30px;
-  height: 30px;
-  justify-content: center;
-  border-radius: var(--radius-sm);
-  background: var(--glass);
-  border: 1px solid var(--glass-stroke);
-  color: var(--text-dim);
-  z-index: 5;
-  transition: all .15s;
-}
-.split-toggle:hover {
-  color: var(--text);
-  background: var(--glass-strong);
-  border-color: var(--accent);
-}
-.split-toggle.active {
-  color: var(--accent);
-  border-color: var(--accent);
-  background: var(--accent-soft);
-}
-.split-toggle svg { width: 13px; height: 13px; }
 
 .split-grid {
   flex: 1;
@@ -3770,7 +3776,13 @@ body.reduce-motion *::after {
 .host-editor-full__grid {
   display: grid;
   grid-template-columns: 1fr 1fr;
-  gap: 14px;
+  gap: 16px;
+}
+.form-error {
+  display: block;
+  margin-top: 4px;
+  font-size: 12px;
+  color: var(--danger, #f87171);
 }
 .host-editor-full__grid label,
 .host-editor-connect-grid label,

@@ -3,6 +3,7 @@ import { t } from "../utils/i18n";
 import type { Host, Lang, Tab } from "../config/types";
 import { brandIcon } from "../components/BrandIcons";
 import { Icon } from "../components/Icons";
+import { useSessions } from "../store/sessions";
 
 interface TitleBarProps {
   lang: Lang;
@@ -44,7 +45,12 @@ export function TitleBar({
   const activeTab = tabs.find((tab) => tab.id === activeTabId);
   const canConnect = activeTab?.kind === "host" && !!activeTab.hostId && !activeTab.connected;
   const canDisconnect = activeTab?.kind === "host" && !!activeTab.connected;
+  const splitTabIds = useSessions((state) => state.splitTabIds);
+  const toggleSplit = useSessions((state) => state.toggleSplit);
+  const canToggleSplit = activeTab?.kind === "host" && !!activeTab.hostId && !!activeTab.connected;
+  const splitActive = !!activeTab && splitTabIds.includes(activeTab.id);
   const settingsLabel = t("titlebar.settings", lang);
+  const splitLabel = t("workspace.split.toggle", lang);
   const hasHomeTab = tabs.some(isHomeTab);
   const sessionMenu = (
     <nav className="app-menu" aria-label={lang === "zh" ? "会话菜单" : "Session menu"}>
@@ -124,6 +130,17 @@ export function TitleBar({
       </div>
 
       <div className="titlebar-actions">
+        {canToggleSplit && (
+          <button
+            className={"icon-btn titlebar-split-btn" + (splitActive ? " active" : "")}
+            onClick={() => toggleSplit(activeTab.id)}
+            title={splitLabel}
+            aria-label={splitLabel}
+            type="button"
+          >
+            {Icon.split}
+          </button>
+        )}
         <button
           className="icon-btn titlebar-settings-btn"
           onClick={onOpenSettings}

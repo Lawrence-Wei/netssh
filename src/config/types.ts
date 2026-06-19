@@ -66,6 +66,8 @@ export interface Host {
   cloudProvider?: CloudProvider;
   region?: string;
   iconOverride?: string;
+  /** User-defined sort order within the group. Lower = earlier in the list. */
+  order?: number;
   /** Ephemeral one-shot password used by the manual-connect card. Never persisted. */
   ephemeralPassword?: string;
 }

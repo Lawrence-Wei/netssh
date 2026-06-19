@@ -39,6 +39,7 @@ pub struct SshOpenArgs {
     pub skip_open_ssh_known_hosts: Option<bool>,
     pub terminal_locale: Option<String>,
     pub terminal_timezone: Option<String>,
+    pub device_hint: Option<String>,
 }
 
 #[tauri::command]
@@ -121,6 +122,32 @@ pub async fn ssh_close(state: State<'_, AppState>, id: String) -> Result<(), Str
         s.close().await.map_err(|e| e.to_string())?;
     }
     Ok(())
+}
+
+#[tauri::command]
+pub fn ssh_detach(state: State<'_, AppState>, id: String) -> Result<(), String> {
+    let mut sessions = state
+        .ssh_sessions
+        .lock()
+        .unwrap_or_else(|e| e.into_inner());
+    if let Some(s) = sessions.get_mut(&id) {
+        s.detach();
+    }
+    Ok(())
+}
+
+#[tauri::command]
+pub fn ssh_reattach(state: State<'_, AppState>, id: String) -> Result<(), String> {
+    let mut sessions = state
+        .ssh_sessions
+        .lock()
+        .unwrap_or_else(|e| e.into_inner());
+    if let Some(s) = sessions.get_mut(&id) {
+        s.reattach();
+        Ok(())
+    } else {
+        Err("session_not_found".into())
+    }
 }
 
 // ─── local PTYs ────────────────────────────────────────────────────────────

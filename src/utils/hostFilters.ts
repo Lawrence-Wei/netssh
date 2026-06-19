@@ -30,6 +30,16 @@ export function sortHostsForSidebar(hosts: Host[], filter: HostListFilter) {
     if (filter === "recent") {
       return (b.lastConnectedAt || 0) - (a.lastConnectedAt || 0);
     }
+    // User-defined order takes priority (lower = earlier). Hosts without
+    // an explicit order sort after those that have one.
+    const orderA = a.order;
+    const orderB = b.order;
+    if (orderA !== undefined && orderB !== undefined && orderA !== orderB) {
+      return orderA - orderB;
+    }
+    if (orderA !== undefined && orderB === undefined) return -1;
+    if (orderA === undefined && orderB !== undefined) return 1;
+    // Fallback: favorites first, then recently connected, then alpha.
     const favoriteDelta = Number(isFavoriteHost(b)) - Number(isFavoriteHost(a));
     if (favoriteDelta !== 0) return favoriteDelta;
     const recentDelta = (b.lastConnectedAt || 0) - (a.lastConnectedAt || 0);

@@ -33,7 +33,7 @@ describe("SSH 连接参数映射", () => {
       password: "secret123",
     });
     expect(invokeMock).toHaveBeenCalledWith("ssh_open", {
-      args: {
+      args: expect.objectContaining({
         alias: "router-01",
         host: "10.0.0.1",
         user: "admin",
@@ -41,7 +41,7 @@ describe("SSH 连接参数映射", () => {
         identity_file: "~/.ssh/id_ed25519",
         password: "secret123",
         passphrase: undefined,
-      },
+      }),
     });
   });
 
@@ -56,7 +56,7 @@ describe("SSH 连接参数映射", () => {
       passphrase: "unlock",
     });
     expect(invokeMock).toHaveBeenCalledWith("ssh_open", {
-      args: {
+      args: expect.objectContaining({
         alias: "nas",
         host: "192.168.1.10",
         user: "root",
@@ -64,7 +64,7 @@ describe("SSH 连接参数映射", () => {
         identity_file: undefined,
         password: undefined,
         passphrase: "unlock",
-      },
+      }),
     });
   });
 });

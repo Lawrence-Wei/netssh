@@ -43,6 +43,7 @@ export function deviceTypeFromHost(host: Host): string {
     .toLowerCase();
   if (/zspace|zima|nance/i.test(haystack)) return "zspace";
   if (/luckfox|picokvm|pico[-_ ]?kvm/i.test(haystack)) return "luckfox";
+  if (/asus|asuswrt|rog[-_ ]?rapture|aimesh|rt[-_ ]?a[ctx]|gt[-_ ]?a[ctx]|tuf[-_ ]?a[ctx]/i.test(haystack)) return "asus";
   if (/huawei|hw[-_]?|vrp|usg|s5700|s6700|s7700|s9700|s12700/i.test(haystack)) return "huawei";
   if (/cisco|catalyst|ios[-_]?xe|nx[-_]?os|nexus|asa/i.test(haystack)) return "cisco";
   if (/raspberry|rpi|raspi|\bpi\b/i.test(haystack)) return "raspberry";
