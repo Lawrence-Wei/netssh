@@ -34,8 +34,8 @@ Files that must stay aligned:
 Change only `$newTag`.
 
 ```powershell
-$oldTag = "v1.1.14"
-$newTag = "v1.1.15"
+$oldTag = "v1.1.15"
+$newTag = "v1.1.16"
 
 $oldVersion = $oldTag -replace '^v', ''
 $newVersion = $newTag -replace '^v', ''
@@ -93,7 +93,15 @@ Build the installable desktop app:
 npm run tauri:build
 ```
 
-Collect the release bundles under the local releases directory:
+`npm run tauri:build` runs `tauri build` and then `scripts\collect-release-artifacts.ps1`. The collector reads `package.json`, creates `releases\v<version>`, and copies only bundle files whose names include the current version.
+
+Expected local release directory for this version:
+
+```text
+D:\projects\netssh\releases\v1.1.15
+```
+
+If the app was built with `npx tauri build` or another direct command, collect the release bundles manually:
 
 ```powershell
 $releaseDir = "D:\projects\netssh\releases\$newTag"
@@ -143,12 +151,6 @@ Push:
 ```powershell
 git push origin main
 git push origin v1.1.15
-```
-
-AI commits must include this trailer:
-
-```text
-Co-Authored-By: <agent name> <agent email>
 ```
 
 ## Reusable Script Template

@@ -216,6 +216,7 @@ export function Workspace({
       {tab?.kind === "host" && !tab?.connected && (
         <HostDetail
           lang={lang}
+          mode={activeHost ? "default" : "new-session"}
           host={activeHost}
           onConnect={onConnect}
           snippets={snippets}

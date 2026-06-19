@@ -7,7 +7,8 @@ import { SERIAL_PRESETS } from "../config/defaults";
 import { t } from "../utils/i18n";
 import { Icon } from "./Icons";
 import { useCredentials } from "../store/credentials";
-import { deployScope, deviceTypeFromHost } from "../utils/deployScope";
+import { deployScope, deployScopeLabel, deviceTypeFromHost } from "../utils/deployScope";
+import { displayGroupName } from "../utils/groups";
 import type { ConnectionType, DeployScope, Group, GroupId, Host, Lang, SerialProfile } from "../config/types";
 
 interface HostFormProps {
@@ -57,11 +58,11 @@ export function HostEditorFull({
     if (connectionType === "serial") {
       const serialProfile = normalizeSerialProfile(draft.serialProfile);
       if (!serialProfile.portName?.trim()) {
-        setSerialError(lang === "zh" ? "Serial port is required" : "Serial port is required");
+        setSerialError(t("host.error.serialPortRequired", lang));
         return;
       }
       if (!Number.isFinite(serialProfile.baudRate) || serialProfile.baudRate <= 0 || serialProfile.baudRate > 1152000) {
-        setSerialError("Baud rate must be between 75 and 1152000");
+        setSerialError(t("host.error.serialBaudRate", lang));
         return;
       }
       setSerialError("");
@@ -78,7 +79,7 @@ export function HostEditorFull({
 
     const portNum = Number(port);
     if (!Number.isFinite(portNum) || portNum < 1 || portNum > 65535 || !Number.isInteger(portNum)) {
-      setPortError(lang === "zh" ? "Port must be 1-65535" : "Port must be 1-65535");
+      setPortError(lang === "zh" ? "端口必须在 1-65535 之间" : "Port must be 1-65535");
       return;
     }
     setPortError("");
@@ -109,7 +110,7 @@ export function HostEditorFull({
         <div className="host-editor-full__head">
           <h2>
             <span style={{ color: "var(--text-mute)", fontWeight: 400 }}>
-              {lang === "zh" ? "Edit host" : "Edit host"}
+              {lang === "zh" ? "编辑主机" : "Edit host"}
             </span>
             <span style={{ marginLeft: 8, color: "var(--accent)" }}>{host.alias}</span>
           </h2>
@@ -120,7 +121,7 @@ export function HostEditorFull({
           {/* Basic information */}
           <section className="host-editor-section">
             <h3 className="host-editor-section__title">
-              {lang === "zh" ? "Basic information" : "Basic information"}
+              {lang === "zh" ? "基础信息" : "Basic information"}
             </h3>
             <div className="host-editor-full__grid">
               <label>
@@ -136,11 +137,11 @@ export function HostEditorFull({
                 <input
                   value={draft.role || ""}
                   onChange={(e) => setDraft({ ...draft, role: e.target.value })}
-                  placeholder={lang === "zh" ? "e.g. gateway, nas, web" : "e.g. gateway, nas, web"}
+                  placeholder={lang === "zh" ? "例如 gateway, nas, web" : "e.g. gateway, nas, web"}
                 />
               </label>
               <label>
-                <span className="k">{lang === "zh" ? "Device type" : "Device type"}</span>
+                <span className="k">{lang === "zh" ? "设备类型" : "Device type"}</span>
                 <input
                   value={(draft.tags || []).join(", ")}
                   onChange={(e) => setDraft({ ...draft, tags: e.target.value.split(",").map((s) => s.trim()).filter(Boolean) })}
@@ -148,11 +149,11 @@ export function HostEditorFull({
                 />
               </label>
               <label>
-                <span className="k">{lang === "zh" ? "Notes" : "Notes"}</span>
+                <span className="k">{lang === "zh" ? "备注" : "Notes"}</span>
                 <input
                   value={draft.notes || ""}
                   onChange={(e) => setDraft({ ...draft, notes: e.target.value })}
-                  placeholder={lang === "zh" ? "Notes..." : "Notes..."}
+                  placeholder={lang === "zh" ? "备注..." : "Notes..."}
                 />
               </label>
               <label>
@@ -182,9 +183,9 @@ export function HostEditorFull({
                   onChange={(e) => setDraft({ ...draft, env: e.target.value || undefined })}
                 >
                   <option value="">--</option>
-                  <option value="prod">{lang === "zh" ? "Production" : "Production"}</option>
-                  <option value="stage">{lang === "zh" ? "Staging" : "Staging"}</option>
-                  <option value="dev">{lang === "zh" ? "Development" : "Development"}</option>
+                  <option value="prod">{lang === "zh" ? "生产" : "Production"}</option>
+                  <option value="stage">{lang === "zh" ? "预发" : "Staging"}</option>
+                  <option value="dev">{lang === "zh" ? "开发" : "Development"}</option>
                 </select>
               </label>
               {connectionType === "ssh" ? (
@@ -357,11 +358,11 @@ export function HostEditorFull({
                           });
                         }}
                       >
-                        <option value="none">None</option>
-                        <option value="odd">Odd</option>
-                        <option value="even">Even</option>
-                        <option value="mark">Mark</option>
-                        <option value="space">Space</option>
+                        <option value="none">{t("host.serial.parity.none", lang)}</option>
+                        <option value="odd">{t("host.serial.parity.odd", lang)}</option>
+                        <option value="even">{t("host.serial.parity.even", lang)}</option>
+                        <option value="mark">{t("host.serial.parity.mark", lang)}</option>
+                        <option value="space">{t("host.serial.parity.space", lang)}</option>
                       </select>
                     </label>
                     <label>
@@ -399,9 +400,9 @@ export function HostEditorFull({
                           });
                         }}
                       >
-                        <option value="none">None</option>
-                        <option value="software">Software</option>
-                        <option value="hardware">Hardware</option>
+                        <option value="none">{t("host.serial.flow.none", lang)}</option>
+                        <option value="software">{t("host.serial.flow.software", lang)}</option>
+                        <option value="hardware">{t("host.serial.flow.hardware", lang)}</option>
                       </select>
                     </label>
                     <label>
@@ -419,7 +420,7 @@ export function HostEditorFull({
                           });
                         }}
                       >
-                        <option value="none">None</option>
+                        <option value="none">{t("host.serial.lineEnding.none", lang)}</option>
                         <option value="lf">LF</option>
                         <option value="cr">CR</option>
                         <option value="crlf">CRLF</option>
@@ -428,17 +429,17 @@ export function HostEditorFull({
                   </>
                 )}
               <label>
-                <span className="k">{lang === "zh" ? "Deploy scope" : "Deploy scope"}</span>
+                <span className="k">{lang === "zh" ? "部署范围" : "Deploy scope"}</span>
                 <select
                   value={deployScope(draft) === "cloud" ? "cloud" : "local"}
                   onChange={(e) => setDraft({ ...draft, deployScope: e.target.value as DeployScope })}
                 >
-                  <option value="local">{lang === "zh" ? "Local" : "Local"}</option>
-                  <option value="cloud">{lang === "zh" ? "Cloud" : "Cloud"}</option>
+                  <option value="local">{deployScopeLabel("local", lang)}</option>
+                  <option value="cloud">{deployScopeLabel("cloud", lang)}</option>
                 </select>
               </label>
               <label>
-                <span className="k">{lang === "zh" ? "Device type" : "Device type"}</span>
+                <span className="k">{lang === "zh" ? "设备类型" : "Device type"}</span>
                 <select
                   value={draft.iconOverride || deviceTypeFromHost(draft)}
                   onChange={(e) => {
@@ -450,34 +451,34 @@ export function HostEditorFull({
                     }
                   }}
                 >
-                  <option value="auto">{lang === "zh" ? "Auto detect" : "Auto detect"}</option>
-                  <option value="router">{lang === "zh" ? "Router / Gateway" : "Router / Gateway"}</option>
+                  <option value="auto">{lang === "zh" ? "自动识别" : "Auto detect"}</option>
+                  <option value="router">{lang === "zh" ? "路由器 / 网关" : "Router / Gateway"}</option>
                   <option value="openwrt">OpenWrt</option>
                   <option value="istoreos">iStoreOS</option>
-                  <option value="nas">{lang === "zh" ? "NAS / Storage" : "NAS / Storage"}</option>
+                  <option value="nas">{lang === "zh" ? "NAS / 存储" : "NAS / Storage"}</option>
                   <option value="zspace">ZSpace / Zima</option>
                   <option value="raspberry">Raspberry Pi</option>
                   <option value="ubuntu">Ubuntu</option>
-                  <option value="windows">{lang === "zh" ? "Windows" : "Windows"}</option>
+                  <option value="windows">Windows</option>
                   <option value="macos">macOS</option>
                   <option value="linux">Linux</option>
-                  <option value="server">{lang === "zh" ? "Server" : "Server"}</option>
+                  <option value="server">{lang === "zh" ? "服务器" : "Server"}</option>
                 </select>
               </label>
               <label>
-                <span className="k">{lang === "zh" ? "Cloud provider" : "Cloud provider"}</span>
+                <span className="k">{lang === "zh" ? "云厂商" : "Cloud provider"}</span>
                 <select
                   value={draft.cloudProvider || ""}
                   onChange={(e) => setDraft({ ...draft, cloudProvider: (e.target.value || undefined) as Host["cloudProvider"] })}
                 >
-                  <option value="">{lang === "zh" ? "None" : "None"}</option>
+                  <option value="">{lang === "zh" ? "无" : "None"}</option>
                   <option value="aliyun">Aliyun</option>
                   <option value="tencent">Tencent</option>
                   <option value="aws">AWS</option>
                   <option value="azure">Azure</option>
                   <option value="gcp">GCP</option>
                   <option value="cloudflare">Cloudflare</option>
-                  <option value="other">{lang === "zh" ? "Other" : "Other"}</option>
+                  <option value="other">{lang === "zh" ? "其他" : "Other"}</option>
                 </select>
               </label>
             </div>
@@ -486,7 +487,7 @@ export function HostEditorFull({
           {/* Site / group */}
           <section className="host-editor-section">
             <h3 className="host-editor-section__title">
-              {lang === "zh" ? "Site / group" : "Site / group"}
+              {lang === "zh" ? "站点 / 分组" : "Site / group"}
             </h3>
             <div className="host-editor-full__grid">
               <label>
@@ -497,7 +498,7 @@ export function HostEditorFull({
                 >
                   {groups.map((group) => (
                     <option key={group.id} value={group.id}>
-                      {group.name}{group.subnet ? ` (${group.subnet})` : ""}
+                      {displayGroupName(group, lang)}{group.subnet ? ` (${group.subnet})` : ""}
                     </option>
                   ))}
                 </select>

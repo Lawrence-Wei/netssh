@@ -134,7 +134,7 @@ impl Handler for ClientHandler {
             },
         );
 
-        let decision = tokio::time::timeout(std::time::Duration::from_secs(60), rx).await;
+        let decision = tokio::time::timeout(std::time::Duration::from_secs(600), rx).await;
         self.challenge_registry
             .lock()
             .unwrap_or_else(|e| e.into_inner())
@@ -221,8 +221,16 @@ impl SshSession {
             "SSH connect starting"
         );
 
-        // Load known_hosts for this session.
-        let mut accepted_keys = load_known_hosts(&args.host, args.port);
+        // Load known_hosts for this session unless the frontend is intentionally
+        // retrying after the user cleared Netssh's saved key. In that recovery
+        // flow we must not let a stale OpenSSH known_hosts entry force another
+        // mismatch, but we also never modify the user's OpenSSH files.
+        let mut accepted_keys = if args.skip_open_ssh_known_hosts.unwrap_or(false) {
+            info!("Skipping OpenSSH known_hosts for explicit host-key recovery retry");
+            HashSet::new()
+        } else {
+            load_known_hosts(&args.host, args.port)
+        };
         if let Ok(conn) = storage::open() {
             if let Ok(trusted) = storage::list_trusted_host_fingerprints(&conn, &args.host, args.port)
             {

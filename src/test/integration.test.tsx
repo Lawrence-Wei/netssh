@@ -214,7 +214,7 @@ describe("Host Key TOFU 挑战", () => {
       known_fingerprints: ["SHA256:old-key"],
       can_remember: false,
     };
-    // mismatch 且 can_remember=false 时用户只能 Accept Once 或 Reject
+    // mismatch 且 can_remember=false 时必须阻断连接，用户只能取消或清除旧指纹后重新验证
     expect(challenge.status).toBe("mismatch");
     expect(challenge.can_remember).toBe(false);
   });
@@ -341,12 +341,12 @@ describe("连接日志", () => {
 // 8. Settings 设置流程
 // ============================================================
 describe("设置 UI 流程", () => {
-  it("Preferences → Language 可访问 → 设置导航存在", async () => {
+  it("Settings → Language 可访问 → 设置导航存在", async () => {
     render(createElement(ConfirmProvider, null, createElement(App)));
     const user = userEvent.setup();
 
-    // 用测试 ID 找到标题栏 Preferences 按钮
-    const prefBtn = document.querySelector('[title="Preferences"]')!;
+    // 用标题栏 Settings 按钮打开设置
+    const prefBtn = document.querySelector('[title="Settings"]')!;
     await user.click(prefBtn as HTMLElement);
     await waitFor(() => {
       expect(document.querySelector(".settings-nav")).toBeTruthy();
@@ -368,7 +368,7 @@ describe("设置 UI 流程", () => {
     render(createElement(ConfirmProvider, null, createElement(App)));
     const user = userEvent.setup();
 
-    const prefBtn = document.querySelector('[title="Preferences"]')!;
+    const prefBtn = document.querySelector('[title="Settings"]')!;
     await user.click(prefBtn as HTMLElement);
     await waitFor(() => document.querySelector(".settings-nav"), { timeout: 3000 });
 

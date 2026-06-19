@@ -110,66 +110,68 @@ export function ImportDialog({ lang, existingHosts, onClose, onImport }: ImportD
   return (
     <div className="confirm-overlay" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
       <div className="confirm-card import-card" role="dialog" aria-modal="true">
-        <div className="confirm-card__title">{t("import.title", lang)}</div>
-        <div className="confirm-card__message">{t("import.lead", lang)}</div>
-        <div className="import-grid">
-          <button className="import-tile" disabled={busy} onClick={() => pickFile("xlsx")}>
-            <span className="import-tile__glyph">XLS</span>
-            <span className="import-tile__label">{t("import.source.xlsx", lang)}</span>
-          </button>
-          <button className="import-tile" disabled={busy} onClick={() => pickFile("json")}>
-            <span className="import-tile__glyph">JSON</span>
-            <span className="import-tile__label">{t("import.source.json", lang)}</span>
-          </button>
-          <button className="import-tile" disabled={busy} onClick={() => pickFile("csv")}>
-            <span className="import-tile__glyph">CSV</span>
-            <span className="import-tile__label">{t("import.source.csv", lang)}</span>
-          </button>
-          <button className="import-tile" disabled={busy} onClick={fromSshDir}>
-            <span className="import-tile__glyph">.ssh</span>
-            <span className="import-tile__label">{t("import.source.ssh", lang)}</span>
-          </button>
+        <div className="import-card__head">
+          <div className="confirm-card__title">{t("import.title", lang)}</div>
+          <div className="confirm-card__message">{t("import.lead", lang)}</div>
+          <div className="import-grid">
+            <button className="import-tile" disabled={busy} onClick={() => pickFile("xlsx")}>
+              <span className="import-tile__glyph">XLS</span>
+              <span className="import-tile__label">{t("import.source.xlsx", lang)}</span>
+            </button>
+            <button className="import-tile" disabled={busy} onClick={() => pickFile("json")}>
+              <span className="import-tile__glyph">JSON</span>
+              <span className="import-tile__label">{t("import.source.json", lang)}</span>
+            </button>
+            <button className="import-tile" disabled={busy} onClick={() => pickFile("csv")}>
+              <span className="import-tile__glyph">CSV</span>
+              <span className="import-tile__label">{t("import.source.csv", lang)}</span>
+            </button>
+            <button className="import-tile" disabled={busy} onClick={fromSshDir}>
+              <span className="import-tile__glyph">.ssh</span>
+              <span className="import-tile__label">{t("import.source.ssh", lang)}</span>
+            </button>
+          </div>
         </div>
-        {previewHosts.length > 0 && (
-          <div className="import-preview">
-            <div className="confirm-card__title" style={{ fontSize: 14 }}>
-              {lang === "zh" ? "Import preview" : "Import preview"}
-            </div>
-            <div className="import-status">
-              {lang === "zh"
-                ? `Ready to import ${previewHosts.length} assets.`
-                : `${previewHosts.length} asset(s) ready to import.`}
-            </div>
-            {diagnostics.length > 0 && (
-              <div className="import-diagnostics">
-                {diagnostics.map((item, index) => (
-                  <div key={`${item.level}-${index}`} className={`import-diagnostic import-diagnostic--${item.level}`}>
-                    {item.message}
-                  </div>
-                ))}
+        <div className="import-card__body">
+          {previewHosts.length > 0 && (
+            <div className="import-preview">
+              <div className="confirm-card__title" style={{ fontSize: 14 }}>
+                {t("import.preview.title", lang)}
               </div>
-            )}
-            <div className="import-preview-list">
-              {previewHosts.slice(0, 8).map((host) => (
-                <div key={`${host.alias}-${host.hostname}`} className="import-preview-row">
-                  <span>{host.alias}</span>
-                  <span>{host.user}@{host.hostname}:{host.port || 22}</span>
-                  <span>{host.group}</span>
-                </div>
-              ))}
-              {previewHosts.length > 8 && (
-                <div className="import-status">
-                  {lang === "zh" ? `${previewHosts.length - 8} more asset(s) hidden.` : `${previewHosts.length - 8} more asset(s) hidden.`}
+              <div className="import-status">
+                {t("import.preview.ready", lang, { count: previewHosts.length })}
+              </div>
+              {diagnostics.length > 0 && (
+                <div className="import-diagnostics" aria-label={t("import.diagnostics.title", lang)}>
+                  {diagnostics.map((item, index) => (
+                    <div key={`${item.level}-${index}`} className={`import-diagnostic import-diagnostic--${item.level}`}>
+                      {item.message}
+                    </div>
+                  ))}
                 </div>
               )}
+              <div className="import-preview-list">
+                {previewHosts.slice(0, 8).map((host) => (
+                  <div key={`${host.alias}-${host.hostname}`} className="import-preview-row">
+                    <span>{host.alias}</span>
+                    <span>{host.user}@{host.hostname}:{host.port || 22}</span>
+                    <span>{host.group}</span>
+                  </div>
+                ))}
+                {previewHosts.length > 8 && (
+                  <div className="import-status">
+                    {t("import.preview.hidden", lang, { count: previewHosts.length - 8 })}
+                  </div>
+                )}
+              </div>
             </div>
-          </div>
-        )}
-        {status && <div className="import-status">{status}</div>}
-        <div className="confirm-card__actions">
+          )}
+          {status && <div className="import-status">{status}</div>}
+        </div>
+        <div className="confirm-card__actions import-card__actions">
           {previewHosts.length > 0 && (
             <button className="btn" onClick={confirmImport} disabled={busy}>
-              {lang === "zh" ? "Import" : "Import"}
+              {t("import.action.confirm", lang)}
             </button>
           )}
           <button className="btn ghost" onClick={onClose} disabled={busy}>

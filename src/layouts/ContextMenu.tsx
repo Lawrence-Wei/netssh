@@ -4,6 +4,7 @@ import { useClickOutside } from "../hooks/useClickOutside";
 import { t } from "../utils/i18n";
 import type { Group, Host, Lang } from "../config/types";
 import { Icon } from "../components/Icons";
+import { displayGroupName } from "../utils/groups";
 
 interface ContextMenuProps {
   lang: Lang;
@@ -34,11 +35,11 @@ export function ContextMenu({ lang, x, y, host, groups, onAction, onClose }: Con
       id: "favorite",
       icon: Icon.bookmark,
       label: favorite
-        ? (lang === "zh" ? "Remove favorite" : "Remove favorite")
-        : (lang === "zh" ? "Add favorite" : "Add favorite"),
+        ? (lang === "zh" ? "取消收藏" : "Remove favorite")
+        : (lang === "zh" ? "添加收藏" : "Add favorite"),
     },
     { id: "edit", icon: Icon.edit, label: t("ctx.edit", lang) },
-    { id: "move", icon: Icon.chevron, label: lang === "zh" ? "Move to site" : "Move to site", hasSub: true },
+    { id: "move", icon: Icon.chevron, label: lang === "zh" ? "移动到站点" : "Move to site", hasSub: true },
     { divider: true },
     { id: "delete", icon: Icon.trash, label: t("ctx.delete", lang), danger: true },
   ];
@@ -79,7 +80,7 @@ export function ContextMenu({ lang, x, y, host, groups, onAction, onClose }: Con
                     }}
                   >
                     <span className="moon-dot" style={{ background: group.color }} />
-                    <span>{group.name}</span>
+                    <span>{displayGroupName(group, lang)}</span>
                     {group.subnet && <span className="shortcut">{group.subnet}</span>}
                   </button>
                 ))}

@@ -3,6 +3,14 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
+$utf8NoBom = [System.Text.UTF8Encoding]::new($false)
+[Console]::InputEncoding = $utf8NoBom
+[Console]::OutputEncoding = $utf8NoBom
+$OutputEncoding = $utf8NoBom
+if ($IsWindows -or $env:OS -eq "Windows_NT") {
+  chcp.com 65001 > $null
+}
+
 $repoRoot = Resolve-Path (Join-Path $PSScriptRoot "..\..")
 Set-Location $repoRoot
 

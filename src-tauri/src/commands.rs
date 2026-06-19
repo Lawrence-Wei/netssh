@@ -36,6 +36,7 @@ pub struct SshOpenArgs {
     pub identity_file: Option<String>,
     pub password: Option<String>,
     pub passphrase: Option<String>,
+    pub skip_open_ssh_known_hosts: Option<bool>,
 }
 
 #[tauri::command]
@@ -75,6 +76,12 @@ pub fn ssh_host_key_decide(
     sender
         .send(decision)
         .map_err(|_| "host_key_challenge_closed".to_string())
+}
+
+#[tauri::command]
+pub fn ssh_forget_trusted_host_key(host: String, port: u16) -> Result<(), String> {
+    let conn = storage::open().map_err(|e| e.to_string())?;
+    storage::remove_trusted_host_key(&conn, &host, port).map_err(|e| e.to_string())
 }
 
 #[tauri::command]

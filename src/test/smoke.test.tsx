@@ -13,6 +13,7 @@ import { createElement } from "react";
 import App from "../pages/App";
 import { ConfirmProvider } from "../components/ConfirmDialog";
 import { APP_VERSION } from "../config/app";
+import type { Group, Host } from "../config/types";
 
 // ============================================================
 // Store reset between tests.
@@ -56,6 +57,81 @@ function renderApp() {
 }
 
 function sidebar() { return document.querySelector(".sidebar")!; }
+
+function seedChineseTopologyHome() {
+  const groups: Group[] = [
+    { id: "shanghai", name: "上海", color: "#9d84ff" },
+    { id: "pr-office", name: "PR / E20C", color: "#c084fc" },
+    { id: "wuxi", name: "无锡", color: "#60a5fa" },
+    { id: "cloud", name: "Cloud", color: "#93c5fd" },
+  ];
+  const hosts: Host[] = [
+    {
+      id: "real-asus-router",
+      alias: "asus-router",
+      hostname: "192.168.100.154",
+      user: "admin",
+      port: 22,
+      group: "shanghai",
+      assetType: "router",
+      status: "ok",
+      latency: 6,
+      deployScope: "local",
+      lastConnectedAt: Date.now() - 10 * 60 * 1000,
+    },
+    {
+      id: "real-switch",
+      alias: "switch",
+      hostname: "192.168.100.253",
+      user: "admin",
+      port: 22,
+      group: "shanghai",
+      assetType: "switch",
+      status: "ok",
+      latency: 7,
+      deployScope: "local",
+    },
+    {
+      id: "real-ubuntu",
+      alias: "ubuntu",
+      hostname: "192.168.77.188",
+      user: "lawrence",
+      port: 22,
+      group: "pr-office",
+      assetType: "linux-server",
+      status: "warn",
+      latency: null,
+      deployScope: "local",
+      favorite: true,
+    },
+    {
+      id: "real-win11",
+      alias: "win11",
+      hostname: "192.168.66.234",
+      user: "lawrence",
+      port: 22,
+      group: "wuxi",
+      assetType: "pc",
+      status: "off",
+      latency: null,
+      deployScope: "local",
+    },
+    {
+      id: "real-ecs",
+      alias: "ecs",
+      hostname: "8.153.161.113",
+      user: "root",
+      port: 22,
+      group: "cloud",
+      assetType: "cloud-server",
+      status: "ok",
+      latency: 6,
+      deployScope: "cloud",
+    },
+  ];
+  useSettings.setState((state) => ({ ...state, lang: "zh", followSystem: false }), true);
+  useHosts.setState((state) => ({ ...state, groups, hosts }), true);
+}
 
 // ============================================================
 // 1. APP SHELL - shell rendering
@@ -106,7 +182,7 @@ describe("2. TitleBar", () => {
 
   it("settings icon button opens settings nav", async () => {
     const { user } = renderApp();
-    await user.click(screen.getByTitle("Preferences"));
+    await user.click(screen.getByTitle("Settings"));
     await waitFor(() => {
       expect(document.querySelector(".settings-nav")).toBeTruthy();
     }, { timeout: 2000 });
@@ -118,6 +194,32 @@ describe("2. TitleBar", () => {
     fireEvent.click(document.querySelector(".tab-new")!);
     await waitFor(() => {
       expect(document.querySelectorAll(".tab").length).toBe(before + 1);
+    });
+  });
+
+  it("new session tab opens direct SSH connection fields", async () => {
+    const { user } = renderApp();
+    fireEvent.click(document.querySelector(".tab-new")!);
+
+    await waitFor(() => {
+      expect(screen.getByText("New SSH session")).toBeTruthy();
+    });
+    const card = document.querySelector(".manual-card") as HTMLElement;
+    expect(within(card).getByLabelText("DNS / IP")).toBeTruthy();
+    expect(within(card).getByLabelText("Username")).toBeTruthy();
+    expect(within(card).getByLabelText("Password")).toBeTruthy();
+    expect(screen.getByText("Advanced options")).toBeTruthy();
+    expect(within(card).getByLabelText("Port")).toBeTruthy();
+    expect(within(card).getByLabelText("Alias")).toBeTruthy();
+
+    const beforeConnectTabs = document.querySelectorAll(".tab").length;
+    await user.type(within(card).getByLabelText("DNS / IP"), "10.0.0.50");
+    await user.type(within(card).getByLabelText("Username"), "root");
+    await user.type(within(card).getByLabelText("Password"), "secret");
+    await user.click(within(card).getByRole("button", { name: "Connect" }));
+    await waitFor(() => {
+      expect(document.querySelectorAll(".tab").length).toBe(beforeConnectTabs);
+      expect(screen.getByText("root@10.0.0.50")).toBeTruthy();
     });
   });
 });
@@ -154,16 +256,19 @@ describe("3. Sidebar", () => {
 
   it("device sidebar can hide and expand", async () => {
     const { user } = renderApp();
+    const shell = document.querySelector(".shell") as HTMLElement;
     await user.click(within(sidebar()).getByTitle("Hide devices"));
     await waitFor(() => {
       expect(document.querySelector(".sidebar")).toBeFalsy();
     });
+    expect(shell.style.gridTemplateColumns).toBe("minmax(0, 1fr)");
     const restore = document.querySelector(".sidebar-restore") as HTMLElement;
     expect(restore).toBeTruthy();
     await user.click(restore);
     await waitFor(() => {
       expect(document.querySelector(".sidebar")).toBeTruthy();
     });
+    expect(shell.style.gridTemplateColumns).toContain("6px");
   });
 
   it("Add host opens editor without appearing in sidebar", async () => {
@@ -192,7 +297,22 @@ describe("3. Sidebar", () => {
     });
   });
 
-  it("host group headers render", () => {
+  it("host group headers render when hosts exist", () => {
+    useHosts.setState((state) => ({
+      ...state,
+      hosts: [
+        {
+          id: "smoke-unassigned-host",
+          alias: "smoke-unassigned-host",
+          hostname: "10.0.0.10",
+          user: "root",
+          port: 22,
+          group: "unassigned",
+          status: "off",
+          latency: null,
+        },
+      ],
+    }), true);
     renderApp();
     expect(document.querySelector(".host-group")).toBeTruthy();
   });
@@ -204,17 +324,17 @@ describe("3. Sidebar", () => {
 describe("4. Landing / Home Page", () => {
   it("heading text visible", () => {
     renderApp();
-    expect(screen.getByText(/network operations/i)).toBeTruthy();
+    expect(screen.getByText(/topology map/i)).toBeTruthy();
   });
 
   it("home-toolbar has buttons", () => {
     renderApp();
-    const tb = document.querySelector(".landing-toolbar")!;
-    expect(tb.querySelectorAll("button").length).toBeGreaterThanOrEqual(3);
+    expect(document.querySelectorAll(".landing-toolbar button").length).toBeGreaterThanOrEqual(3);
   });
 
-  it("manual connection card renders with inputs", () => {
-    renderApp();
+  it("manual connection card renders with inputs", async () => {
+    const { user } = renderApp();
+    await user.click(screen.getByText("Show manual connection"));
     const card = document.querySelector(".manual-card")!;
     expect(within(card as HTMLElement).getByText("Manual connection")).toBeTruthy();
     expect(card.querySelectorAll("input").length).toBeGreaterThanOrEqual(3);
@@ -222,6 +342,7 @@ describe("4. Landing / Home Page", () => {
 
   it("manual card hostname field accepts typing", async () => {
     const { user } = renderApp();
+    await user.click(screen.getByText("Show manual connection"));
     const card = document.querySelector(".manual-card")!;
     const hostInput = card.querySelector("input")!;
     await user.type(hostInput, "192.168.1.1");
@@ -232,7 +353,19 @@ describe("4. Landing / Home Page", () => {
     /** TopologyView needs host data to render a meaningful topology; reset stores start empty. */
     renderApp();
     /** Verify the home view renders even when topology has no data. */
-    expect(screen.getByText(/network operations/i)).toBeTruthy();
+    expect(screen.getByText("Network topology")).toBeTruthy();
+    expect(document.querySelector(".asset-board")).toBeFalsy();
+  });
+
+  it("real app-like Chinese home shows topology instead of asset workbench", () => {
+    seedChineseTopologyHome();
+    renderApp();
+    expect(screen.getAllByText("首页").length).toBeGreaterThanOrEqual(1);
+    expect(screen.getByText("拓扑地图")).toBeTruthy();
+    expect(screen.queryByText("资产与连接")).toBeFalsy();
+    expect(screen.queryByText("优先处理的主机")).toBeFalsy();
+    expect(document.querySelector(".asset-board")).toBeFalsy();
+    expect(document.querySelectorAll(".topology-site").length).toBeGreaterThan(0);
   });
 });
 
@@ -262,14 +395,14 @@ describe("5. HostDetail & Editor", () => {
     expect((screen.getAllByPlaceholderText("192.168.1.1 / example.com")[0] as HTMLInputElement).value).toBe("");
   });
 
-  it("Cancel exits editor, Connect button appears", async () => {
+  it("Cancel exits editor and returns to the topology home", async () => {
     const { user } = renderApp();
     await user.click(within(sidebar()).getByText("Add host"));
     await waitFor(() => screen.getByText(/Edit host/i));
     const cancelBtns = screen.getAllByText("Cancel");
     await user.click(cancelBtns[cancelBtns.length - 1]);
     await waitFor(() => {
-      expect(screen.getByText("Connect")).toBeTruthy();
+      expect(screen.getByText("Network topology")).toBeTruthy();
     });
   });
 
@@ -313,7 +446,7 @@ describe("5. HostDetail & Editor", () => {
 // ============================================================
 describe("6. Settings", () => {
   async function open(user: ReturnType<typeof userEvent.setup>) {
-    await user.click(screen.getByTitle("Preferences"));
+    await user.click(screen.getByTitle("Settings"));
     await waitFor(() => {
       expect(document.querySelector(".settings-nav")).toBeTruthy();
     }, { timeout: 2000 });
@@ -392,9 +525,9 @@ describe("6. Settings", () => {
     await open(user);
     await user.click(screen.getByText("Language & region"));
     await waitFor(() => screen.getByText("Follow system"));
-    await user.click(screen.getByText("English fallback"));
+    await user.click(screen.getByText("Chinese"));
     await waitFor(() => {
-      expect(within(sidebar()).getByText("Devices")).toBeTruthy();
+      expect(within(sidebar()).getByText("设备")).toBeTruthy();
     });
   });
 });
@@ -525,6 +658,7 @@ describe("14. Error Handling", () => {
 
   it("empty manual connect submit does not crash", async () => {
     const { user } = renderApp();
+    await user.click(screen.getByText("Show manual connection"));
     const card = document.querySelector(".manual-card")!;
     await user.click(within(card as HTMLElement).getByText("Connect"));
     expect(screen.getByText("Netssh")).toBeTruthy();

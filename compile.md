@@ -107,13 +107,49 @@ npm run tauri -- build
 npx tauri build
 ```
 
-Tauri runs the frontend build first through `src-tauri\tauri.conf.json`:
+`npm run tauri:build` is defined in `package.json`:
+
+```json
+"tauri:build": "tauri build && pwsh -NoProfile -ExecutionPolicy Bypass -File scripts/collect-release-artifacts.ps1"
+```
+
+The first command, `tauri build`, reads `src-tauri\tauri.conf.json`. The `build.beforeBuildCommand` setting runs the frontend build first:
 
 ```powershell
 npm run build
 ```
 
-Installer outputs are written under:
+That frontend build is defined in `package.json`:
+
+```json
+"build": "tsc && vite build"
+```
+
+The package build chain uses these main files and folders:
+
+| Stage | Files / folders |
+|------|-----------------|
+| npm script entry | `package.json`, `package-lock.json` |
+| TypeScript check | `tsconfig.json`, `tsconfig.node.json`, `src\**` |
+| Vite frontend build | `vite.config.ts`, `index.html`, `src\**` |
+| Tauri app config | `src-tauri\tauri.conf.json` |
+| Rust backend compile | `src-tauri\Cargo.toml`, `src-tauri\Cargo.lock`, `src-tauri\src\**` |
+| App icons / installer icon | `src-tauri\icons\**` |
+| Frontend runtime assets | `dist\` after `npm run build` |
+
+The default frontend output is:
+
+```text
+dist\
+```
+
+The default Rust/Tauri build output is:
+
+```text
+src-tauri\target\
+```
+
+The default installer outputs are written under:
 
 ```text
 src-tauri\target\release\bundle\
@@ -125,6 +161,44 @@ Expected Windows installer folders:
 src-tauri\target\release\bundle\msi\
 src-tauri\target\release\bundle\nsis\
 ```
+
+`tauri build` does not write directly to `releases` by default. This project wraps it with a post-build collection script so generated release outputs stay local under:
+
+```text
+D:\projects\netssh\releases\<tag>
+```
+
+For example:
+
+```text
+D:\projects\netssh\releases\v1.1.15
+```
+
+After `tauri build` succeeds, `scripts\collect-release-artifacts.ps1` reads `package.json`, creates `releases\v<version>`, and copies only bundle files whose names include the current version. This avoids copying stale installers from earlier builds that may still be present under `src-tauri\target\release\bundle`.
+
+The collector script logic:
+
+```powershell
+$repoRoot = Split-Path -Parent $PSScriptRoot
+$packageJson = Get-Content (Join-Path $repoRoot "package.json") -Raw | ConvertFrom-Json
+$tag = "v$($packageJson.version)"
+$releaseDir = Join-Path $repoRoot "releases\$tag"
+$bundleRoot = Join-Path $repoRoot "src-tauri\target\release\bundle"
+$bundleRootPath = (Resolve-Path $bundleRoot).Path
+
+New-Item -ItemType Directory -Force -Path $releaseDir | Out-Null
+
+Get-ChildItem -Path $bundleRootPath -Recurse -File | ForEach-Object {
+  $relativePath = $_.FullName.Substring($bundleRootPath.Length).TrimStart('\', '/')
+  $targetPath = Join-Path $releaseDir $relativePath
+  New-Item -ItemType Directory -Force -Path (Split-Path $targetPath) | Out-Null
+  Copy-Item -LiteralPath $_.FullName -Destination $targetPath -Force
+}
+
+Write-Host "Release artifacts copied to $releaseDir"
+```
+
+Do not stage or commit generated binaries, installers, archives, or release bundles from `releases`. The directory is ignored by Git except for `releases\.gitignore`.
 
 ## 6. Tests Before Compile Completion
 
@@ -255,7 +329,7 @@ Keep these version fields aligned before release packaging:
 Current project version at the time this guide was written:
 
 ```text
-1.1.14
+1.1.15
 ```
 
 Use the existing version bump script if the next release version is already set inside it:
@@ -288,6 +362,26 @@ tools\ai-loop\run-validation.ps1
 npm run tauri:build
 ```
 
+Manual copy fallback for direct Tauri builds:
+
+This repository's `npm run tauri:build` already runs `scripts\collect-release-artifacts.ps1`, so this block is only needed after direct commands such as `npx tauri build`.
+
+```powershell
+$tag = "v1.1.15"
+$releaseDir = "D:\projects\netssh\releases\$tag"
+$bundleRoot = "src-tauri\target\release\bundle"
+$bundleRootPath = (Resolve-Path $bundleRoot).Path
+
+New-Item -ItemType Directory -Force -Path $releaseDir | Out-Null
+
+Get-ChildItem -Path $bundleRootPath -Recurse -File | ForEach-Object {
+  $relativePath = $_.FullName.Substring($bundleRootPath.Length).TrimStart('\', '/')
+  $targetPath = Join-Path $releaseDir $relativePath
+  New-Item -ItemType Directory -Force -Path (Split-Path $targetPath) | Out-Null
+  Copy-Item -LiteralPath $_.FullName -Destination $targetPath -Force
+}
+```
+
 Create a SemVer tag after the release build is ready:
 
 ```powershell
@@ -315,8 +409,8 @@ Create a GitHub release with GitHub CLI from PowerShell:
 gh release create v1.1.15 `
   --title "v1.1.15" `
   --notes "## Changes" `
-  "src-tauri\target\release\bundle\msi\*.msi" `
-  "src-tauri\target\release\bundle\nsis\*.exe"
+  "releases\v1.1.15\msi\*.msi" `
+  "releases\v1.1.15\nsis\*.exe"
 ```
 
 Git Bash / WSL variant:
@@ -325,8 +419,8 @@ Git Bash / WSL variant:
 gh release create v1.1.15 \
   --title "v1.1.15" \
   --notes "## Changes" \
-  "src-tauri/target/release/bundle/msi/*.msi" \
-  "src-tauri/target/release/bundle/nsis/*.exe"
+  "releases/v1.1.15/msi/*.msi" \
+  "releases/v1.1.15/nsis/*.exe"
 ```
 
 If Git Bash reports a `mintty` terminal issue, run `gh` from PowerShell/cmd or use:
@@ -347,6 +441,12 @@ Remove Rust/Tauri build output:
 
 ```powershell
 cargo clean --manifest-path src-tauri\Cargo.toml
+```
+
+Remove local release artifacts:
+
+```powershell
+Remove-Item -Recurse -Force releases\v1.1.15
 ```
 
 Reinstall npm dependencies from lockfile:

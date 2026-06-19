@@ -75,6 +75,7 @@ vi.mock("@tauri-apps/api/core", () => ({
       case "serial_open":
         return Promise.resolve("mock-serial-id");
       case "ssh_host_key_decide":
+      case "ssh_forget_trusted_host_key":
       case "ssh_send":
       case "ssh_resize":
       case "ssh_close":

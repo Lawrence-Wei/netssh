@@ -226,7 +226,7 @@ export default function App() {
     setSetting(key, value as never);
   };
   const shellColumns = useMemo(() => {
-    if (!sidebarVisible) return "0px 0px minmax(0, 1fr)";
+    if (!sidebarVisible) return "minmax(0, 1fr)";
     return `${sidebarWidth}px 6px minmax(0, 1fr)`;
   }, [sidebarWidth, sidebarVisible]);
 

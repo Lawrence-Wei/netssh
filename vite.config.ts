@@ -4,6 +4,7 @@ import react from "@vitejs/plugin-react";
 // Vite runs the React frontend during Tauri development.
 export default defineConfig({
   plugins: [react()],
+  base: "./",
   clearScreen: false,
   server: {
     port: 1420,

@@ -75,9 +75,9 @@ function AppearancePane({ lang, theme, setTheme, settings, setSetting }: {
   setSetting: SettingsProps["setSetting"];
 }) {
   const themes: Array<{ id: Theme; name: string; eyebrow: string }> = [
-    { id: "purple", name: t("settings.appearance.theme.purple", lang), eyebrow: "Aurora" },
-    { id: "blue", name: t("settings.appearance.theme.blue", lang), eyebrow: "Cobalt" },
-    { id: "mica", name: t("settings.appearance.theme.mica", lang), eyebrow: "System" },
+    { id: "purple", name: t("settings.appearance.theme.purple", lang), eyebrow: t("settings.appearance.theme.purple.eyebrow", lang) },
+    { id: "blue", name: t("settings.appearance.theme.blue", lang), eyebrow: t("settings.appearance.theme.blue.eyebrow", lang) },
+    { id: "mica", name: t("settings.appearance.theme.mica", lang), eyebrow: t("settings.appearance.theme.mica.eyebrow", lang) },
   ];
 
   return (
@@ -136,12 +136,12 @@ function AppearancePane({ lang, theme, setTheme, settings, setSetting }: {
         <div className="setting-row">
           <div>
             <div className="label">{t("settings.appearance.font.size", lang)}</div>
-            <div className="desc">10-20 pt</div>
+            <div className="desc">{t("settings.appearance.font.size.range", lang)}</div>
           </div>
           <div className="seg">
             {[12, 13, 14, 16].map((size) => (
               <button key={size} className={settings.fontSize === size ? "active" : ""} onClick={() => setSetting("fontSize", size)}>
-                {size}pt
+                {t("settings.appearance.font.size.option", lang, { size })}
               </button>
             ))}
           </div>
@@ -175,8 +175,8 @@ function LanguagePane({ lang, setLang, settings, setSetting }: {
             <div className="desc">{t("settings.language.manual.desc", lang)}</div>
           </div>
           <div className="seg">
-            <button className={lang === "en" ? "active" : ""} onClick={() => setLang("en")}>English</button>
-            <button className={lang === "zh" ? "active" : ""} onClick={() => setLang("zh")}>English fallback</button>
+            <button className={lang === "en" ? "active" : ""} onClick={() => setLang("en")}>{t("settings.language.option.en", lang)}</button>
+            <button className={lang === "zh" ? "active" : ""} onClick={() => setLang("zh")}>{t("settings.language.option.zh", lang)}</button>
           </div>
         </div>
       </div>
@@ -194,7 +194,7 @@ function LanguagePane({ lang, setLang, settings, setSetting }: {
             <div className="label">{t("settings.language.timezone", lang)}</div>
             <div className="desc">{t("settings.language.timezone.desc", lang)}</div>
           </div>
-          <div className="select-pill">System (Asia/Shanghai) {Icon.chevron}</div>
+          <div className="select-pill">{t("settings.language.timezone.system", lang)} (Asia/Shanghai) {Icon.chevron}</div>
         </div>
       </div>
     </>
@@ -288,9 +288,9 @@ function TerminalPaneSettings({ lang, settings, setSetting }: {
         <div className="setting-row">
           <div><div className="label">{t("settings.terminal.cursor", lang)}</div><div className="desc">{t("settings.terminal.cursor.desc", lang)}</div></div>
           <div className="seg">
-            <button>{lang === "zh" ? "Block" : "Block"}</button>
-            <button>{lang === "zh" ? "Underline" : "Underline"}</button>
-            <button className="active">{lang === "zh" ? "Bar" : "Bar"}</button>
+            <button>{t("settings.terminal.cursor.block", lang)}</button>
+            <button>{t("settings.terminal.cursor.underline", lang)}</button>
+            <button className="active">{t("settings.terminal.cursor.bar", lang)}</button>
           </div>
         </div>
         <ToggleRow label={t("settings.terminal.cursorBlink", lang)} desc={t("settings.terminal.cursorBlink.desc", lang)} on onToggle={() => undefined} />
@@ -316,22 +316,22 @@ function ShortcutsPane({ lang }: { lang: Lang }) {
     {
       title: t("settings.shortcuts.navigation", lang),
       items: [
-        ["Ctrl + K", lang === "zh" ? "Command palette" : "Command palette"],
-        ["Ctrl + T", lang === "zh" ? "New tab" : "New tab"],
-        ["Ctrl + W", lang === "zh" ? "Close tab" : "Close tab"],
-        ["Ctrl + Tab", lang === "zh" ? "Next tab" : "Next tab"],
-        ["Ctrl + Shift + Tab", lang === "zh" ? "Previous tab" : "Previous tab"],
-        ["Ctrl + 1..9", lang === "zh" ? "Switch to tab N" : "Switch to tab N"],
+        ["Ctrl + K", t("settings.shortcuts.commandPalette", lang)],
+        ["Ctrl + T", t("settings.shortcuts.newTab", lang)],
+        ["Ctrl + W", t("settings.shortcuts.closeTab", lang)],
+        ["Ctrl + Tab", t("settings.shortcuts.nextTab", lang)],
+        ["Ctrl + Shift + Tab", t("settings.shortcuts.previousTab", lang)],
+        ["Ctrl + 1..9", t("settings.shortcuts.switchToTab", lang)],
       ],
     },
     {
       title: t("settings.shortcuts.session", lang),
       items: [
-        [lang === "zh" ? "Enter on host" : "Enter on host", lang === "zh" ? "Connect" : "Connect"],
-        ["Ctrl + D", lang === "zh" ? "Split pane right" : "Split pane right"],
-        ["Ctrl + Shift + D", lang === "zh" ? "Split pane down" : "Split pane down"],
-        ["Ctrl + Shift + F", lang === "zh" ? "Search scrollback" : "Search scrollback"],
-        ["F4", lang === "zh" ? "Open SFTP" : "Open SFTP"],
+        [t("settings.shortcuts.enterOnHost", lang), t("settings.shortcuts.connect", lang)],
+        ["Ctrl + D", t("settings.shortcuts.splitRight", lang)],
+        ["Ctrl + Shift + D", t("settings.shortcuts.splitDown", lang)],
+        ["Ctrl + Shift + F", t("settings.shortcuts.searchScrollback", lang)],
+        ["F4", t("settings.shortcuts.openSftp", lang)],
       ],
     },
   ];

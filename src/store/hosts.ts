@@ -6,6 +6,7 @@ import { createJSONStorage, persist } from "zustand/middleware";
 import { HOST_GROUPS, MOCK_HOSTS } from "../config/defaults";
 import { parseSshConfig } from "../api/tauri";
 import { slugify } from "../utils/slugify";
+import { canonicalGroupColor, canonicalGroupId, canonicalGroupName } from "../utils/groups";
 import type { Host, Group, GroupId } from "../config/types";
 import { appStorage } from "./persistence";
 
@@ -39,7 +40,7 @@ function groupKey(value?: string | null) {
 }
 
 function isUnassignedGroup(value?: string | null) {
-  return groupKey(value) === UNASSIGNED_GROUP_ID;
+  return canonicalGroupId(value) === UNASSIGNED_GROUP_ID || groupKey(value) === UNASSIGNED_GROUP_ID;
 }
 
 function buildGroupLookup(groups: Group[]) {
@@ -47,11 +48,18 @@ function buildGroupLookup(groups: Group[]) {
   groups.forEach((group) => {
     const id = String(group.id || "").trim();
     const name = String(group.name || "").trim();
+    const canonicalId = canonicalGroupId(id) || canonicalGroupId(name);
     if (id) lookup.set(id.toLowerCase(), group.id);
     const idKey = groupKey(id);
     if (idKey) lookup.set(idKey, group.id);
     const nameKey = groupKey(name);
     if (nameKey) lookup.set(nameKey, group.id);
+    if (canonicalId) {
+      if (id) lookup.set(id.toLowerCase(), canonicalId);
+      if (idKey) lookup.set(idKey, canonicalId);
+      if (nameKey) lookup.set(nameKey, canonicalId);
+      lookup.set(canonicalId, canonicalId);
+    }
   });
   lookup.set(UNASSIGNED_GROUP_ID, UNASSIGNED_GROUP_ID);
   return lookup;
@@ -60,6 +68,8 @@ function buildGroupLookup(groups: Group[]) {
 function resolveKnownGroupId(value: string | undefined, groups: Group[]) {
   const raw = String(value || "").trim();
   if (!raw || isUnassignedGroup(raw)) return UNASSIGNED_GROUP_ID;
+  const canonicalId = canonicalGroupId(raw);
+  if (canonicalId) return canonicalId;
 
   const lookup = buildGroupLookup(groups);
   return lookup.get(raw.toLowerCase()) || lookup.get(groupKey(raw)) || raw;
@@ -83,6 +93,29 @@ function normalizeHostsData(hosts: Host[], groups: Group[]) {
     const rawId = String(group.id || "").trim();
     const rawName = String(group.name || "").trim();
     if (!rawId && !rawName) return;
+    const canonicalId = canonicalGroupId(rawId) || canonicalGroupId(rawName);
+
+    if (canonicalId) {
+      const existing = lookup.get(UNASSIGNED_GROUP_ID);
+      if (canonicalId === UNASSIGNED_GROUP_ID) {
+        if (!existing) {
+          const fallback = HOST_GROUPS.find((item) => item.id === UNASSIGNED_GROUP_ID);
+          normalizedGroups.push(fallback || { id: UNASSIGNED_GROUP_ID, name: "Unassigned", color: "#897e6e" });
+          lookup.set(UNASSIGNED_GROUP_ID, UNASSIGNED_GROUP_ID);
+        }
+      } else if (!lookup.get(canonicalId)) {
+        normalizedGroups.push({
+          ...group,
+          id: canonicalId,
+          name: canonicalGroupName(canonicalId),
+          color: group.color || canonicalGroupColor(canonicalId),
+        });
+        lookup.set(canonicalId, canonicalId);
+      }
+      remember(rawId, canonicalId);
+      remember(rawName, canonicalId);
+      return;
+    }
 
     if (isUnassignedGroup(rawId) || isUnassignedGroup(rawName)) {
       const existing = lookup.get(UNASSIGNED_GROUP_ID);
@@ -279,14 +312,14 @@ export const useHosts = create<HostsState>()(
         const existing = get().groups.find((group) => group.id === existingId);
         if (existing) return existing;
 
-        const slug = slugify(name) || `site-${Date.now()}`;
+        const slug = canonicalGroupId(name) || slugify(name) || `site-${Date.now()}`;
         const id = get().groups.find((g) => g.id === slug)
           ? `${slug}-${Date.now()}`
           : slug;
         const group: Group = {
           id,
-          name,
-          color: nextHue(get().groups.length),
+          name: canonicalGroupId(name) ? canonicalGroupName(id) : name,
+          color: canonicalGroupId(name) ? canonicalGroupColor(id) : nextHue(get().groups.length),
           subnet,
         };
         set({ groups: [...get().groups, group] });

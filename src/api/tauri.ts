@@ -1,9 +1,86 @@
 // Typed wrappers around Tauri's invoke() and event listeners.
 // The frontend ONLY talks to Rust through this module.
 
-import { invoke } from "@tauri-apps/api/core";
-import { listen, type UnlistenFn } from "@tauri-apps/api/event";
+import { invoke as tauriInvoke } from "@tauri-apps/api/core";
+import { listen as tauriListen, type UnlistenFn } from "@tauri-apps/api/event";
 import type { Host, ShellInfo, SerialFlowControl, SerialLineEnding, SerialParity, SerialStopBits, SshKey } from "../config/types";
+
+type InvokeArgs = Record<string, unknown> | undefined;
+type TauriEvent<T> = { payload: T };
+
+function isMissingTauriError(error: unknown) {
+  const message = error instanceof Error ? error.message : String(error);
+  return (
+    message.includes("reading 'invoke'") ||
+    message.includes('reading "invoke"') ||
+    message.includes("__TAURI_INTERNALS__") ||
+    message.includes("Tauri API")
+  );
+}
+
+function browserLanguage() {
+  if (typeof navigator === "undefined") return "en";
+  return navigator.language.toLowerCase().startsWith("zh") ? "zh" : "en";
+}
+
+function localStateGet(key?: unknown) {
+  if (typeof window === "undefined" || typeof key !== "string") return null;
+  return window.localStorage.getItem(key);
+}
+
+function localStatePut(key?: unknown, value?: unknown) {
+  if (typeof window === "undefined" || typeof key !== "string" || typeof value !== "string") return;
+  window.localStorage.setItem(key, value);
+}
+
+function browserInvokeFallback<T>(cmd: string, args?: InvokeArgs): T {
+  switch (cmd) {
+    case "config_parse":
+    case "shells_detect":
+    case "keys_list":
+    case "serial_list_ports":
+      return [] as T;
+    case "i18n_detect_system":
+      return browserLanguage() as T;
+    case "host_ping":
+      return { ok: false, latency_ms: null } as T;
+    case "app_state_get":
+      return localStateGet(args?.key) as T;
+    case "app_state_put":
+      localStatePut(args?.key, args?.value);
+      return undefined as T;
+    case "connection_log_open":
+      return `browser-log-${Date.now()}` as T;
+    case "cred_load":
+      return "" as T;
+    case "ssh_open":
+    case "pty_open":
+    case "serial_open":
+      return `browser-session-${Date.now()}` as T;
+    default:
+      return undefined as T;
+  }
+}
+
+async function invoke<T>(cmd: string, args?: InvokeArgs): Promise<T> {
+  try {
+    return await tauriInvoke<T>(cmd, args);
+  } catch (error) {
+    if (isMissingTauriError(error)) {
+      return browserInvokeFallback<T>(cmd, args);
+    }
+    throw error;
+  }
+}
+
+async function listen<T>(event: string, handler: (event: TauriEvent<T>) => void): Promise<UnlistenFn> {
+  try {
+    return await tauriListen<T>(event, handler);
+  } catch (error) {
+    if (isMissingTauriError(error)) return () => {};
+    throw error;
+  }
+}
 
 // ─── ssh_config ────────────────────────────────────────────────────────────
 
@@ -45,6 +122,7 @@ export interface SshOpenArgs {
   identityFile?: string;
   password?: string;
   passphrase?: string;
+  skipOpenSshKnownHosts?: boolean;
 }
 
 export async function sshOpen(args: SshOpenArgs): Promise<string> {
@@ -57,6 +135,7 @@ export async function sshOpen(args: SshOpenArgs): Promise<string> {
       identity_file: args.identityFile,
       password: args.password,
       passphrase: args.passphrase,
+      skip_open_ssh_known_hosts: args.skipOpenSshKnownHosts,
     },
   });
 }
@@ -249,4 +328,8 @@ export async function sshHostKeyDecide(
   decision: HostKeyDecision
 ): Promise<void> {
   return invoke("ssh_host_key_decide", { challengeId, decision });
+}
+
+export async function sshForgetTrustedHostKey(host: string, port: number): Promise<void> {
+  return invoke("ssh_forget_trusted_host_key", { host, port });
 }

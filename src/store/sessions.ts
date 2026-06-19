@@ -67,13 +67,26 @@ export const useSessions = create<SessionsState>((set, get) => ({
   },
 
   openEphemeralHost: (h) => {
+    const { activeTabId, tabs, ephemeralHosts } = get();
+    const active = tabs.find((t) => t.id === activeTabId);
+    if (active?.kind === "host" && !active.hostId && !active.connected) {
+      set({
+        tabs: tabs.map((t) =>
+          t.id === activeTabId
+            ? { ...t, hostId: h.id, title: h.alias, hue: h.hue, connected: true }
+            : t
+        ),
+        ephemeralHosts: { ...ephemeralHosts, [h.id]: h },
+      });
+      return;
+    }
     const id = `tab-${Date.now()}`;
     set({
       tabs: [
-        ...get().tabs,
+        ...tabs,
         { id, kind: "host", hostId: h.id, title: h.alias, hue: h.hue, connected: true },
       ],
-      ephemeralHosts: { ...get().ephemeralHosts, [h.id]: h },
+      ephemeralHosts: { ...ephemeralHosts, [h.id]: h },
       activeTabId: id,
     });
   },
@@ -99,7 +112,7 @@ export const useSessions = create<SessionsState>((set, get) => ({
     const existing = get().tabs.find(t => t.kind === "settings");
     if (existing) { set({ activeTabId: existing.id }); return; }
     set({
-      tabs: [...get().tabs, { id: "tab-settings", kind: "settings", title: "Preferences", hue: "#a78bfa" }],
+      tabs: [...get().tabs, { id: "tab-settings", kind: "settings", title: "Settings", hue: "#a78bfa" }],
       activeTabId: "tab-settings",
     });
   },

@@ -1,6 +1,6 @@
 {
   "name": "netssh",
-  "version": "1.1.15",
+  "version": "1.1.16",
   "private": true,
   "type": "module",
   "scripts": {
@@ -9,7 +9,7 @@
     "preview": "vite preview",
     "tauri": "tauri",
     "tauri:dev": "tauri dev",
-    "tauri:build": "tauri build",
+    "tauri:build": "tauri build && pwsh -NoProfile -ExecutionPolicy Bypass -File scripts/collect-release-artifacts.ps1",
     "test": "vitest",
     "lint": "eslint src --ext .ts,.tsx",
     "test:e2e": "pwsh -File scripts/e2e-quick.ps1",

@@ -4,15 +4,17 @@ import type { QuickCommand } from "../config/defaults";
 import type { Group, Host, Lang, Snippet } from "../config/types";
 import { Icon } from "../components/Icons";
 import { useConfirm } from "../components/ConfirmDialog";
-import { useCredentials } from "../store/credentials";
+import { useCredentials, type Credential } from "../store/credentials";
 import { TopologyView } from "./TopologyView";
 import { brandIcon } from "../components/BrandIcons";
 import { deployScope, deployScopeLabel } from "../utils/deployScope";
+import { displayGroupName, resolveGroupIdForDisplay } from "../utils/groups";
 import { HostEditorFull } from "../components/HostForm";
 
 interface HostDetailProps {
   lang: Lang;
   host?: Host | null;
+  mode?: "default" | "new-session";
   onConnect: () => void;
   snippets: Snippet[];
   quickCmds: QuickCommand[];
@@ -37,6 +39,7 @@ interface HostDetailProps {
 export function HostDetail({
   lang,
   host,
+  mode = "default",
   onConnect,
   snippets,
   quickCmds,
@@ -58,6 +61,10 @@ export function HostDetail({
   canOpenQuad,
 }: HostDetailProps) {
   const confirm = useConfirm();
+
+  if (mode === "new-session") {
+    return <NewSessionView lang={lang} onManualConnect={onManualConnect} />;
+  }
 
   // When host is null and we're not editing, show landing/home page
   if (!host) {
@@ -112,7 +119,8 @@ export function HostDetail({
   }
 
   // Normal detail view
-  const site = groups.find((g) => g.id === host.group);
+  const siteId = resolveGroupIdForDisplay(host.group, groups);
+  const site = groups.find((g) => resolveGroupIdForDisplay(g.id, groups) === siteId || resolveGroupIdForDisplay(g.name, groups) === siteId);
 
   return (
     <div className="landing">
@@ -132,13 +140,13 @@ export function HostDetail({
             {site && (
               <span className="host-detail-header__site">
                 <span className="moon" style={{ background: site.color, boxShadow: `0 0 6px ${site.color}` }} />
-                {site.name}
+                {displayGroupName(site, lang)}
                 {site.subnet && <span className="host-detail-header__subnet">{site.subnet}</span>}
               </span>
             )}
             <span className={"latency " + statusClass(host)} />
             <span className="host-detail-header__status">
-              {host.status === "ok" ? (lang === "zh" ? "Online" : "Online") : host.status === "warn" ? (lang === "zh" ? "Warn" : "Warn") : (lang === "zh" ? "Offline" : "Offline")}
+              {host.status === "ok" ? (lang === "zh" ? "在线" : "Online") : host.status === "warn" ? (lang === "zh" ? "告警" : "Warn") : (lang === "zh" ? "离线" : "Offline")}
             </span>
           </div>
         </div>
@@ -159,7 +167,7 @@ export function HostDetail({
         {/* Basic info */}
         <div className="panel">
           <div className="panel-head">
-            <h3><span className="eyebrow">{lang === "zh" ? "Basic info" : "Basic info"}</span></h3>
+            <h3><span className="eyebrow">{lang === "zh" ? "基础信息" : "Basic info"}</span></h3>
           </div>
           <div className="panel-body dense">
             <div className="kvlist">
@@ -169,11 +177,11 @@ export function HostDetail({
               <span className="v">{host.role || "—"}</span>
               <span className="k">{t("host.field.env", lang)}</span>
               <span className="v">{host.env || "—"}</span>
-              <span className="k">{lang === "zh" ? "Deploy" : "Deploy"}</span>
+              <span className="k">{lang === "zh" ? "部署" : "Deploy"}</span>
               <span className="v">{deployScopeLabel(deployScope(host), lang)}</span>
               {host.cloudProvider && (
                 <>
-                  <span className="k">{lang === "zh" ? "Cloud" : "Cloud"}</span>
+                  <span className="k">{lang === "zh" ? "云厂商" : "Cloud"}</span>
                   <span className="v">{host.cloudProvider}</span>
                 </>
               )}
@@ -196,7 +204,7 @@ export function HostDetail({
               <span className="v">{host.port}</span>
               <span className="k">{t("host.eyebrow.key", lang)}</span>
               <span className="v" style={{ fontSize: 11 }}>{identityName(host.identityFile)}</span>
-              <span className="k">{lang === "zh" ? "Command" : "Command"}</span>
+              <span className="k">{lang === "zh" ? "命令" : "Command"}</span>
               <span className="v" style={{ fontFamily: "var(--font-mono)", fontSize: 11 }}>ssh {host.alias}</span>
             </div>
           </div>
@@ -205,15 +213,15 @@ export function HostDetail({
         {/* Site / Group */}
         <div className="panel">
           <div className="panel-head">
-            <h3><span className="eyebrow">{lang === "zh" ? "Site / group" : "Site / group"}</span></h3>
+            <h3><span className="eyebrow">{lang === "zh" ? "站点 / 分组" : "Site / group"}</span></h3>
           </div>
           <div className="panel-body dense">
             <div className="kvlist">
               <span className="k">{t("host.field.group", lang)}</span>
-              <span className="v">{site ? site.name : host.group}</span>
+              <span className="v">{site ? displayGroupName(site, lang) : host.group}</span>
               {site?.subnet && (
                 <>
-                  <span className="k">{lang === "zh" ? "Subnet" : "Subnet"}</span>
+                  <span className="k">{lang === "zh" ? "网段" : "Subnet"}</span>
                   <span className="v" style={{ fontFamily: "var(--font-mono)" }}>{site.subnet}</span>
                 </>
               )}
@@ -228,7 +236,7 @@ export function HostDetail({
           </div>
           <div className="panel-body dense">
             <p style={{ margin: 0, fontSize: 13, color: "var(--text-dim)", lineHeight: 1.6 }}>
-              {host.notes || (lang === "zh" ? "No notes" : "No notes")}
+              {host.notes || (lang === "zh" ? "暂无备注" : "No notes")}
             </p>
           </div>
         </div>
@@ -292,6 +300,25 @@ export function HostDetail({
 /* ================================================================
    Landing / Home page
    ================================================================ */
+function NewSessionView({
+  lang,
+  onManualConnect,
+}: {
+  lang: Lang;
+  onManualConnect: (host: Host) => void;
+}) {
+  return (
+    <div className="landing new-session-view">
+      <section className="new-session-head">
+        <span className="eyebrow">{t("manual.eyebrow", lang)}</span>
+        <h1>{t("manual.new.title", lang)}</h1>
+        <p>{t("manual.new.subtitle", lang)}</p>
+      </section>
+      <ManualConnectCard lang={lang} onManualConnect={onManualConnect} primary autoFocus />
+    </div>
+  );
+}
+
 function Landing({
   lang,
   groups,
@@ -317,66 +344,66 @@ function Landing({
   onOpenQuad: () => void;
   canOpenQuad: boolean;
 }) {
-  const [showTopology, setShowTopology] = useState(true);
   const [showRouters, setShowRouters] = useState(true);
   const [showSwitches, setShowSwitches] = useState(true);
-  const [showDevices, setShowDevices] = useState(false);
-  const [manualCompact, setManualCompact] = useState(true);
+  const [showDevices, setShowDevices] = useState(true);
+  const [manualOpen, setManualOpen] = useState(false);
+  const showSetupActions = hosts.length === 0;
 
   return (
-    <div className="landing landing--workspace">
-      <div className="landing-intro">
-        <span className="eyebrow">{t("landing.eyebrow", lang)}</span>
-        <h1>
-          {t("landing.heading.start", lang)}{" "}
-          <span className="landing-accent">{t("landing.heading.accent", lang)}</span>
-        </h1>
-        <p>{t("landing.sub", lang)}</p>
-      </div>
+    <div className="landing landing--home-map">
+      <section className="landing-map-head">
+        <div className="landing-intro">
+          <span className="eyebrow">{t("landing.eyebrow", lang)}</span>
+          <h1>{t("landing.heading.start", lang)}</h1>
+          <p>{t("landing.sub", lang)}</p>
+        </div>
+        <div className="landing-toolbar landing-toolbar--ops">
+          <button
+            className="btn ghost"
+            onClick={onOpenQuad}
+            disabled={!canOpenQuad}
+            title={t("workspace.split.quadHint", lang)}
+          >
+            {Icon.split}
+            <span>{t("workspace.split.quad", lang)}</span>
+          </button>
+          <button className="btn ghost" onClick={() => setManualOpen((next) => !next)}>
+            <span>{manualOpen ? t("landing.manual.collapse", lang) : t("landing.manual.expand", lang)}</span>
+          </button>
+        </div>
+      </section>
 
-      <div className="landing-toolbar">
-        <button className="btn" onClick={onOpenImport}>
-          {Icon.import}
-          <span>{t("import.title", lang)}</span>
-        </button>
-        <button
-          className="btn ghost"
-          onClick={() => {
-            const created = onAddHost({
-              alias: "",
-              hostname: "",
-              user: "",
-              port: 22,
-              group: groups[0]?.id || "unassigned",
-            });
-            onPickHost(created);
-          }}
-        >
-          {Icon.plus}
-          <span>{t("host.action.add", lang)}</span>
-        </button>
-        <SiteQuickAdd lang={lang} onAddGroup={onAddGroup} />
-        <button
-          className="btn ghost"
-          onClick={onOpenQuad}
-          disabled={!canOpenQuad}
-          title={lang === "zh" ? "Available when 2-4 sessions are open" : "Available when 2-4 sessions are open"}
-        >
-          {Icon.split}
-          <span>{lang === "zh" ? "Quad view" : "Quad view"}</span>
-        </button>
-        <button className="btn ghost" onClick={() => setShowTopology((next) => !next)}>
-          <span>{showTopology ? t("landing.topology.collapse", lang) : t("landing.topology.expand", lang)}</span>
-        </button>
-        <button className="btn ghost" onClick={() => setManualCompact((next) => !next)}>
-          <span>{manualCompact ? t("landing.manual.collapse", lang) : t("landing.manual.expand", lang)}</span>
-        </button>
-      </div>
+      {showSetupActions && (
+        <div className="landing-toolbar landing-toolbar--setup">
+          <button className="btn" onClick={onOpenImport}>
+            {Icon.import}
+            <span>{t("import.title", lang)}</span>
+          </button>
+          <button
+            className="btn ghost"
+            onClick={() => {
+              const created = onAddHost({
+                alias: "",
+                hostname: "",
+                user: "",
+                port: 22,
+                group: groups[0]?.id || "unassigned",
+              });
+              onPickHost(created);
+            }}
+          >
+            {Icon.plus}
+            <span>{t("host.action.add", lang)}</span>
+          </button>
+          <SiteQuickAdd lang={lang} onAddGroup={onAddGroup} />
+        </div>
+      )}
 
       <div className="landing-topology-panel">
         <div className="topology-toolbar">
           <span className="topology-toolbar__label">
-            <span className="eyebrow">{lang === "zh" ? "拓扑筛选" : "Topology filter"}</span>
+            <span className="eyebrow">{t("landing.topology.filter", lang)}</span>
           </span>
           <div className="topology-toolbar__chips">
             <button
@@ -399,20 +426,18 @@ function Landing({
             </button>
           </div>
         </div>
-        {showTopology && (
-          <TopologyView
-            lang={lang}
-            hosts={hosts}
-            groups={groups}
-            onPickHost={onPickHost}
-            onOpenHost={onOpenHost}
-            showRouters={showRouters}
-            showSwitches={showSwitches}
-            showDevices={showDevices}
-          />
-        )}
+        <TopologyView
+          lang={lang}
+          hosts={hosts}
+          groups={groups}
+          onPickHost={onPickHost}
+          onOpenHost={onOpenHost}
+          showRouters={showRouters}
+          showSwitches={showSwitches}
+          showDevices={showDevices}
+        />
       </div>
-      <ManualConnectCard lang={lang} onManualConnect={onManualConnect} compact={manualCompact} />
+      {manualOpen && <ManualConnectCard lang={lang} onManualConnect={onManualConnect} compact />}
     </div>
   );
 }
@@ -453,10 +478,14 @@ function ManualConnectCard({
   lang,
   onManualConnect,
   compact = false,
+  primary = false,
+  autoFocus = false,
 }: {
   lang: Lang;
   onManualConnect: (host: Host) => void;
   compact?: boolean;
+  primary?: boolean;
+  autoFocus?: boolean;
 }) {
   const [alias, setAlias] = useState("");
   const [host, setHost] = useState("");
@@ -480,7 +509,7 @@ function ManualConnectCard({
 
   return (
     <form
-      className={"manual-card" + (compact ? " manual-card--compact" : "")}
+      className={"manual-card" + (compact ? " manual-card--compact" : "") + (primary ? " manual-card--primary" : "")}
       onSubmit={(event) => {
         event.preventDefault();
         if (!host.trim() || !user.trim()) return;
@@ -504,35 +533,29 @@ function ManualConnectCard({
     >
       <div className="manual-card__head">
         <span className="eyebrow">{t("manual.eyebrow", lang)}</span>
-        <span className="manual-card__hint">{t("manual.hint", lang)}</span>
+        {!compact && !primary && <span className="manual-card__hint">{t("manual.hint", lang)}</span>}
       </div>
-      {credentials.length > 0 && (
-        <label className="manual-card__cred">
-          <span className="k">{t("manual.field.credential", lang)}</span>
-          <select
-            value={credentialProfileId}
-            onChange={(e) => {
-              if (!e.target.value) setCredentialProfileId("");
-              applyCredential(e.target.value);
-            }}
-          >
-            <option value="">{t("manual.field.credential.pick", lang)}</option>
-            {credentials.map((cred) => (
-              <option key={cred.id} value={cred.id}>
-                {cred.group} - {cred.name} ({cred.user})
-              </option>
-            ))}
-          </select>
-        </label>
+      {!primary && credentials.length > 0 && (
+        <CredentialPicker
+          credentials={credentials}
+          credentialProfileId={credentialProfileId}
+          lang={lang}
+          onChange={(id) => {
+            if (!id) setCredentialProfileId("");
+            applyCredential(id);
+          }}
+        />
       )}
-      <div className="manual-card__grid">
+      <div className={primary ? "manual-card__primary-grid" : "manual-card__grid"}>
         <label>
           <span className="k">{t("manual.field.host", lang)}</span>
-          <input value={host} onChange={(e) => setHost(e.target.value)} placeholder="example.com / 10.0.0.1" autoComplete="off" />
-        </label>
-        <label>
-          <span className="k">{t("manual.field.port", lang)}</span>
-          <input value={port} inputMode="numeric" onChange={(e) => setPort(e.target.value.replace(/[^\d]/g, ""))} placeholder="22" />
+          <input
+            value={host}
+            onChange={(e) => setHost(e.target.value)}
+            placeholder="example.com / 10.0.0.1"
+            autoComplete="off"
+            autoFocus={autoFocus}
+          />
         </label>
         <label>
           <span className="k">{t("manual.field.user", lang)}</span>
@@ -542,18 +565,92 @@ function ManualConnectCard({
           <span className="k">{t("manual.field.password", lang)}</span>
           <input type="password" value={password} onChange={(e) => setPassword(e.target.value)} autoComplete="off" />
         </label>
-        <label className="manual-card__alias">
-          <span className="k">{t("manual.field.alias", lang)}</span>
-          <input value={alias} onChange={(e) => setAlias(e.target.value)} placeholder={t("manual.field.alias.placeholder", lang)} autoComplete="off" />
-        </label>
+        {!primary && (
+          <label>
+            <span className="k">{t("manual.field.port", lang)}</span>
+            <input value={port} inputMode="numeric" onChange={(e) => setPort(e.target.value.replace(/[^\d]/g, ""))} placeholder="22" />
+          </label>
+        )}
+        {!compact && !primary && (
+          <label className="manual-card__alias">
+            <span className="k">{t("manual.field.alias", lang)}</span>
+            <input value={alias} onChange={(e) => setAlias(e.target.value)} placeholder={t("manual.field.alias.placeholder", lang)} autoComplete="off" />
+          </label>
+        )}
+        {primary && (
+          <div className="manual-card__foot manual-card__foot--primary">
+            <button className="btn" type="submit">
+              {Icon.power}
+              <span>{t("manual.action.connect", lang)}</span>
+            </button>
+          </div>
+        )}
       </div>
-      <div className="manual-card__foot">
+      {primary && (
+        <div className="manual-card__advanced">
+          <div className="manual-card__advanced-head">
+            <span className="eyebrow">{t("manual.advanced.title", lang)}</span>
+          </div>
+          <div className="manual-card__advanced-grid">
+            <label>
+              <span className="k">{t("manual.field.port", lang)}</span>
+              <input value={port} inputMode="numeric" onChange={(e) => setPort(e.target.value.replace(/[^\d]/g, ""))} placeholder="22" />
+            </label>
+            <label>
+              <span className="k">{t("manual.field.alias", lang)}</span>
+              <input value={alias} onChange={(e) => setAlias(e.target.value)} placeholder={t("manual.field.alias.placeholder", lang)} autoComplete="off" />
+            </label>
+            {credentials.length > 0 && (
+              <CredentialPicker
+                credentials={credentials}
+                credentialProfileId={credentialProfileId}
+                lang={lang}
+                onChange={(id) => {
+                  if (!id) setCredentialProfileId("");
+                  applyCredential(id);
+                }}
+              />
+            )}
+            <label>
+              <span className="k">{t("manual.field.identityFile", lang)}</span>
+              <input value={identityFile || ""} onChange={(e) => setIdentityFile(e.target.value || undefined)} placeholder="~/.ssh/id_rsa" autoComplete="off" />
+            </label>
+          </div>
+        </div>
+      )}
+      {!primary && <div className="manual-card__foot">
         <button className="btn" type="submit">
           {Icon.power}
           <span>{t("manual.action.connect", lang)}</span>
         </button>
-      </div>
+      </div>}
     </form>
+  );
+}
+
+function CredentialPicker({
+  credentials,
+  credentialProfileId,
+  lang,
+  onChange,
+}: {
+  credentials: Credential[];
+  credentialProfileId: string;
+  lang: Lang;
+  onChange: (id: string) => void;
+}) {
+  return (
+    <label className="manual-card__cred">
+      <span className="k">{t("manual.field.credential", lang)}</span>
+      <select value={credentialProfileId} onChange={(e) => onChange(e.target.value)}>
+        <option value="">{t("manual.field.credential.pick", lang)}</option>
+        {credentials.map((cred) => (
+          <option key={cred.id} value={cred.id}>
+            {cred.group} - {cred.name} ({cred.user})
+          </option>
+        ))}
+      </select>
+    </label>
   );
 }
 
@@ -581,14 +678,14 @@ function CommandRow({ name, cmd, lang, onRun }: { name: string; cmd: string; lan
 
 function commandNote(cmd: string, lang: Lang) {
   const lower = cmd.toLowerCase();
-  if (lower.startsWith("ssh ")) return lang === "zh" ? "Open an SSH session" : "Open an SSH session";
-  if (lower.startsWith("ping")) return lang === "zh" ? "Send ICMP probes" : "Send ICMP probes";
-  if (lower.includes("ip a") || lower.includes("ifconfig")) return lang === "zh" ? "Show network interfaces" : "Show network interfaces";
-  if (lower.startsWith("uptime")) return lang === "zh" ? "Show uptime" : "Show uptime";
-  if (lower.startsWith("df ")) return lang === "zh" ? "Show disk usage" : "Show disk usage";
-  if (lower.startsWith("uname")) return lang === "zh" ? "Show system info" : "Show system info";
-  if (lower.startsWith("docker ps")) return lang === "zh" ? "List running containers" : "List running containers";
-  return lang === "zh" ? "Click to run in active session" : "Click to run in active session";
+  if (lower.startsWith("ssh ")) return lang === "zh" ? "打开 SSH 会话" : "Open an SSH session";
+  if (lower.startsWith("ping")) return lang === "zh" ? "发送 ICMP 探测" : "Send ICMP probes";
+  if (lower.includes("ip a") || lower.includes("ifconfig")) return lang === "zh" ? "查看网络接口" : "Show network interfaces";
+  if (lower.startsWith("uptime")) return lang === "zh" ? "查看运行时间" : "Show uptime";
+  if (lower.startsWith("df ")) return lang === "zh" ? "查看磁盘占用" : "Show disk usage";
+  if (lower.startsWith("uname")) return lang === "zh" ? "查看系统信息" : "Show system info";
+  if (lower.startsWith("docker ps")) return lang === "zh" ? "列出运行中的容器" : "List running containers";
+  return lang === "zh" ? "点击在当前会话中运行" : "Click to run in active session";
 }
 
 function identityName(path?: string) {

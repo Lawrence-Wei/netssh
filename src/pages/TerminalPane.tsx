@@ -19,6 +19,7 @@ import {
   ptyResize,
   ptySend,
   sshClose,
+  sshForgetTrustedHostKey,
   sshHostKeyDecide,
   sshOpen,
   sshResize,
@@ -62,6 +63,13 @@ interface HostKeyChallengeState {
   error?: string;
 }
 
+interface PendingHostKeyDecision {
+  host: string;
+  port: number;
+  fingerprint: string;
+  decision: HostKeyDecision;
+}
+
 export function TerminalPane({ lang, host, shellId, shellTitle, onClose, onRetry, onEditHost, runQueue }: TerminalPaneProps) {
   const mountRef = useRef<HTMLDivElement>(null);
   const termRef = useRef<XTerm | null>(null);
@@ -74,6 +82,7 @@ export function TerminalPane({ lang, host, shellId, shellTitle, onClose, onRetry
   const [connectionError, setConnectionError] = useState<string | null>(null);
   const [hostKeyChallenge, setHostKeyChallenge] = useState<HostKeyChallengeState | null>(null);
   const [retryNonce, setRetryNonce] = useState(0);
+  const [skipOpenSshKnownHosts, setSkipOpenSshKnownHosts] = useState(false);
   const [clock, setClock] = useState(() => new Date());
   const isLogClosedRef = useRef(false);
   const onCloseRef = useRef(onClose);
@@ -81,6 +90,7 @@ export function TerminalPane({ lang, host, shellId, shellTitle, onClose, onRetry
   const bytesInRef = useRef(0);
   const bytesOutRef = useRef(0);
   const connectionLogIdRef = useRef<string | null>(null);
+  const pendingHostKeyDecisionRef = useRef<PendingHostKeyDecision | null>(null);
 
   useEffect(() => {
     const id = window.setInterval(() => setClock(new Date()), 1000);
@@ -264,6 +274,26 @@ export function TerminalPane({ lang, host, shellId, shellTitle, onClose, onRetry
           setLiveMode("ssh");
           unlistenHostKeyChallenge = await onHostKeyChallenge((event) => {
             if (event.host !== host.hostname || event.port !== host.port) return;
+            const pendingDecision = pendingHostKeyDecisionRef.current;
+            if (
+              pendingDecision &&
+              pendingDecision.host === event.host &&
+              pendingDecision.port === event.port &&
+              pendingDecision.fingerprint === event.fingerprint
+            ) {
+              pendingHostKeyDecisionRef.current = null;
+              setHostKeyChallenge({ event, submitting: true });
+              void sshHostKeyDecide(event.challenge_id, pendingDecision.decision)
+                .then(() => setHostKeyChallenge(null))
+                .catch((error) => {
+                  setHostKeyChallenge({
+                    event,
+                    submitting: false,
+                    error: error instanceof Error ? error.message : String(error),
+                  });
+                });
+              return;
+            }
             setHostKeyChallenge({ event, submitting: false });
           });
           resetMetrics();
@@ -292,6 +322,7 @@ export function TerminalPane({ lang, host, shellId, shellTitle, onClose, onRetry
             port: host.port,
             identityFile,
             password,
+            skipOpenSshKnownHosts,
           });
           if (disposed) {
             await sshClose(id);
@@ -346,7 +377,7 @@ export function TerminalPane({ lang, host, shellId, shellTitle, onClose, onRetry
       demoRef.current = null;
       term.dispose();
     };
-  }, [host?.id, shellId, shellTitle, retryNonce]);
+  }, [host?.id, shellId, shellTitle, retryNonce, skipOpenSshKnownHosts]);
 
   useEffect(() => {
     if (!runQueue || runQueue.length === 0 || runQueue.length === lastRunLengthRef.current) return;
@@ -381,7 +412,34 @@ export function TerminalPane({ lang, host, shellId, shellTitle, onClose, onRetry
     : t("rail.add", lang);
   const isDemo = liveMode === "demo";
   const hasError = liveMode === "error" && !!connectionError;
-  const handleRetry = () => {
+  const hostKeyStatus = hostKeyChallenge
+    ? hostKeyChallenge.event.status === "mismatch"
+      ? "blocked"
+      : "pending"
+    : null;
+  const hasHostKeyBlocked = hostKeyStatus === "blocked";
+  const hasHostKeyPending = hostKeyStatus === "pending";
+  const connectionStatusClass = hasError || hasHostKeyBlocked ? "bad" : isDemo || hasHostKeyPending ? "warn" : "";
+  const connectionStatusLabel = hasError
+    ? t("conn.status.failed", lang)
+    : hasHostKeyBlocked
+      ? t("conn.status.hostKeyBlocked", lang)
+      : hasHostKeyPending
+        ? t("conn.status.hostKeyPending", lang)
+        : t(isDemo ? "conn.status.localDemo" : "conn.status.connected", lang);
+  const shellStatusLabel = hasError
+    ? t("conn.status.failed", lang)
+    : hasHostKeyBlocked
+      ? t("conn.status.hostKeyBlocked", lang)
+      : hasHostKeyPending
+        ? t("conn.status.hostKeyPending", lang)
+        : isDemo
+          ? t("status.shell.local", lang)
+          : host
+            ? (host.connectionType === "serial" ? t("status.shell.serial", lang) : t("status.shell.remote", lang))
+            : t("status.shell.local", lang);
+  const handleRetry = (options?: { skipOpenSshKnownHosts?: boolean }) => {
+    setSkipOpenSshKnownHosts(Boolean(options?.skipOpenSshKnownHosts));
     setConnectionError(null);
     setHostKeyChallenge(null);
     setLiveMode(host ? (host.connectionType === "serial" ? "serial" : "ssh") : shellId ? "pty" : "demo");
@@ -390,13 +448,43 @@ export function TerminalPane({ lang, host, shellId, shellTitle, onClose, onRetry
   };
   const decideHostKey = async (decision: HostKeyDecision) => {
     if (!hostKeyChallenge || hostKeyChallenge.submitting) return;
-    setHostKeyChallenge({ ...hostKeyChallenge, submitting: true, error: undefined });
+    const current = hostKeyChallenge;
+    setHostKeyChallenge({ ...current, submitting: true, error: undefined });
     try {
-      await sshHostKeyDecide(hostKeyChallenge.event.challenge_id, decision);
+      await sshHostKeyDecide(current.event.challenge_id, decision);
       setHostKeyChallenge(null);
     } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      if (/host_key_challenge_(not_found|closed)/i.test(message) && decision !== "reject") {
+        pendingHostKeyDecisionRef.current = {
+          host: current.event.host,
+          port: current.event.port,
+          fingerprint: current.event.fingerprint,
+          decision,
+        };
+        setHostKeyChallenge(null);
+        handleRetry({ skipOpenSshKnownHosts: true });
+        return;
+      }
       setHostKeyChallenge({
-        ...hostKeyChallenge,
+        ...current,
+        submitting: false,
+        error: message,
+      });
+    }
+  };
+  const forgetTrustedHostKeyAndRetry = async () => {
+    if (!hostKeyChallenge || hostKeyChallenge.submitting) return;
+    const current = hostKeyChallenge;
+    setHostKeyChallenge({ ...current, submitting: true, error: undefined });
+    try {
+      await sshHostKeyDecide(current.event.challenge_id, "reject").catch(() => undefined);
+      await sshForgetTrustedHostKey(current.event.host, current.event.port);
+      setHostKeyChallenge(null);
+      handleRetry({ skipOpenSshKnownHosts: true });
+    } catch (error) {
+      setHostKeyChallenge({
+        ...current,
         submitting: false,
         error: error instanceof Error ? error.message : String(error),
       });
@@ -413,13 +501,13 @@ export function TerminalPane({ lang, host, shellId, shellTitle, onClose, onRetry
           <span>{subtitle}</span>
           {host?.role && <><span className="sep">.</span><span>{host.role}</span></>}
         </div>
-        <span className={"status " + (hasError ? "bad" : isDemo ? "warn" : "")}>
-          <span className={"latency " + (hasError ? "bad" : isDemo ? "warn" : "ok")} style={{ background: "currentColor" }} />
-          <span>{hasError ? t("conn.status.failed", lang) : t(isDemo ? "conn.status.localDemo" : "conn.status.connected", lang)}</span>
+        <span className={"status " + connectionStatusClass}>
+          <span className={"latency " + (connectionStatusClass || "ok")} style={{ background: "currentColor" }} />
+          <span>{connectionStatusLabel}</span>
         </span>
         <div className="spacer" />
         <div className="conn-actions">
-          <button className="icon-btn" title={t("conn.action.reconnect", lang)} onClick={handleRetry}>{Icon.refresh}</button>
+          <button className="icon-btn" title={t("conn.action.reconnect", lang)} onClick={() => handleRetry()}>{Icon.refresh}</button>
           <button className="icon-btn danger" title={t("conn.action.disconnect", lang)} onClick={onClose}>{Icon.power}</button>
         </div>
       </div>
@@ -440,6 +528,7 @@ export function TerminalPane({ lang, host, shellId, shellTitle, onClose, onRetry
               submitting={hostKeyChallenge.submitting}
               error={hostKeyChallenge.error}
               onDecide={decideHostKey}
+              onForgetTrustedHostKey={forgetTrustedHostKeyAndRetry}
             />
           )}
           {hasError && host && (
@@ -461,7 +550,7 @@ export function TerminalPane({ lang, host, shellId, shellTitle, onClose, onRetry
                 </div>
               )}
               <div className="connection-error__actions">
-                <button className="btn" onClick={handleRetry}>
+                <button className="btn" onClick={() => handleRetry()}>
                   {Icon.power}
                   <span>{t("common.retry", lang)}</span>
                 </button>
@@ -480,7 +569,7 @@ export function TerminalPane({ lang, host, shellId, shellTitle, onClose, onRetry
         <span className="item accent"><span className="key">{t("status.latency", lang)}</span><span>{host?.latency ?? "-"} ms</span></span>
         <span className="item"><span className="key">{t("status.cipher", lang)}</span><span>{host ? t("status.cipher.ssh2", lang) : t("status.cipher.conpty", lang)}</span></span>
         <span className="item"><span className="key">{t("status.encoding", lang)}</span><span>UTF-8</span></span>
-        <span className="item"><span className="key">{t("status.shell", lang)}</span><span>{hasError ? t("conn.status.failed", lang) : isDemo ? t("status.shell.local", lang) : host ? (host.connectionType === "serial" ? t("status.shell.serial", lang) : t("status.shell.remote", lang)) : t("status.shell.local", lang)}</span></span>
+        <span className="item"><span className="key">{t("status.shell", lang)}</span><span>{shellStatusLabel}</span></span>
         <span style={{ flex: 1 }} />
         <span className="item" style={{ color: "var(--text-mute)" }}>
           <span>{host ? (host.connectionType === "serial" ? t("status.protocol.serial", lang) : `${t("status.protocol.tcp", lang)}/${host.port}`) : t("status.shell.local", lang)} . </span>
@@ -497,12 +586,14 @@ function HostKeyChallengeOverlay({
   submitting,
   error,
   onDecide,
+  onForgetTrustedHostKey,
 }: {
   lang: Lang;
   challenge: HostKeyChallenge;
   submitting: boolean;
   error?: string;
   onDecide: (decision: HostKeyDecision) => void;
+  onForgetTrustedHostKey: () => void;
 }) {
   const isMismatch = challenge.status === "mismatch";
   return (
@@ -544,6 +635,11 @@ function HostKeyChallengeOverlay({
         {!isMismatch && challenge.can_remember && (
           <button className="btn" disabled={submitting} onClick={() => onDecide("accept_and_remember")}>
             {t("hostkey.action.trust", lang)}
+          </button>
+        )}
+        {isMismatch && (
+          <button className="btn danger" disabled={submitting} onClick={onForgetTrustedHostKey}>
+            {t("hostkey.action.forgetAndRetry", lang)}
           </button>
         )}
       </div>

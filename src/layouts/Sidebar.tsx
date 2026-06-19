@@ -5,6 +5,7 @@ import { useReachability } from "../store/reachability";
 import { brandIcon } from "../components/BrandIcons";
 import { useConfirm } from "../components/ConfirmDialog";
 import { deployScope, deployScopeLabel } from "../utils/deployScope";
+import { groupHostsForDisplay } from "../utils/groups";
 import type { Group, GroupId, Host, Lang } from "../config/types";
 import { Icon } from "../components/Icons";
 
@@ -81,23 +82,11 @@ export function Sidebar({
   const filteredIds = useMemo(() => new Set(filtered.map((h) => h.id)), [filtered]);
 
   const grouped = useMemo(() => {
-    const buckets = groups.map((group) => ({
-      ...group,
-      hosts: filtered.filter((host) => host.group === group.id),
-    }));
-    const knownIds = new Set(groups.map((g) => g.id));
-    const orphans = filtered.filter((host) => !knownIds.has(host.group));
-    const alreadyHasUnassigned = groups.some((g) => g.id === "unassigned");
-    if (orphans.length && !alreadyHasUnassigned) {
-      buckets.push({
-        id: "unassigned" as GroupId,
-        name: t("groups.unassigned", lang),
-        color: "#897e6e",
-        subnet: undefined,
-        hosts: orphans,
-      });
-    }
-    return buckets;
+    return groupHostsForDisplay(filtered, groups, t("groups.unassigned", lang))
+      .map((bucket) => ({
+        ...bucket.group,
+        hosts: bucket.hosts,
+      }));
   }, [filtered, groups, lang]);
 
   const toggleSelect = (id: string) => {
@@ -172,8 +161,8 @@ export function Sidebar({
             ["all", t("sidebar.filter.all", lang)],
             ["favorite", t("sidebar.filter.pinned", lang)],
             ["recent", t("sidebar.filter.recent", lang)],
-            ["local", lang === "zh" ? "Local" : "Local"],
-            ["cloud", lang === "zh" ? "Cloud" : "Cloud"],
+            ["local", lang === "zh" ? "本地" : "Local"],
+            ["cloud", lang === "zh" ? "云端" : "Cloud"],
           ].map(([id, label]) => (
             <button key={id} className={"chip " + (filter === id ? "active" : "")} onClick={() => setFilter(id as typeof filter)}>
               {label}
@@ -227,21 +216,21 @@ export function Sidebar({
             <button
               className="sidebar-quick__btn"
               onClick={() => setBatchMode(true)}
-              title={lang === "zh" ? "Batch manage hosts" : "Batch manage hosts"}
+              title={lang === "zh" ? "批量管理主机" : "Batch manage hosts"}
             >
               <svg viewBox="0 0 14 14" width="10" height="10" fill="none">
                 <rect x="1.5" y="2" width="11" height="10" rx="1.5" stroke="currentColor" strokeWidth="1.2" />
                 <path d="M4 7l2 2 4-4" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round" />
               </svg>
-              <span>{lang === "zh" ? "Batch" : "Batch"}</span>
+              <span>{lang === "zh" ? "批量" : "Batch"}</span>
             </button>
           ) : (
             <div className="batch-actions">
               <button className="chip" onClick={selectAllFiltered}>
-                {lang === "zh" ? "Select all" : "Select all"}
+                {lang === "zh" ? "全选" : "Select all"}
               </button>
               <button className="chip" onClick={deselectAll}>
-                {lang === "zh" ? "Deselect" : "Deselect"}
+                {lang === "zh" ? "取消选择" : "Deselect"}
               </button>
               <button
                 className="chip danger"
@@ -252,7 +241,7 @@ export function Sidebar({
                 <span>{selectedIds.size > 0 ? `(${selectedIds.size})` : ""}</span>
               </button>
               <button className="chip" onClick={exitBatchMode}>
-                {lang === "zh" ? "Done" : "Done"}
+                {lang === "zh" ? "完成" : "Done"}
               </button>
             </div>
           )}
@@ -448,15 +437,15 @@ export function Sidebar({
 
 function statusTooltip(latency?: number | null, status?: Host["status"], lang?: Lang) {
   if (status === "off" || latency == null) {
-    return lang === "zh" ? "Not checked yet: double-click to connect and update status" : "Not checked yet: double-click to connect and update status";
+    return lang === "zh" ? "尚未检测：双击连接后更新状态" : "Not checked yet: double-click to connect and update status";
   }
   if (latency < 20) {
-    return lang === "zh" ? `Healthy: ${latency} ms latency` : `Healthy: ${latency} ms latency`;
+    return lang === "zh" ? `健康：${latency} ms 延迟` : `Healthy: ${latency} ms latency`;
   }
   if (latency < 60) {
-    return lang === "zh" ? `Needs attention: ${latency} ms latency` : `Needs attention: ${latency} ms latency`;
+    return lang === "zh" ? `需关注：${latency} ms 延迟` : `Needs attention: ${latency} ms latency`;
   }
-  return lang === "zh" ? `Critical: ${latency} ms latency or connection issue` : `Critical: ${latency} ms latency or connection issue`;
+  return lang === "zh" ? `异常：${latency} ms 延迟或连接问题` : `Critical: ${latency} ms latency or connection issue`;
 }
 
 function latencyClass(latency?: number | null, status?: Host["status"]) {
@@ -490,17 +479,17 @@ function formatRecent(timestamp: number, lang: Lang) {
   const diffMs = Math.max(0, Date.now() - timestamp);
   const minutes = Math.max(1, Math.floor(diffMs / 60000));
   if (minutes < 60) {
-    return lang === "zh" ? `${minutes}m ago` : `${minutes}m ago`;
+    return t("host.lastseen.minutes", lang, { n: minutes });
   }
   const hours = Math.floor(minutes / 60);
   if (hours < 24) {
-    return lang === "zh" ? `${hours}h ago` : `${hours}h ago`;
+    return t("host.lastseen.hours", lang, { n: hours });
   }
   const days = Math.floor(hours / 24);
-  return lang === "zh" ? `${days}d ago` : `${days}d ago`;
+  return t("host.lastseen.days", lang, { n: days });
 }
 
 function recentTooltip(timestamp: number | undefined, lang: Lang) {
-  if (!timestamp) return lang === "zh" ? "Never connected" : "Never connected";
-  return lang === "zh" ? `Last connected: ${formatRecent(timestamp, lang)}` : `Last connected: ${formatRecent(timestamp, lang)}`;
+  if (!timestamp) return t("host.lastseen.never", lang);
+  return lang === "zh" ? `最近连接：${formatRecent(timestamp, lang)}` : `Last connected: ${formatRecent(timestamp, lang)}`;
 }

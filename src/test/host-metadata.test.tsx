@@ -4,6 +4,8 @@ import userEvent from "@testing-library/user-event";
 import { Sidebar } from "../layouts/Sidebar";
 import { ConfirmProvider } from "../components/ConfirmDialog";
 import { useHosts } from "../store/hosts";
+import { displayGroupName, groupHostsForDisplay } from "../utils/groups";
+import { deployScopeLabel } from "../utils/deployScope";
 import type { Group, Host } from "../config/types";
 
 const groups: Group[] = [{ id: "unassigned", name: "Unassigned", color: "#897e6e" }];
@@ -29,6 +31,29 @@ function renderSidebar(hosts: Host[]) {
         lang="en"
         hosts={hosts}
         groups={groups}
+        onPickHost={vi.fn()}
+        onDoubleClickHost={vi.fn()}
+        onContextMenu={vi.fn()}
+        onOpenImport={vi.fn()}
+        onAddGroup={vi.fn()}
+        onRenameGroup={vi.fn()}
+        onRemoveGroup={vi.fn()}
+        onMoveHostToGroup={vi.fn()}
+        onAddHostQuick={vi.fn()}
+        onRemoveHosts={vi.fn()}
+        onToggleFavorite={vi.fn()}
+      />
+    </ConfirmProvider>
+  );
+}
+
+function renderSidebarWithGroups(hosts: Host[], sidebarGroups: Group[], lang: "en" | "zh" = "en") {
+  return render(
+    <ConfirmProvider>
+      <Sidebar
+        lang={lang}
+        hosts={hosts}
+        groups={sidebarGroups}
         onPickHost={vi.fn()}
         onDoubleClickHost={vi.fn()}
         onContextMenu={vi.fn()}
@@ -104,6 +129,55 @@ describe("host metadata", () => {
     };
     expect(persisted.groups).toEqual([{ id: "unassigned", name: "Unassigned", color: "#897e6e" }]);
     expect(persisted.hosts[0].group).toBe("unassigned");
+  });
+
+  it("hides the empty built-in unassigned group in the sidebar", () => {
+    renderSidebar([]);
+    expect(within(document.querySelector(".sidebar")!).queryByText("Unassigned")).toBeFalsy();
+    expect(document.querySelector(".host-group")).toBeFalsy();
+  });
+
+  it("canonicalizes damaged site labels without changing the preferred site buckets", () => {
+    const damagedGroups: Group[] = [
+      { id: "shanghai", name: "SHANGHAI / ????", color: "#8f7a65" },
+      { id: "pr-e20c", name: "PR / E20C ??", color: "#7f7395" },
+      { id: "wx", name: "WX / ????", color: "#6f7f95" },
+      { id: "cloudcone", name: "CloudCone ???", color: "#5f7fb0" },
+    ];
+    const damagedHosts = [
+      host("sh", "shgw", { group: "SHANGHAI / ????" }),
+      host("pr", "prgw-lan", { group: "PR / E20C ??" }),
+      host("wx", "wxgw", { group: "WX / ????" }),
+      host("cloud", "ecs", { group: "CloudCone ???", deployScope: "cloud" }),
+    ];
+
+    const buckets = groupHostsForDisplay(damagedHosts, damagedGroups, "未分配");
+    expect(buckets.map((bucket) => bucket.group.id)).toEqual([
+      "shanghai",
+      "pr-office",
+      "wuxi",
+      "cloud",
+    ]);
+    expect(buckets.map((bucket) => displayGroupName(bucket.group, "zh"))).toEqual([
+      "上海",
+      "PR / E20C",
+      "无锡",
+      "Cloud",
+    ]);
+
+    renderSidebarWithGroups(damagedHosts, damagedGroups, "zh");
+    const sidebarNode = document.querySelector(".sidebar")!;
+    expect(within(sidebarNode).getByText("上海")).toBeTruthy();
+    expect(within(sidebarNode).getByText("PR / E20C")).toBeTruthy();
+    expect(within(sidebarNode).getByText("无锡")).toBeTruthy();
+    expect(within(sidebarNode).getByText("Cloud")).toBeTruthy();
+    expect(sidebarNode.textContent).not.toContain("????");
+    expect(sidebarNode.textContent).not.toContain("??");
+  });
+
+  it("localizes deployment scope labels", () => {
+    expect(deployScopeLabel("local", "zh")).toBe("本地");
+    expect(deployScopeLabel("cloud", "zh")).toBe("云端");
   });
 
   it("filters sidebar hosts by favorites and recent connections", async () => {

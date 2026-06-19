@@ -28,9 +28,9 @@ export function deployScope(host: Host): DeployScope {
 export function deployScopeLabel(scope: DeployScope, lang: Lang): string {
   /** Normalize legacy values. */
   if (scope === "hybrid" || scope === "unknown") scope = "local";
-  const zh: Record<string, string> = { local: "Local", cloud: "Cloud" };
+  const zh: Record<string, string> = { local: "本地", cloud: "云端" };
   const en: Record<string, string> = { local: "Local", cloud: "Cloud" };
-  return lang === "zh" ? zh[scope] || "Local" : en[scope] || "Local";
+  return lang === "zh" ? zh[scope] || "本地" : en[scope] || "Local";
 }
 
 /**

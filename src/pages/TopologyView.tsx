@@ -1,5 +1,7 @@
 import type { Group, Host, Lang } from "../config/types";
 import { brandIcon } from "../components/BrandIcons";
+import { t } from "../utils/i18n";
+import { displayGroupName, groupHostsForDisplay } from "../utils/groups";
 
 type TopologyKind = "router" | "switch" | "server" | "pc";
 
@@ -29,12 +31,11 @@ export function TopologyView({
   showSwitches,
   showDevices,
 }: TopologyViewProps) {
-  const knownGroups = new Set(groups.map((group) => group.id));
-  const grouped = groups
-    .map((group) => ({
+  const grouped = groupHostsForDisplay(hosts, groups, t("groups.unassigned", lang))
+    .map(({ group, hosts: groupHosts }) => ({
       group,
-      nodes: hosts
-        .filter((host) => host.group === group.id)
+      total: groupHosts.length,
+      nodes: groupHosts
         .map((host) => ({ host, kind: inferKind(host) }))
         .filter((node) => {
           if (node.kind === "router") return showRouters;
@@ -43,52 +44,40 @@ export function TopologyView({
         }),
     }))
     .filter((item) => item.nodes.length > 0);
-  const orphans = hosts.filter((host) => !knownGroups.has(host.group))
-    .map((host) => ({ host, kind: inferKind(host) }))
-    .filter((node) => {
-      if (node.kind === "router") return showRouters;
-      if (node.kind === "switch") return showSwitches;
-      return showDevices;
-    });
-  if (orphans.length) {
-    grouped.push({
-      group: {
-        id: "unassigned",
-        name: lang === "zh" ? "Unassigned" : "Unassigned",
-        color: "#897e6e",
-      },
-      nodes: orphans,
-    });
-  }
-
-  if (hosts.length === 0) return null;
 
   return (
     <section className="topology-panel">
       <div className="topology-panel__head">
-        <span className="eyebrow">{lang === "zh" ? "Network topology" : "Network topology"}</span>
-        <span>{lang === "zh" ? "Inferred by site" : "Inferred by site"}</span>
+        <span className="eyebrow">{t("topology.title", lang)}</span>
+        <span>{t("topology.inferred", lang)}</span>
       </div>
-      <div className="topology-sites">
-        {grouped.map(({ group, nodes }) => {
-          const routers = nodes.filter((node) => node.kind === "router");
-          const switches = nodes.filter((node) => node.kind === "switch");
-          const leaves = nodes.filter((node) => node.kind !== "router" && node.kind !== "switch");
-          return (
-            <article key={group.id} className="topology-site">
-              <div className="topology-site__title">
-                <span className="topology-site__dot" style={{ background: group.color }} />
-                <span>{group.name}</span>
-                {group.subnet && <span className="topology-site__subnet">{group.subnet}</span>}
-                <small>{nodes.length}</small>
-              </div>
-              <TopologyLayer label={lang === "zh" ? "Routers" : "Routers"} nodes={routers} onPickHost={onPickHost} onOpenHost={onOpenHost} />
-              <TopologyLayer label={lang === "zh" ? "Switches" : "Switches"} nodes={switches} onPickHost={onPickHost} onOpenHost={onOpenHost} />
-              <TopologyLayer label={lang === "zh" ? "Devices / servers" : "Devices / servers"} nodes={leaves} onPickHost={onPickHost} onOpenHost={onOpenHost} />
-            </article>
-          );
-        })}
-      </div>
+      {hosts.length === 0 ? (
+        <div className="topology-empty">
+          <strong>{t("topology.empty.title", lang)}</strong>
+          <span>{t("topology.empty.desc", lang)}</span>
+        </div>
+      ) : (
+        <div className="topology-sites">
+          {grouped.map(({ group, total, nodes }) => {
+            const routers = nodes.filter((node) => node.kind === "router");
+            const switches = nodes.filter((node) => node.kind === "switch");
+            const leaves = nodes.filter((node) => node.kind !== "router" && node.kind !== "switch");
+            return (
+              <article key={group.id} className="topology-site">
+                <div className="topology-site__title">
+                  <span className="topology-site__dot" style={{ background: group.color }} />
+                  <span>{displayGroupName(group, lang)}</span>
+                  {group.subnet && <span className="topology-site__subnet">{group.subnet}</span>}
+                  <small>{total}</small>
+                </div>
+                <TopologyLayer label={t("topology.layer.routers", lang)} nodes={routers} onPickHost={onPickHost} onOpenHost={onOpenHost} />
+                <TopologyLayer label={t("topology.layer.switches", lang)} nodes={switches} onPickHost={onPickHost} onOpenHost={onOpenHost} />
+                <TopologyLayer label={t("topology.layer.devices", lang)} nodes={leaves} onPickHost={onPickHost} onOpenHost={onOpenHost} />
+              </article>
+            );
+          })}
+        </div>
+      )}
     </section>
   );
 }
