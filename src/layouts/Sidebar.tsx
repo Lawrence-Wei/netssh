@@ -23,7 +23,7 @@ interface SidebarProps {
   onRenameGroup: (id: GroupId, name: string, subnet?: string) => void;
   onRemoveGroup: (id: GroupId) => void;
   onMoveHostToGroup: (hostId: string, groupId: GroupId) => void;
-  onReorderHost: (hostId: string, targetOrder: number, targetGroupId?: string) => void;
+  onReorderHost: (hostId: string, targetOrder: number, targetGroupId?: string, orderedHostIds?: string[]) => void;
   onAddHostQuick: () => void;
   onRemoveHosts: (ids: string[]) => void;
   onToggleFavorite: (hostId: string) => void;
@@ -87,6 +87,7 @@ export function Sidebar({
   const filtered = useMemo(() => {
     return sortHostsForSidebar(filterHostsForInventory(hosts, { query, filter }), filter);
   }, [filter, hosts, query]);
+  const canManualReorder = filter !== "recent";
 
   const filteredIds = useMemo(() => new Set(filtered.map((h) => h.id)), [filtered]);
 
@@ -347,17 +348,23 @@ export function Sidebar({
                   const isDragOver = dragOverHostId === host.id;
                   const dndAbove = isDragOver && dropPosition === "above";
                   const dndBelow = isDragOver && dropPosition === "below";
+                  const canMoveUp = canManualReorder && hostIndex > 0;
+                  const canMoveDown = canManualReorder && hostIndex < group.hosts.length - 1;
+                  const moveHost = (delta: -1 | 1) => {
+                    const orderedHostIds = orderedIdsForMove(group.hosts, hostIndex, delta);
+                    onReorderHost(host.id, orderedHostIds.indexOf(host.id), group.id, orderedHostIds);
+                  };
                   return (
                   <div
                     key={host.id}
-                    draggable={!batchMode}
+                    draggable={!batchMode && canManualReorder}
                     onDragStart={(event) => {
-                      if (batchMode) return;
+                      if (batchMode || !canManualReorder) return;
                       event.dataTransfer.setData("text/netssh-host", host.id);
                       event.dataTransfer.effectAllowed = "move";
                     }}
                     onDragOver={(event) => {
-                      if (batchMode) return;
+                      if (batchMode || !canManualReorder) return;
                       const dragHostId = event.dataTransfer.types.includes("text/netssh-host")
                         ? true
                         : false;
@@ -388,23 +395,8 @@ export function Sidebar({
                         setDropPosition(null);
                         return;
                       }
-                      // Compute new order using the neighbors in the sorted group list.
-                      const neighbors = group.hosts;
-                      let newOrder: number;
-                      if (pos === "above") {
-                        const above = hostIndex > 0 ? neighbors[hostIndex - 1] : null;
-                        const below = neighbors[hostIndex];
-                        const orderAbove = above?.order ?? (hostIndex > 0 ? (neighbors[hostIndex - 1]?.order ?? hostIndex - 1) : 0);
-                        const orderBelow = below?.order ?? hostIndex;
-                        newOrder = reorderBetween(orderAbove, orderBelow, pos);
-                      } else {
-                        const above = neighbors[hostIndex];
-                        const below = hostIndex < neighbors.length - 1 ? neighbors[hostIndex + 1] : null;
-                        const orderAbove = above?.order ?? hostIndex;
-                        const orderBelow = below?.order ?? (hostIndex < neighbors.length - 1 ? (neighbors[hostIndex + 1]?.order ?? hostIndex + 1) : hostIndex + 2);
-                        newOrder = reorderBetween(orderAbove, orderBelow, pos);
-                      }
-                      onReorderHost(dragHostId, newOrder, group.id);
+                      const orderedHostIds = orderedIdsForDrop(group.hosts, dragHostId, host.id, pos);
+                      onReorderHost(dragHostId, orderedHostIds.indexOf(dragHostId), group.id, orderedHostIds);
                       setDragOverHostId(null);
                       setDropPosition(null);
                     }}
@@ -456,15 +448,43 @@ export function Sidebar({
                       </div>
                     </span>
                     <span className="row-flex gap-tight">
+                      <span className="host-reorder-actions">
+                        <button
+                          type="button"
+                          className="host-order-btn host-order-btn--up"
+                          title={t("host.action.moveUp", lang)}
+                          aria-label={t("host.action.moveUp", lang)}
+                          disabled={!canMoveUp}
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            moveHost(-1);
+                          }}
+                        >
+                          {Icon.chevron}
+                        </button>
+                        <button
+                          type="button"
+                          className="host-order-btn host-order-btn--down"
+                          title={t("host.action.moveDown", lang)}
+                          aria-label={t("host.action.moveDown", lang)}
+                          disabled={!canMoveDown}
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            moveHost(1);
+                          }}
+                        >
+                          {Icon.chevron}
+                        </button>
+                      </span>
                       <button
                         type="button"
                         className={"host-favorite" + (favorite ? " active" : "")}
                         title={favorite
-                          ? (lang === "zh" ? "Remove from favorites" : "Remove from favorites")
-                          : (lang === "zh" ? "Add to favorites" : "Add to favorites")}
+                          ? t("host.action.favoriteRemove", lang)
+                          : t("host.action.favoriteAdd", lang)}
                         aria-label={favorite
-                          ? (lang === "zh" ? "Remove from favorites" : "Remove from favorites")
-                          : (lang === "zh" ? "Add to favorites" : "Add to favorites")}
+                          ? t("host.action.favoriteRemove", lang)
+                          : t("host.action.favoriteAdd", lang)}
                         onClick={(event) => {
                           event.stopPropagation();
                           onToggleFavorite(host.id);
@@ -529,14 +549,21 @@ function recentTooltip(timestamp: number | undefined, lang: Lang) {
   return lang === "zh" ? `最近连接：${formatRecent(timestamp, lang)}` : `Last connected: ${formatRecent(timestamp, lang)}`;
 }
 
-/** Return a new fractional order value between `above` and `below`.
- *  Uses averaging for precision gap; if the gap is too narrow, falls back
- *  to adding a tiny offset. */
-function reorderBetween(orderAbove: number, orderBelow: number, _pos: "above" | "below"): number {
-  const gap = orderBelow - orderAbove;
-  if (gap > 0.001) {
-    return orderAbove + gap / 2;
-  }
-  // Gap exhausted — push a tiny amount below the upper bound.
-  return orderBelow + 0.001;
+function orderedIdsForMove(hosts: Host[], fromIndex: number, delta: -1 | 1) {
+  const ids = hosts.map((host) => host.id);
+  const toIndex = Math.max(0, Math.min(ids.length - 1, fromIndex + delta));
+  if (toIndex === fromIndex) return ids;
+  const [id] = ids.splice(fromIndex, 1);
+  ids.splice(toIndex, 0, id);
+  return ids;
+}
+
+function orderedIdsForDrop(hosts: Host[], dragHostId: string, targetHostId: string, pos: "above" | "below") {
+  const ids = hosts.map((host) => host.id).filter((id) => id !== dragHostId);
+  const targetIndex = ids.indexOf(targetHostId);
+  const insertAt = targetIndex < 0
+    ? ids.length
+    : targetIndex + (pos === "below" ? 1 : 0);
+  ids.splice(insertAt, 0, dragHostId);
+  return ids;
 }

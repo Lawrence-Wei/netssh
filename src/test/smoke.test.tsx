@@ -194,6 +194,18 @@ describe("2. TitleBar", () => {
     expect(children.indexOf(sessionMenu!)).toBeGreaterThan(children.indexOf(homeTab!));
   });
 
+  it("keeps the Session menu outside the clipped tab scroller", () => {
+    renderApp();
+    const tabstrip = document.querySelector(".tabstrip")!;
+    const sessionMenu = tabstrip.querySelector(":scope > .app-menu");
+    const scroller = tabstrip.querySelector(".tabstrip-scroll")!;
+
+    expect(sessionMenu).toBeTruthy();
+    expect(scroller).toBeTruthy();
+    expect(scroller.contains(sessionMenu)).toBe(false);
+    expect(scroller.querySelector(".app-menu")).toBeFalsy();
+  });
+
   it("double-clicking the Session titlebar area toggles maximize", async () => {
     renderApp();
     const win = getCurrentWindow();
@@ -235,6 +247,18 @@ describe("2. TitleBar", () => {
     await waitFor(() => {
       expect(document.querySelector(".settings-nav")).toBeTruthy();
     }, { timeout: 2000 });
+  });
+
+  it("credentials icon opens the credentials settings section without replacing settings", async () => {
+    const { user } = renderApp();
+    await user.click(screen.getByTitle("Credentials"));
+
+    await waitFor(() => {
+      expect(document.querySelector(".settings-nav")).toBeTruthy();
+      expect(document.querySelector(".settings-pane h2")?.textContent).toBe("Credentials");
+    });
+
+    expect(document.querySelector(".titlebar-settings-btn")).toBeTruthy();
   });
 
   it("new tab button creates additional tab", async () => {
@@ -430,6 +454,46 @@ describe("4. Landing / Home Page", () => {
       expect(within(topology).queryByText("switch")).toBeFalsy();
     });
   });
+
+  it("home topology follows manual host order", () => {
+    useHosts.setState((state) => ({
+      ...state,
+      groups: [{ id: "lab", name: "Lab", color: "#60a5fa" }],
+      hosts: [
+        {
+          id: "node-b",
+          alias: "server-b",
+          hostname: "192.168.10.20",
+          user: "root",
+          port: 22,
+          group: "lab",
+          status: "off",
+          latency: null,
+          order: 2,
+        },
+        {
+          id: "node-a",
+          alias: "server-a",
+          hostname: "192.168.10.10",
+          user: "root",
+          port: 22,
+          group: "lab",
+          status: "off",
+          latency: null,
+          order: 1,
+        },
+      ],
+    }), true);
+
+    renderApp();
+    const topology = document.querySelector(".topology-panel") as HTMLElement;
+    const labels = within(topology)
+      .getAllByRole("button")
+      .map((button) => button.textContent || "");
+
+    expect(labels[0]).toContain("server-a");
+    expect(labels[1]).toContain("server-b");
+  });
 });
 
 // ============================================================
@@ -477,6 +541,8 @@ describe("5. HostDetail & Editor", () => {
     const aliasInput = screen.getByPlaceholderText(/my-server/i);
     await user.clear(aliasInput);
     await user.type(aliasInput, "test-detail-host");
+    await user.type(screen.getByPlaceholderText("192.168.1.1 / example.com"), "10.0.0.10");
+    await user.type(screen.getByPlaceholderText("root"), "admin");
     await user.click(screen.getByText("Save"));
     await waitFor(() => screen.getByText("Connect"));
     // The alias appears in sidebar and detail both — check sidebar shows it
@@ -494,6 +560,8 @@ describe("5. HostDetail & Editor", () => {
     const aliasInput = screen.getByPlaceholderText(/my-server/i);
     await user.clear(aliasInput);
     await user.type(aliasInput, "editable-host");
+    await user.type(screen.getByPlaceholderText("192.168.1.1 / example.com"), "10.0.0.11");
+    await user.type(screen.getByPlaceholderText("root"), "admin");
     await user.click(screen.getByText("Save"));
     await waitFor(() => screen.getByText("Connect"));
     // Now re-edit
@@ -511,6 +579,8 @@ describe("5. HostDetail & Editor", () => {
     const aliasInput = screen.getByPlaceholderText(/my-server/i);
     await user.clear(aliasInput);
     await user.type(aliasInput, "tab-edit-host");
+    await user.type(screen.getByPlaceholderText("192.168.1.1 / example.com"), "10.0.0.12");
+    await user.type(screen.getByPlaceholderText("root"), "admin");
     await user.click(screen.getByText("Save"));
     await waitFor(() => screen.getByText("Connect"));
 
@@ -542,16 +612,54 @@ describe("6. Settings", () => {
     await waitFor(() => {
       expect(document.querySelector(".settings-nav")).toBeTruthy();
     }, { timeout: 2000 });
+    return document.querySelector(".settings-nav") as HTMLElement;
   }
 
-  it("9 nav sections in sidebar", async () => {
+  it("10 nav sections in sidebar", async () => {
     const { user } = renderApp();
     await open(user);
     const nav = document.querySelector(".settings-nav")!;
     [
-      "Appearance", "Language & region", "Local shells",
+      "Account & connections", "Appearance", "Language & region", "Local shells",
       "SSH keys", "Credentials", "Terminal", "Shortcuts", "Advanced", "About",
     ].forEach((l) => expect(within(nav).getByText(l)).toBeTruthy());
+  });
+
+  it("Account page shows credential and SSH inventory overview without password text", async () => {
+    seedChineseTopologyHome();
+    const created = await useCredentials.getState().add({
+      name: "switch-admin",
+      group: "switch",
+      user: "admin",
+      password: "secret",
+    });
+    useHosts.setState((state) => ({
+      ...state,
+      hosts: state.hosts.map((host) =>
+        host.alias === "switch"
+          ? { ...host, iconOverride: "huawei", credentialProfileId: created.id }
+          : host
+      ),
+    }));
+
+    const { user } = renderApp();
+    await user.click(screen.getByTitle("设置"));
+    const nav = await waitFor(() => {
+      const node = document.querySelector(".settings-nav") as HTMLElement | null;
+      expect(node).toBeTruthy();
+      return node!;
+    });
+    if (!document.querySelector(".account-card")) {
+      await user.click(within(nav).getByText("账户与连接"));
+    }
+
+    await waitFor(() => {
+      expect(document.querySelector(".settings-pane h2")?.textContent).toBe("账户与连接");
+      expect(document.querySelector(".account-card")).toBeTruthy();
+      expect(screen.getByText("switch-admin")).toBeTruthy();
+      expect(screen.getByText("admin@192.168.100.253:22")).toBeTruthy();
+    });
+    expect(document.body.textContent).not.toContain("secret");
   });
 
   it("About section shows the app version", async () => {
@@ -573,18 +681,20 @@ describe("6. Settings", () => {
     });
   });
 
-  it("3 theme cards, clicking blue sets data-theme=blue", async () => {
+  it("theme cards include light mode, clicking blue sets data-theme=blue", async () => {
     const { user } = renderApp();
-    await open(user);
+    const nav = await open(user);
+    await user.click(within(nav).getByText("Appearance"));
     const cards = document.querySelectorAll(".theme-card");
-    expect(cards.length).toBe(3);
+    expect(cards.length).toBe(4);
     await user.click(cards[1] as HTMLElement);
     expect(document.documentElement.getAttribute("data-theme")).toBe("blue");
   });
 
   it("toggle switch toggles .on class", async () => {
     const { user } = renderApp();
-    await open(user);
+    const nav = await open(user);
+    await user.click(within(nav).getByText("Appearance"));
     const toggle = document.querySelector(".toggle")!;
     const wasOn = toggle.classList.contains("on");
     await user.click(toggle as HTMLElement);
@@ -593,7 +703,8 @@ describe("6. Settings", () => {
 
   it("font size seg: 4 options, click activates", async () => {
     const { user } = renderApp();
-    await open(user);
+    const nav = await open(user);
+    await user.click(within(nav).getByText("Appearance"));
     const seg = document.querySelector(".seg")!;
     const btns = seg.querySelectorAll("button");
     expect(btns.length).toBe(4);

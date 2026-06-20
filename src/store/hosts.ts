@@ -26,7 +26,7 @@ interface HostsState {
   renameGroup: (id: string, name: string, subnet?: string) => void;
   removeGroup: (id: string) => void;
   moveHostToGroup: (hostId: string, groupId: string) => void;
-  reorderHost: (hostId: string, targetOrder: number, targetGroupId?: string) => void;
+  reorderHost: (hostId: string, targetOrder: number, targetGroupId?: string, orderedHostIds?: string[]) => void;
 }
 
 const HUES = ["#285c5f", "#b06438", "#6e8b57", "#7c5a8c", "#a32a26", "#3b6e8f"];
@@ -355,13 +355,28 @@ export const useHosts = create<HostsState>()(
         });
       },
 
-      reorderHost: (hostId, targetOrder, targetGroupId) => {
+      reorderHost: (hostId, targetOrder, targetGroupId, orderedHostIds) => {
+        const targetGroup = targetGroupId
+          ? resolveKnownGroupId(targetGroupId, get().groups)
+          : get().hosts.find((host) => host.id === hostId)?.group;
+        const orderedIds = orderedHostIds
+          ? [...new Set(orderedHostIds.filter(Boolean))]
+          : undefined;
+
         set({
           hosts: get().hosts.map((host) => {
+            if (orderedIds?.includes(host.id)) {
+              const order = orderedIds.indexOf(host.id);
+              return {
+                ...host,
+                order,
+                group: targetGroup || host.group,
+              };
+            }
             if (host.id !== hostId) return host;
             const next = { ...host, order: targetOrder };
-            if (targetGroupId !== undefined) {
-              next.group = resolveKnownGroupId(targetGroupId, get().groups);
+            if (targetGroup) {
+              next.group = targetGroup;
             }
             return next;
           }),

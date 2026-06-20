@@ -1,6 +1,6 @@
 # Netssh Change Version Guide
 
-This guide shows how to change the Netssh version with one variable. Example: update from `v1.1.14` to `v1.1.15`.
+This guide shows how to change the Netssh version with one variable. Example: update from `v1.1.17` to `v1.1.18`.
 
 Run all commands from the repository root:
 
@@ -13,13 +13,13 @@ cd D:\projects\netssh
 Git tags use the `v` prefix:
 
 ```text
-v1.1.15
+v1.1.18
 ```
 
 Project files use plain SemVer without `v`:
 
 ```text
-1.1.15
+1.1.18
 ```
 
 Files that must stay aligned:
@@ -34,8 +34,8 @@ Files that must stay aligned:
 Change only `$newTag`.
 
 ```powershell
-$oldTag = "v1.1.16"
-$newTag = "v1.1.17"
+$oldTag = "v1.1.17"
+$newTag = "v1.1.18"
 
 $oldVersion = $oldTag -replace '^v', ''
 $newVersion = $newTag -replace '^v', ''
@@ -65,16 +65,16 @@ Write-Host "Version updated to $newVersion"
 Check all version fields:
 
 ```powershell
-rg '"version": "1.1.15"|^version = "1.1.15"' package.json package-lock.json src-tauri\Cargo.toml src-tauri\tauri.conf.json
+rg """version"": ""$newVersion""|^version = ""$newVersion""" package.json package-lock.json src-tauri\Cargo.toml src-tauri\tauri.conf.json
 ```
 
 Expected result should include:
 
 ```text
-package.json:  "version": "1.1.15",
-package-lock.json:  "version": "1.1.15",
-src-tauri\Cargo.toml:version = "1.1.15"
-src-tauri\tauri.conf.json:  "version": "1.1.15",
+package.json:  "version": "1.1.18",
+package-lock.json:  "version": "1.1.18",
+src-tauri\Cargo.toml:version = "1.1.18"
+src-tauri\tauri.conf.json:  "version": "1.1.18",
 ```
 
 `package-lock.json` can show more than one matching line. That is normal.
@@ -98,7 +98,7 @@ npm run tauri:build
 Expected local release directory for this version:
 
 ```text
-D:\projects\netssh\releases\v1.1.15
+D:\projects\netssh\releases\$newTag
 ```
 
 If the app was built with `npx tauri build` or another direct command, collect the release bundles manually:
@@ -110,7 +110,11 @@ $bundleRootPath = (Resolve-Path $bundleRoot).Path
 
 New-Item -ItemType Directory -Force -Path $releaseDir | Out-Null
 
-Get-ChildItem -Path $bundleRootPath -Recurse -File | ForEach-Object {
+# Only copy artifacts for the current version. Do not use broad globs such as
+# *.exe or *.msi here; Tauri's bundle directory can contain older versions.
+Get-ChildItem -Path $bundleRootPath -Recurse -File |
+  Where-Object { $_.Name -like "*$newVersion*" } |
+  ForEach-Object {
   $relativePath = $_.FullName.Substring($bundleRootPath.Length).TrimStart('\', '/')
   $targetPath = Join-Path $releaseDir $relativePath
   New-Item -ItemType Directory -Force -Path (Split-Path $targetPath) | Out-Null
@@ -137,20 +141,20 @@ git add package.json package-lock.json src-tauri\Cargo.toml src-tauri\tauri.conf
 Commit:
 
 ```powershell
-git commit -m "bump version to 1.1.15"
+git commit -m "bump version to $newVersion"
 ```
 
 Create the tag:
 
 ```powershell
-git tag v1.1.15
+git tag $newTag
 ```
 
 Push:
 
 ```powershell
 git push origin main
-git push origin v1.1.15
+git push origin $newTag
 ```
 
 ## Reusable Script Template
@@ -158,7 +162,7 @@ git push origin v1.1.15
 Copy this block and only change `$newTag` next time.
 
 ```powershell
-$newTag = "v1.1.15"
+$newTag = "v1.1.18"
 $newVersion = $newTag -replace '^v', ''
 
 npm version $newVersion --no-git-tag-version

@@ -34,7 +34,7 @@ describe("Netssh — Settings Panel", () => {
 
   it("should have theme cards in the appearance section", async () => {
     const themeCards = await $$(".theme-card");
-    expect(themeCards.length).toBe(3);
+    expect(themeCards.length).toBe(4);
   });
 
   //

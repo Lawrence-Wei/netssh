@@ -116,6 +116,16 @@ jobs:
             process.exit(0);
           }
 
+          for (const jsonPath of ["package.json", "package-lock.json"]) {
+            if (!fs.existsSync(jsonPath)) continue;
+            const json = JSON.parse(fs.readFileSync(jsonPath, "utf8"));
+            json.version = version;
+            if (json.packages && json.packages[""]) {
+              json.packages[""].version = version;
+            }
+            fs.writeFileSync(jsonPath, JSON.stringify(json, null, 2) + "\n", "utf8");
+          }
+
           const confPath = "src-tauri/tauri.conf.json";
           const conf = JSON.parse(fs.readFileSync(confPath, "utf8"));
           conf.version = version;
@@ -138,6 +148,9 @@ jobs:
       - name: Collect artifacts
         shell: bash
         run: |
+          VERSION="${{ github.event_name == 'workflow_dispatch' && github.event.inputs.tag || github.ref_name }}"
+          VERSION="${VERSION#v}"
+          rm -rf release-artifacts
           mkdir -p release-artifacts
           for target in x86_64-pc-windows-msvc aarch64-pc-windows-msvc; do
             ARCH="${target/x86_64-pc-windows-msvc/x64}"
@@ -146,15 +159,19 @@ jobs:
               src_dir="src-tauri/target/${target}/release/bundle/${pkg}"
               if [ -d "${src_dir}" ]; then
                 mkdir -p "release-artifacts/${target}/${pkg}"
-                for f in ${src_dir}/*; do
+                for f in "${src_dir}"/*; do
                   [ -f "$f" ] || continue
                   base="$(basename "$f")"
+                  if [[ "$base" != *"$VERSION"* ]]; then
+                    echo "Skipping stale bundle: $base"
+                    continue
+                  fi
                   case "$pkg" in
                     msi)
-                      dst="Netssh_${ARCH}_windows_installer.msi"
+                      dst="Netssh_${VERSION}_${ARCH}_windows_installer.msi"
                       ;;
                     nsis)
-                      dst="Netssh_${ARCH}_windows_setup.exe"
+                      dst="Netssh_${VERSION}_${ARCH}_windows_setup.exe"
                       ;;
                   esac
                   cp -v "$f" "release-artifacts/${target}/${pkg}/${dst}"
@@ -215,6 +232,16 @@ jobs:
             process.exit(0);
           }
 
+          for (const jsonPath of ["package.json", "package-lock.json"]) {
+            if (!fs.existsSync(jsonPath)) continue;
+            const json = JSON.parse(fs.readFileSync(jsonPath, "utf8"));
+            json.version = version;
+            if (json.packages && json.packages[""]) {
+              json.packages[""].version = version;
+            }
+            fs.writeFileSync(jsonPath, JSON.stringify(json, null, 2) + "\n", "utf8");
+          }
+
           const confPath = "src-tauri/tauri.conf.json";
           const conf = JSON.parse(fs.readFileSync(confPath, "utf8"));
           conf.version = version;
@@ -244,11 +271,22 @@ jobs:
 
       - name: Collect artifacts
         run: |
+          VERSION="${{ github.event_name == 'workflow_dispatch' && github.event.inputs.tag || github.ref_name }}"
+          VERSION="${VERSION#v}"
+          rm -rf release-artifacts
           mkdir -p release-artifacts
           for target in x86_64-apple-darwin aarch64-apple-darwin universal-apple-darwin; do
             target_dir="src-tauri/target/${target}/release/bundle/dmg"
             if [ -d "${target_dir}" ]; then
-              cp -v ${target_dir}/*.dmg release-artifacts/
+              for f in "${target_dir}"/*.dmg; do
+                [ -f "$f" ] || continue
+                base="$(basename "$f")"
+                if [[ "$base" != *"$VERSION"* ]]; then
+                  echo "Skipping stale bundle: $base"
+                  continue
+                fi
+                cp -v "$f" release-artifacts/
+              done
             fi
           done
           if [ ! "$(find release-artifacts -type f | head -n 1)" ]; then
@@ -338,6 +376,40 @@ jobs:
         with:
           name: netssh-macos
           path: release-artifacts/
+
+      - name: Verify release assets
+        shell: bash
+        run: |
+          TAG_NAME="${{ github.event_name == 'workflow_dispatch' && github.event.inputs.tag || github.ref_name }}"
+          VERSION="${TAG_NAME#v}"
+          echo "Release asset version: ${VERSION}"
+          find release-artifacts -type f -print
+          stale="$(find release-artifacts -type f ! -name "*${VERSION}*" -print)"
+          if [ -n "${stale}" ]; then
+            echo "Refusing to publish assets from another version:"
+            echo "${stale}"
+            exit 1
+          fi
+
+      - name: Remove stale assets from existing release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          TAG_NAME="${{ github.event_name == 'workflow_dispatch' && github.event.inputs.tag || github.ref_name }}"
+          VERSION="${TAG_NAME#v}"
+          if ! gh release view "${TAG_NAME}" >/dev/null 2>&1; then
+            echo "Release ${TAG_NAME} does not exist yet; nothing to clean."
+            exit 0
+          fi
+          gh release view "${TAG_NAME}" --json assets --jq '.assets[].name' |
+            while IFS= read -r asset; do
+              [ -n "${asset}" ] || continue
+              if [[ "${asset}" != *"${VERSION}"* ]]; then
+                echo "Deleting stale release asset: ${asset}"
+                gh release delete-asset "${TAG_NAME}" "${asset}" -y
+              fi
+            done
 
       - name: Publish GitHub Release
         uses: softprops/action-gh-release@v2

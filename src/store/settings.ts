@@ -13,6 +13,8 @@ import type {
 } from "../config/types";
 import { appStorage } from "./persistence";
 
+const VALID_THEMES: Theme[] = ["purple", "blue", "mica", "light"];
+
 interface SettingsState {
   theme: Theme;
   lang: Lang;
@@ -66,7 +68,7 @@ export const useSettings = create<SettingsState>()(
       defaultShellName: "PowerShell",
       defaultShellPath: undefined,
       customShells: [],
-      hardwareAcceleration: true,
+      hardwareAcceleration: false,
       telemetry: false,
       autostart: false,
       showSessionRail: false,
@@ -84,6 +86,11 @@ export const useSettings = create<SettingsState>()(
       migrate: (persisted) => {
         const state = persisted as (Partial<SettingsState> & { theme?: string }) | undefined;
         const savedTheme = state?.theme as string | undefined;
+        const nextTheme = savedTheme === "xuan"
+          ? "purple"
+          : VALID_THEMES.includes(savedTheme as Theme)
+            ? (savedTheme as Theme)
+            : "purple";
         const next = {
           followSystem: true,
           translucency: true,
@@ -101,13 +108,13 @@ export const useSettings = create<SettingsState>()(
           defaultShellName: "PowerShell",
           defaultShellPath: undefined,
           customShells: [],
-          hardwareAcceleration: true,
+          hardwareAcceleration: false,
           telemetry: false,
           autostart: false,
           showSessionRail: false,
           allowConfigWrite: false,
           ...state,
-          theme: savedTheme === "xuan" ? ("purple" as Theme) : (state?.theme as Theme | undefined) ?? "purple",
+          theme: nextTheme,
           lang: state?.lang ?? "en",
         };
         return next as SettingsState;

@@ -1,21 +1,26 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { ReactNode } from "react";
 import { LOCAL_SHELLS, SSH_KEYS } from "../config/defaults";
 import { APP_VERSION } from "../config/app";
-import { detectShells, listKeys } from "../api/tauri";
+import { detectShells, getAutostartStatus, listKeys, setAutostartEnabled } from "../api/tauri";
 import { t } from "../utils/i18n";
 import type {
+  Group,
+  Host,
   Lang,
   ShellInfo,
   SshKey,
   TerminalCursorStyle,
   TerminalLocale,
   TerminalTimezone,
+  SettingsSectionId,
   Theme,
 } from "../config/types";
 import { Icon } from "../components/Icons";
+import { brandIcon, brandLabel } from "../components/BrandIcons";
 import { useCredentials } from "../store/credentials";
 import { useConfirm } from "../components/ConfirmDialog";
+import { deployScope, deployScopeLabel } from "../utils/deployScope";
 
 interface SettingsSnapshot {
   translucency: boolean;
@@ -47,13 +52,30 @@ interface SettingsProps {
   setTheme: (theme: Theme) => void;
   settings: SettingsSnapshot;
   setSetting: <K extends keyof SettingsSnapshot>(key: K, value: SettingsSnapshot[K]) => void;
+  hosts: Host[];
+  groups: Group[];
+  section: SettingsSectionId;
+  onSectionChange: (section: SettingsSectionId) => void;
+  onOpenHost: (host: Host) => void;
+  onEditHost: (host: Host) => void;
 }
 
-type SectionId = "appearance" | "language" | "shells" | "keys" | "credentials" | "terminal" | "shortcuts" | "advanced" | "about";
-
-export function Settings({ lang, setLang, theme, setTheme, settings, setSetting }: SettingsProps) {
-  const [section, setSection] = useState<SectionId>("appearance");
-  const nav: Array<{ id: SectionId; icon: ReactNode; label: string }> = [
+export function Settings({
+  lang,
+  setLang,
+  theme,
+  setTheme,
+  settings,
+  setSetting,
+  hosts,
+  groups,
+  section,
+  onSectionChange,
+  onOpenHost,
+  onEditHost,
+}: SettingsProps) {
+  const nav: Array<{ id: SettingsSectionId; icon: ReactNode; label: string }> = [
+    { id: "account", icon: Icon.user, label: t("settings.nav.account", lang) },
     { id: "appearance", icon: Icon.palette, label: t("settings.nav.appearance", lang) },
     { id: "language", icon: Icon.globe, label: t("settings.nav.language", lang) },
     { id: "shells", icon: Icon.shell, label: t("settings.nav.shells", lang) },
@@ -70,7 +92,7 @@ export function Settings({ lang, setLang, theme, setTheme, settings, setSetting 
       <nav className="settings-nav">
         <span className="eyebrow">{t("settings.eyebrow", lang)}</span>
         {nav.map((item) => (
-          <button key={item.id} className={section === item.id ? "active" : ""} onClick={() => setSection(item.id)}>
+          <button key={item.id} className={section === item.id ? "active" : ""} onClick={() => onSectionChange(item.id)}>
             {item.icon}
             <span>{item.label}</span>
           </button>
@@ -78,6 +100,16 @@ export function Settings({ lang, setLang, theme, setTheme, settings, setSetting 
       </nav>
 
       <div className="settings-pane">
+        {section === "account" && (
+          <AccountPane
+            lang={lang}
+            hosts={hosts}
+            groups={groups}
+            onOpenHost={onOpenHost}
+            onEditHost={onEditHost}
+            onManageCredentials={() => onSectionChange("credentials")}
+          />
+        )}
         {section === "appearance" && <AppearancePane lang={lang} theme={theme} setTheme={setTheme} settings={settings} setSetting={setSetting} />}
         {section === "language" && <LanguagePane lang={lang} setLang={setLang} settings={settings} setSetting={setSetting} />}
         {section === "shells" && <ShellsPane lang={lang} settings={settings} setSetting={setSetting} />}
@@ -97,6 +129,196 @@ const SCROLLBACK_OPTIONS = [1000, 5000, 10000, 50000];
 const TERMINAL_LOCALES: TerminalLocale[] = ["system", "C.UTF-8", "en_US.UTF-8", "zh_CN.UTF-8"];
 const TERMINAL_TIMEZONES: TerminalTimezone[] = ["system", "Asia/Shanghai", "UTC"];
 
+function AccountPane({
+  lang,
+  hosts,
+  groups,
+  onOpenHost,
+  onEditHost,
+  onManageCredentials,
+}: {
+  lang: Lang;
+  hosts: Host[];
+  groups: Group[];
+  onOpenHost: (host: Host) => void;
+  onEditHost: (host: Host) => void;
+  onManageCredentials: () => void;
+}) {
+  const { credentials } = useCredentials();
+  const credentialById = new Map(credentials.map((cred) => [cred.id, cred]));
+  const sshHosts = hosts
+    .filter((host) => (host.connectionType || "ssh") === "ssh")
+    .slice()
+    .sort((a, b) => groupName(groups, a).localeCompare(groupName(groups, b)) || a.alias.localeCompare(b.alias));
+  const switchHosts = sshHosts.filter(isSwitchLikeHost);
+  const passwordCredentialCount = credentials.filter((cred) => cred.hasPassword).length;
+  const keyCredentialCount = credentials.filter((cred) => cred.identityFile).length;
+
+  return (
+    <>
+      <h2>{t("settings.account.title", lang)}</h2>
+      <p className="lead">{t("settings.account.lead", lang)}</p>
+
+      <div className="settings-section account-card">
+        <div className="account-card__profile">
+          <span className="account-avatar">{Icon.user}</span>
+          <div>
+            <span className="eyebrow">{t("settings.account.profile.eyebrow", lang)}</span>
+            <div className="account-card__title">{t("settings.account.profile.title", lang)}</div>
+            <div className="account-card__desc">{t("settings.account.profile.desc", lang)}</div>
+          </div>
+        </div>
+        <div className="account-stats">
+          <Metric label={t("settings.account.metric.credentials", lang)} value={credentials.length} />
+          <Metric label={t("settings.account.metric.passwords", lang)} value={passwordCredentialCount} />
+          <Metric label={t("settings.account.metric.keys", lang)} value={keyCredentialCount} />
+          <Metric label={t("settings.account.metric.switches", lang)} value={switchHosts.length} />
+        </div>
+      </div>
+
+      <div className="settings-section">
+        <div className="account-section-head">
+          <div>
+            <span className="eyebrow">{t("settings.account.credentials.eyebrow", lang)}</span>
+            <h3>{t("settings.account.credentials.title", lang)}</h3>
+          </div>
+          <button className="btn" onClick={onManageCredentials}>
+            {Icon.key}
+            <span>{t("settings.account.credentials.manage", lang)}</span>
+          </button>
+        </div>
+        {credentials.length === 0 ? (
+          <div className="cred-empty">{t("settings.credentials.empty", lang)}</div>
+        ) : (
+          <div className="account-cred-list">
+            {credentials.map((cred) => (
+              <div className="account-cred-item" key={cred.id}>
+                <div>
+                  <div className="account-cred-item__name">{cred.name}</div>
+                  <div className="account-cred-item__meta">
+                    {cred.group} / {cred.user}
+                  </div>
+                </div>
+                <div className="account-cred-item__auth">
+                  {credentialAuthParts(cred.hasPassword, cred.identityFile, lang).join(" · ")}
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
+      <div className="settings-section">
+        <div className="account-section-head">
+          <div>
+            <span className="eyebrow">{t("settings.account.hosts.eyebrow", lang)}</span>
+            <h3>{t("settings.account.hosts.title", lang)}</h3>
+          </div>
+          <span className="select-pill">{t("settings.account.hosts.count", lang, { count: sshHosts.length })}</span>
+        </div>
+        {sshHosts.length === 0 ? (
+          <div className="cred-empty">{t("settings.account.hosts.empty", lang)}</div>
+        ) : (
+          <div className="account-host-list">
+            {sshHosts.map((host) => {
+              const scope = deployScope(host);
+              const device = brandLabel(host) || host.assetType || t("settings.account.host.device.unknown", lang);
+              const credential = host.credentialProfileId ? credentialById.get(host.credentialProfileId) : undefined;
+              return (
+                <div className="account-host-row" key={host.id}>
+                  <span className="account-host-row__icon">{brandIcon(host)}</span>
+                  <div className="account-host-row__main">
+                    <div className="account-host-row__title">
+                      <span>{host.alias}</span>
+                      {isSwitchLikeHost(host) && <span className="tag role">{t("settings.account.host.switch", lang)}</span>}
+                    </div>
+                    <div className="account-host-row__target">{formatHostTarget(host)}</div>
+                    <div className="account-host-row__meta">
+                      <span>{groupName(groups, host)}</span>
+                      <span>{device}</span>
+                      <span className={"deploy-chip deploy-chip--" + scope}>{deployScopeLabel(scope, lang)}</span>
+                      <span>{hostAuthLabel(host, credential, lang)}</span>
+                    </div>
+                  </div>
+                  <div className="account-host-row__actions">
+                    <button className="btn ghost" onClick={() => onEditHost(host)}>
+                      {Icon.edit}
+                      <span>{t("host.action.edit", lang)}</span>
+                    </button>
+                    <button className="btn" onClick={() => onOpenHost(host)}>
+                      {Icon.power}
+                      <span>{t("ctx.connect", lang)}</span>
+                    </button>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </div>
+    </>
+  );
+}
+
+function Metric({ label, value }: { label: string; value: number }) {
+  return (
+    <div className="account-metric">
+      <strong>{value}</strong>
+      <span>{label}</span>
+    </div>
+  );
+}
+
+function groupName(groups: Group[], host: Host) {
+  return groups.find((group) => group.id === host.group)?.name || String(host.group || "Unassigned");
+}
+
+function formatHostTarget(host: Host) {
+  const user = host.user?.trim();
+  const hostPart = host.hostname || host.alias;
+  return `${user ? `${user}@` : ""}${hostPart}:${host.port || 22}`;
+}
+
+function isSwitchLikeHost(host: Host) {
+  const haystack = [
+    host.alias,
+    host.hostname,
+    host.role,
+    host.assetType,
+    host.iconOverride,
+    ...(host.tags || []),
+  ]
+    .filter(Boolean)
+    .join(" ")
+    .toLowerCase();
+  return /switch|huawei|h3c|cisco|vrp|comware|catalyst|s\d{4}/.test(haystack);
+}
+
+function credentialAuthParts(hasPassword: boolean | undefined, identityFile: string | undefined, lang: Lang) {
+  const parts: string[] = [];
+  if (hasPassword) parts.push(t("settings.account.auth.passwordSaved", lang));
+  if (identityFile) parts.push(t("settings.account.auth.identity", lang, { file: shortPath(identityFile) }));
+  if (parts.length === 0) parts.push(t("settings.account.auth.metadataOnly", lang));
+  return parts;
+}
+
+function hostAuthLabel(
+  host: Host,
+  credential: ReturnType<typeof useCredentials.getState>["credentials"][number] | undefined,
+  lang: Lang
+) {
+  if (credential) {
+    const suffix = credential.hasPassword ? ` · ${t("settings.account.auth.passwordSaved", lang)}` : "";
+    return t("settings.account.auth.profile", lang, { name: credential.name }) + suffix;
+  }
+  if (host.identityFile) return t("settings.account.auth.identity", lang, { file: shortPath(host.identityFile) });
+  return t("settings.account.auth.manual", lang);
+}
+
+function shortPath(path: string) {
+  return path.split(/[\\/]/).filter(Boolean).pop() || path;
+}
+
 function AppearancePane({ lang, theme, setTheme, settings, setSetting }: {
   lang: Lang;
   theme: Theme;
@@ -108,6 +330,7 @@ function AppearancePane({ lang, theme, setTheme, settings, setSetting }: {
     { id: "purple", name: t("settings.appearance.theme.purple", lang), eyebrow: t("settings.appearance.theme.purple.eyebrow", lang) },
     { id: "blue", name: t("settings.appearance.theme.blue", lang), eyebrow: t("settings.appearance.theme.blue.eyebrow", lang) },
     { id: "mica", name: t("settings.appearance.theme.mica", lang), eyebrow: t("settings.appearance.theme.mica.eyebrow", lang) },
+    { id: "light", name: t("settings.appearance.theme.light", lang), eyebrow: t("settings.appearance.theme.light.eyebrow", lang) },
   ];
 
   return (
@@ -525,6 +748,51 @@ function AdvancedPane({ lang, settings, setSetting }: {
   settings: SettingsSnapshot;
   setSetting: SettingsProps["setSetting"];
 }) {
+  const [autostartBusy, setAutostartBusy] = useState(false);
+  const [autostartError, setAutostartError] = useState<string | null>(null);
+  const setSettingRef = useRef(setSetting);
+  const autostartSyncVersion = useRef(0);
+
+  useEffect(() => {
+    setSettingRef.current = setSetting;
+  }, [setSetting]);
+
+  useEffect(() => {
+    let active = true;
+    const version = autostartSyncVersion.current;
+    getAutostartStatus()
+      .then((status) => {
+        if (!active || version !== autostartSyncVersion.current) return;
+        setAutostartError(null);
+        setSettingRef.current("autostart", status.enabled);
+      })
+      .catch(() => {
+        if (active && version === autostartSyncVersion.current) {
+          setAutostartError(t("settings.advanced.autostart.error", lang));
+        }
+      });
+    return () => {
+      active = false;
+    };
+  }, [lang]);
+
+  const toggleAutostart = async () => {
+    autostartSyncVersion.current += 1;
+    const next = !settings.autostart;
+    setAutostartBusy(true);
+    setAutostartError(null);
+    setSetting("autostart", next);
+    try {
+      const status = await setAutostartEnabled(next);
+      setSetting("autostart", status.enabled);
+    } catch {
+      setSetting("autostart", !next);
+      setAutostartError(t("settings.advanced.autostart.error", lang));
+    } finally {
+      setAutostartBusy(false);
+    }
+  };
+
   return (
     <>
       <h2>{t("settings.nav.advanced", lang)}</h2>
@@ -551,11 +819,12 @@ function AdvancedPane({ lang, settings, setSetting }: {
         />
         <ToggleRow
           label={t("settings.advanced.autostart", lang)}
-          desc={t("settings.advanced.autostart.desc", lang)}
+          desc={autostartBusy ? t("settings.advanced.autostart.updating", lang) : t("settings.advanced.autostart.desc", lang)}
           on={settings.autostart}
-          onToggle={() => setSetting("autostart", !settings.autostart)}
-          disabled
+          onToggle={toggleAutostart}
+          disabled={autostartBusy}
         />
+        {autostartError && <div className="field-error">{autostartError}</div>}
       </div>
     </>
   );

@@ -12,7 +12,7 @@ import { useSessions } from "../store/sessions";
 import { useSettings } from "../store/settings";
 import { useSnippets } from "../store/snippets";
 import { detectSystemLang, t } from "../utils/i18n";
-import { filterHostsForInventory, type HostListFilter } from "../utils/hostFilters";
+import { filterHostsForInventory, sortHostsForSidebar, type HostListFilter } from "../utils/hostFilters";
 import type { Host, Snippet } from "../config/types";
 import type { QueuedCommand } from "./TerminalPane";
 import { useConfirm } from "../components/ConfirmDialog";
@@ -59,6 +59,7 @@ export default function App() {
     ephemeralHosts,
     selectHost,
     openHost,
+    openDraftHost,
     openEphemeralHost,
     connectActive,
     disconnectTab,
@@ -75,6 +76,7 @@ export default function App() {
       ephemeralHosts: s.ephemeralHosts,
       selectHost: s.selectHost,
       openHost: s.openHost,
+      openDraftHost: s.openDraftHost,
       openEphemeralHost: s.openEphemeralHost,
       connectActive: s.connectActive,
       disconnectTab: s.disconnectTab,
@@ -156,11 +158,20 @@ export default function App() {
   const [hostFilter, setHostFilter] = useState<HostListFilter>("all");
   const cancelEditCleanup = () => {
     if (editingHostId) {
+      const sessionState = useSessions.getState();
+      const draft = sessionState.ephemeralHosts[editingHostId];
+      if (draft) {
+        const tab = sessionState.tabs.find((t) => t.kind === "host" && t.hostId === editingHostId);
+        if (tab) sessionState.closeTab(tab.id);
+        else sessionState.forgetEphemeralHost(editingHostId);
+        setEditingHostId(null);
+        return;
+      }
       const host = useHosts.getState().hosts.find((h) => h.id === editingHostId);
       if (host && !host.alias) {
         useHosts.getState().removeHost(editingHostId);
-        const tab = useSessions.getState().tabs.find((t) => t.kind === "host" && t.hostId === editingHostId);
-        if (tab) useSessions.getState().closeTab(tab.id);
+        const tab = sessionState.tabs.find((t) => t.kind === "host" && t.hostId === editingHostId);
+        if (tab) sessionState.closeTab(tab.id);
       }
     }
     setEditingHostId(null);
@@ -246,7 +257,7 @@ export default function App() {
       : null;
   const activeQuickCommands = activeHost ? quickCommands[activeHost.id] || quickCommands[activeHost.alias] || [] : [];
   const homeHosts = useMemo(
-    () => filterHostsForInventory(hosts, { query: hostQuery, filter: hostFilter }),
+    () => sortHostsForSidebar(filterHostsForInventory(hosts, { query: hostQuery, filter: hostFilter }), hostFilter),
     [hostFilter, hostQuery, hosts]
   );
   const homeHostScopeFiltered = hostQuery.trim().length > 0 || hostFilter !== "all";
@@ -258,6 +269,32 @@ export default function App() {
   const openManagedHost = (host: Host, connectNow = true) => {
     if (connectNow) markConnected(host.id);
     openHost(host, connectNow);
+  };
+
+  const saveHostPatch = (id: string, patch: Partial<Host>) => {
+    const sessionState = useSessions.getState();
+    const draft = sessionState.ephemeralHosts[id];
+    const draftTab = sessionState.tabs.find((tab) => tab.kind === "host" && tab.hostId === id);
+    if (draft && draftTab && !draftTab.connected) {
+      const nextHost = { ...draft, ...patch, id };
+      const { ephemeralPassword: _ephemeralPassword, ...safeHost } = nextHost;
+      const saved = addHost(safeHost);
+      sessionState.selectHost(saved);
+      return;
+    }
+    updateHost(id, patch);
+  };
+
+  const removeHostOrDraft = (id: string) => {
+    const sessionState = useSessions.getState();
+    if (sessionState.ephemeralHosts[id]) {
+      const tab = sessionState.tabs.find((item) => item.kind === "host" && item.hostId === id);
+      if (tab) sessionState.closeTab(tab.id);
+      else sessionState.forgetEphemeralHost(id);
+      setEditingHostId(null);
+      return;
+    }
+    removeHost(id);
   };
 
   const connectActiveHost = () => {
@@ -452,7 +489,8 @@ export default function App() {
           setEditingHostId(null);
           goHome();
         }}
-        onOpenSettings={openSettings}
+        onOpenSettings={() => openSettings("appearance")}
+        onOpenCredentials={() => openSettings("credentials")}
         sidebarCollapsed={sidebarCollapsed}
         onToggleSidebar={() => updateSidebarCollapsed((current) => !current)}
       />
@@ -480,15 +518,20 @@ export default function App() {
             onQueryChange={setHostQuery}
             onFilterChange={setHostFilter}
             onAddHostQuick={() => {
-              const created = addHost({
+              const created: Host = {
+                id: `host-${Date.now()}`,
                 alias: "",
                 hostname: "",
                 user: "",
                 port: 22,
                 group: "unassigned",
-              });
+                status: "off",
+                latency: null,
+                connectionType: "ssh",
+                source: "manual",
+              };
               setEditingHostId(created.id);
-              selectHost(created);
+              openDraftHost(created);
             }}
           />
         )}
@@ -534,9 +577,9 @@ export default function App() {
           cancelHostEdit={cancelEditCleanup}
           finishHostEdit={finishEditing}
           onAddHost={addHost}
-          onUpdateHost={updateHost}
+          onUpdateHost={saveHostPatch}
           onRemoveHost={(id) => {
-            removeHost(id);
+            removeHostOrDraft(id);
             setEditingHostId(null);
           }}
           onManualConnect={openEphemeralHost}

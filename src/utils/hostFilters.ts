@@ -26,30 +26,33 @@ export function filterHostsForInventory(hosts: Host[], options: HostFilterOption
 }
 
 export function sortHostsForSidebar(hosts: Host[], filter: HostListFilter) {
+  if (filter === "recent") {
+    return [...hosts].sort((a, b) => (b.lastConnectedAt || 0) - (a.lastConnectedAt || 0));
+  }
+
+  const fallbackOrder = new Map<string, number>();
+  [...hosts]
+    .sort(baseHostComparator)
+    .forEach((host, index) => fallbackOrder.set(host.id, index));
+
   return [...hosts].sort((a, b) => {
-    if (filter === "recent") {
-      return (b.lastConnectedAt || 0) - (a.lastConnectedAt || 0);
-    }
-    // User-defined order takes priority (lower = earlier). Hosts without
-    // an explicit order sort after those that have one.
-    const orderA = a.order;
-    const orderB = b.order;
-    if (orderA !== undefined && orderB !== undefined && orderA !== orderB) {
-      return orderA - orderB;
-    }
-    if (orderA !== undefined && orderB === undefined) return -1;
-    if (orderA === undefined && orderB !== undefined) return 1;
-    // Fallback: favorites first, then recently connected, then alpha.
-    const favoriteDelta = Number(isFavoriteHost(b)) - Number(isFavoriteHost(a));
-    if (favoriteDelta !== 0) return favoriteDelta;
-    const recentDelta = (b.lastConnectedAt || 0) - (a.lastConnectedAt || 0);
-    if (recentDelta !== 0) return recentDelta;
-    return a.alias.localeCompare(b.alias);
+    const orderA = a.order ?? fallbackOrder.get(a.id) ?? 0;
+    const orderB = b.order ?? fallbackOrder.get(b.id) ?? 0;
+    if (orderA !== orderB) return orderA - orderB;
+    return baseHostComparator(a, b);
   });
 }
 
 export function isFavoriteHost(host: Host) {
   return Boolean(host.favorite ?? host.pinned);
+}
+
+function baseHostComparator(a: Host, b: Host) {
+  const favoriteDelta = Number(isFavoriteHost(b)) - Number(isFavoriteHost(a));
+  if (favoriteDelta !== 0) return favoriteDelta;
+  const recentDelta = (b.lastConnectedAt || 0) - (a.lastConnectedAt || 0);
+  if (recentDelta !== 0) return recentDelta;
+  return a.alias.localeCompare(b.alias);
 }
 
 function hostMatchesQuery(host: Host, normalizedQuery: string) {

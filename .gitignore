@@ -25,6 +25,9 @@ Thumbs.db
 
 # Test
 coverage/
+cypress/downloads/
+cypress/screenshots/
+cypress/videos/
 test/e2e/logs/
 test/e2e/artifacts/
 e2e-failure*.png

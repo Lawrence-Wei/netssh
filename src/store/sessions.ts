@@ -1,7 +1,7 @@
 // Tabs + sessions store.
 
 import { create } from "zustand";
-import type { Host, Tab } from "../config/types";
+import type { Host, SettingsSectionId, Tab } from "../config/types";
 
 interface SessionsState {
   tabs: Tab[];
@@ -11,11 +11,14 @@ interface SessionsState {
   splitTabIds: string[];
   selectHost: (h: Host) => void;
   openHost: (h: Host, connectNow?: boolean) => void;
+  openDraftHost: (h: Host) => void;
   openEphemeralHost: (h: Host) => void;
+  forgetEphemeralHost: (id: string) => void;
   connectActive: () => void;
   disconnectTab: (id: string) => void;
   openLocalShell: (shellId?: string, title?: string, shellPath?: string) => void;
-  openSettings: () => void;
+  openSettings: (section?: SettingsSectionId) => void;
+  setSettingsSection: (section: SettingsSectionId) => void;
   openSnippets: () => void;
   closeTab: (id: string) => void;
   newTab: () => void;
@@ -33,15 +36,20 @@ export const useSessions = create<SessionsState>((set, get) => ({
   splitTabIds: [],
 
   selectHost: (h) => {
-    const { tabs, activeTabId } = get();
+    const { tabs, activeTabId, ephemeralHosts } = get();
     const active = tabs.find((t) => t.id === activeTabId);
     if (active?.kind === "host" && !active.connected) {
+      const nextEphemeral = { ...ephemeralHosts };
+      if (active.hostId && nextEphemeral[active.hostId]) {
+        delete nextEphemeral[active.hostId];
+      }
       set({
         tabs: tabs.map((t) =>
           t.id === activeTabId
             ? { ...t, hostId: h.id, title: h.alias, hue: h.hue, connected: false }
             : t
         ),
+        ephemeralHosts: nextEphemeral,
       });
       return;
     }
@@ -62,6 +70,16 @@ export const useSessions = create<SessionsState>((set, get) => ({
     const id = `tab-${Date.now()}`;
     set({
       tabs: [...get().tabs, { id, kind: "host", hostId: h.id, title: h.alias, hue: h.hue, connected: connectNow }],
+      activeTabId: id,
+    });
+  },
+
+  openDraftHost: (h) => {
+    const { tabs, ephemeralHosts } = get();
+    const id = `tab-${Date.now()}`;
+    set({
+      tabs: [...tabs, { id, kind: "host", hostId: h.id, title: h.alias || "New host", hue: h.hue, connected: false }],
+      ephemeralHosts: { ...ephemeralHosts, [h.id]: h },
       activeTabId: id,
     });
   },
@@ -91,6 +109,14 @@ export const useSessions = create<SessionsState>((set, get) => ({
     });
   },
 
+  forgetEphemeralHost: (id) => {
+    const { ephemeralHosts } = get();
+    if (!ephemeralHosts[id]) return;
+    const next = { ...ephemeralHosts };
+    delete next[id];
+    set({ ephemeralHosts: next });
+  },
+
   connectActive: () => {
     const { activeTabId, tabs } = get();
     set({ tabs: tabs.map((t) => t.id === activeTabId ? { ...t, connected: true } : t) });
@@ -108,12 +134,28 @@ export const useSessions = create<SessionsState>((set, get) => ({
     });
   },
 
-  openSettings: () => {
+  openSettings: (section = "appearance") => {
     const existing = get().tabs.find(t => t.kind === "settings");
-    if (existing) { set({ activeTabId: existing.id }); return; }
+    if (existing) {
+      set({
+        activeTabId: existing.id,
+        tabs: get().tabs.map((tab) =>
+          tab.id === existing.id ? { ...tab, settingsSection: section } : tab
+        ),
+      });
+      return;
+    }
     set({
-      tabs: [...get().tabs, { id: "tab-settings", kind: "settings", title: "Settings", hue: "#a78bfa" }],
+      tabs: [...get().tabs, { id: "tab-settings", kind: "settings", title: "Settings", hue: "#a78bfa", settingsSection: section }],
       activeTabId: "tab-settings",
+    });
+  },
+
+  setSettingsSection: (section) => {
+    set({
+      tabs: get().tabs.map((tab) =>
+        tab.kind === "settings" ? { ...tab, settingsSection: section } : tab
+      ),
     });
   },
 

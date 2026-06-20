@@ -46,6 +46,10 @@ function browserInvokeFallback<T>(cmd: string, args?: InvokeArgs): T {
       return browserLanguage() as T;
     case "host_ping":
       return { ok: false, latency_ms: null } as T;
+    case "autostart_status":
+      return { enabled: false } as T;
+    case "autostart_set_enabled":
+      return { enabled: Boolean(args?.enabled) } as T;
     case "app_state_get":
       return localStateGet(args?.key) as T;
     case "app_state_put":
@@ -263,6 +267,20 @@ export async function credDelete(account: string): Promise<void> {
 
 export async function detectSystemLanguage(): Promise<string> {
   return invoke<string>("i18n_detect_system");
+}
+
+// ─── app lifecycle ─────────────────────────────────────────────────────────
+
+export interface AutostartStatus {
+  enabled: boolean;
+}
+
+export async function getAutostartStatus(): Promise<AutostartStatus> {
+  return invoke<AutostartStatus>("autostart_status");
+}
+
+export async function setAutostartEnabled(enabled: boolean): Promise<AutostartStatus> {
+  return invoke<AutostartStatus>("autostart_set_enabled", { enabled });
 }
 
 // ─── reachability ──────────────────────────────────────────────────────────

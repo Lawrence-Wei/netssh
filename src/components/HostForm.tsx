@@ -38,6 +38,8 @@ export function HostEditorFull({
   const [port, setPort] = useState(String(host.port || 22));
   const [portError, setPortError] = useState("");
   const [aliasError, setAliasError] = useState("");
+  const [hostnameError, setHostnameError] = useState("");
+  const [userError, setUserError] = useState("");
   const [serialError, setSerialError] = useState("");
   const [newSite, setNewSite] = useState("");
   const { credentials } = useCredentials();
@@ -51,18 +53,13 @@ export function HostEditorFull({
     setDraft(host);
     setPort(String(host.port || 22));
     setPortError("");
+    setHostnameError("");
+    setUserError("");
     setSerialError("");
   }, [host]);
 
   /** Save after alias + port validation. */
   const validateAndSave = () => {
-    // Require the alias — a nameless host cannot be identified in the sidebar.
-    if (!draft.alias?.trim()) {
-      setAliasError(t("host.error.aliasRequired", lang));
-      return;
-    }
-    setAliasError("");
-
     if (connectionType === "serial") {
       const serialProfile = normalizeSerialProfile(draft.serialProfile);
       if (!serialProfile.portName?.trim()) {
@@ -74,8 +71,15 @@ export function HostEditorFull({
         return;
       }
       setSerialError("");
+      const serialAlias = draft.alias?.trim() || serialProfile.portName.trim();
+      if (!serialAlias) {
+        setAliasError(t("host.error.aliasRequired", lang));
+        return;
+      }
+      setAliasError("");
       onSave({
         ...draft,
+        alias: serialAlias,
         connectionType: "serial",
         serialProfile: normalizeSerialProfile(draft.serialProfile),
         credentialProfileId: undefined,
@@ -85,6 +89,27 @@ export function HostEditorFull({
       return;
     }
 
+    const hostname = draft.hostname.trim();
+    if (!hostname) {
+      setHostnameError(t("host.error.hostnameRequired", lang));
+      return;
+    }
+    setHostnameError("");
+
+    const user = draft.user.trim();
+    if (!user) {
+      setUserError(t("host.error.userRequired", lang));
+      return;
+    }
+    setUserError("");
+
+    const alias = draft.alias?.trim() || hostname;
+    if (!alias) {
+      setAliasError(t("host.error.aliasRequired", lang));
+      return;
+    }
+    setAliasError("");
+
     const portNum = Number(port);
     if (!Number.isFinite(portNum) || portNum < 1 || portNum > 65535 || !Number.isInteger(portNum)) {
       setPortError(t("host.error.portRange", lang));
@@ -93,6 +118,9 @@ export function HostEditorFull({
     setPortError("");
     onSave({
       ...draft,
+      alias,
+      hostname,
+      user,
       connectionType: "ssh",
       port: portNum,
       credentialProfileId: draft.credentialProfileId,
@@ -108,6 +136,9 @@ export function HostEditorFull({
         ? normalizeSerialProfile(current.serialProfile)
         : current.serialProfile,
     }));
+    setAliasError("");
+    setHostnameError("");
+    setUserError("");
     setPortError("");
     setSerialError("");
   };
@@ -120,7 +151,7 @@ export function HostEditorFull({
             <span style={{ color: "var(--text-mute)", fontWeight: 400 }}>
               {t("host.editor.title", lang)}
             </span>
-            <span style={{ marginLeft: 8, color: "var(--accent)" }}>{host.alias}</span>
+            <span style={{ marginLeft: 8, color: "var(--accent)" }}>{host.alias || t("sidebar.foot.add", lang)}</span>
           </h2>
           <span style={{ color: "var(--text-mute)", fontSize: 11, fontFamily: "var(--font-mono)" }}>{host.id}</span>
         </div>
@@ -150,18 +181,28 @@ export function HostEditorFull({
                   <label>
                     <span className="k">{t("host.field.hostname", lang)}</span>
                     <input
+                      className={hostnameError ? "has-error" : ""}
                       value={draft.hostname}
-                      onChange={(e) => setDraft({ ...draft, hostname: e.target.value })}
+                      onChange={(e) => {
+                        setDraft({ ...draft, hostname: e.target.value });
+                        if (hostnameError && e.target.value.trim()) setHostnameError("");
+                      }}
                       placeholder="192.168.1.1 / example.com"
                     />
+                    {hostnameError && <span className="field-error">{hostnameError}</span>}
                   </label>
                   <label>
                     <span className="k">{t("host.field.user", lang)}</span>
                     <input
+                      className={userError ? "has-error" : ""}
                       value={draft.user}
-                      onChange={(e) => setDraft({ ...draft, user: e.target.value })}
+                      onChange={(e) => {
+                        setDraft({ ...draft, user: e.target.value });
+                        if (userError && e.target.value.trim()) setUserError("");
+                      }}
                       placeholder="root"
                     />
+                    {userError && <span className="field-error">{userError}</span>}
                   </label>
                   <label>
                     <span className="k">{t("host.field.port", lang)}</span>

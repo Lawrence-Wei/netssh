@@ -2,7 +2,7 @@ import { useMemo } from "react";
 import { shallow } from "zustand/shallow";
 import type { QuickCommand } from "../config/defaults";
 import { useSessions } from "../store/sessions";
-import type { Group, Host, Lang, Snippet, Tab } from "../config/types";
+import type { Group, Host, Lang, SettingsSectionId, Snippet, Tab } from "../config/types";
 import { HostDetail } from "../pages/HostDetail";
 import { Settings } from "../pages/Settings";
 import { SnippetsLibrary } from "../pages/SnippetsLibrary";
@@ -178,6 +178,15 @@ export function Workspace({
           setTheme={setTheme}
           settings={settings}
           setSetting={setSetting}
+          hosts={hosts}
+          groups={groups}
+          section={tab.settingsSection ?? "appearance"}
+          onSectionChange={(section: SettingsSectionId) => useSessions.getState().setSettingsSection(section)}
+          onOpenHost={onOpenHost}
+          onEditHost={(host) => {
+            setEditingHostId(host.id);
+            useSessions.getState().selectHost(host);
+          }}
         />
       )}
       {tab?.kind === "snippets" && (

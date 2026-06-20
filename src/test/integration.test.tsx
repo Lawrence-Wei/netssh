@@ -261,6 +261,8 @@ describe("主机管理 UI", () => {
     const aliasInput = screen.getByPlaceholderText("my-server");
     await user.clear(aliasInput);
     await user.type(aliasInput, "itg-host");
+    await user.type(screen.getByPlaceholderText("192.168.1.1 / example.com"), "10.0.0.20");
+    await user.type(screen.getByPlaceholderText("root"), "admin");
     await user.click(screen.getByText("Save"));
 
     await waitFor(() => {
@@ -346,7 +348,7 @@ describe("设置 UI 流程", () => {
     const user = userEvent.setup();
 
     // 用标题栏 Settings 按钮打开设置
-    const prefBtn = document.querySelector('[title="Settings"]')!;
+    const prefBtn = document.querySelector(".titlebar-settings-btn")!;
     await user.click(prefBtn as HTMLElement);
     await waitFor(() => {
       expect(document.querySelector(".settings-nav")).toBeTruthy();
@@ -364,22 +366,30 @@ describe("设置 UI 流程", () => {
     expect(document.querySelector(".settings-nav")).toBeTruthy();
   });
 
-  it("主题切换: purple → blue → mica → purple", async () => {
+  it("主题切换: purple → blue → mica → light → purple", async () => {
     render(createElement(ConfirmProvider, null, createElement(App)));
     const user = userEvent.setup();
 
-    const prefBtn = document.querySelector('[title="Settings"]')!;
+    const prefBtn = document.querySelector(".titlebar-settings-btn")!;
     await user.click(prefBtn as HTMLElement);
     await waitFor(() => document.querySelector(".settings-nav"), { timeout: 3000 });
 
+    const appearanceBtn = Array.from(document.querySelectorAll(".settings-nav button")).find(
+      (b) => b.textContent?.includes("Appearance")
+    )!;
+    await user.click(appearanceBtn as HTMLElement);
+
     const cards = document.querySelectorAll(".theme-card");
-    expect(cards.length).toBe(3);
+    expect(cards.length).toBe(4);
 
     await user.click(cards[1] as HTMLElement);
     expect(document.documentElement.getAttribute("data-theme")).toBe("blue");
 
     await user.click(cards[2] as HTMLElement);
     expect(document.documentElement.getAttribute("data-theme")).toBe("mica");
+
+    await user.click(cards[3] as HTMLElement);
+    expect(document.documentElement.getAttribute("data-theme")).toBe("light");
 
     await user.click(cards[0] as HTMLElement);
     expect(document.documentElement.getAttribute("data-theme")).toBe("purple");

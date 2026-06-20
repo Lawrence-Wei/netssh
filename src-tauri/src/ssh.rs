@@ -124,6 +124,180 @@ const SSH_TCP_CONNECT_TIMEOUT: Duration = Duration::from_secs(8);
 const SSH_AUTH_ATTEMPT_TIMEOUT: Duration = Duration::from_secs(12);
 const NETWORK_DEVICE_HINTS: &[&str] = &["huawei", "cisco"];
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum SshAlgorithmProfile {
+    ModernWithLegacyFallback,
+    LegacyNetworkDevice,
+}
+
+fn ssh_client_config(profile: SshAlgorithmProfile) -> client::Config {
+    let mut config = client::Config::default();
+    match profile {
+        SshAlgorithmProfile::ModernWithLegacyFallback => {
+            append_legacy_algorithms(&mut config);
+        }
+        SshAlgorithmProfile::LegacyNetworkDevice => {
+            config.preferred.kex = std::borrow::Cow::Owned(vec![
+                russh::kex::DH_G14_SHA1,
+                russh::kex::DH_G1_SHA1,
+            ]);
+            config.preferred.key = std::borrow::Cow::Owned(vec![russh_keys::key::SSH_RSA]);
+            config.preferred.cipher = std::borrow::Cow::Owned(vec![
+                russh::cipher::AES_128_CTR,
+                russh::cipher::AES_192_CTR,
+                russh::cipher::AES_256_CTR,
+                russh::cipher::AES_128_CBC,
+                russh::cipher::AES_192_CBC,
+                russh::cipher::AES_256_CBC,
+                russh::cipher::TRIPLE_DES_CBC,
+            ]);
+            config.preferred.mac = std::borrow::Cow::Owned(vec![russh::mac::HMAC_SHA1]);
+            config.preferred.compression = std::borrow::Cow::Owned(vec![russh::compression::NONE]);
+        }
+    }
+    config
+}
+
+fn append_legacy_algorithms(config: &mut client::Config) {
+    let mut kex_list: Vec<russh::kex::Name> = config.preferred.kex.to_vec();
+    for legacy in [russh::kex::DH_G14_SHA1, russh::kex::DH_G1_SHA1] {
+        if !kex_list.iter().any(|k| k.as_ref() == legacy.as_ref()) {
+            kex_list.push(legacy);
+        }
+    }
+    config.preferred.kex = std::borrow::Cow::Owned(kex_list);
+
+    let mut key_list: Vec<russh_keys::key::Name> = config.preferred.key.to_vec();
+    let ssh_rsa = russh_keys::key::SSH_RSA;
+    if !key_list.iter().any(|k| k.as_ref() == ssh_rsa.as_ref()) {
+        key_list.push(ssh_rsa);
+    }
+    config.preferred.key = std::borrow::Cow::Owned(key_list);
+
+    let mut cipher_list: Vec<russh::cipher::Name> = config.preferred.cipher.to_vec();
+    for legacy in [
+        russh::cipher::AES_128_CBC,
+        russh::cipher::AES_192_CBC,
+        russh::cipher::AES_256_CBC,
+        russh::cipher::TRIPLE_DES_CBC,
+    ] {
+        if !cipher_list.iter().any(|c| c.as_ref() == legacy.as_ref()) {
+            cipher_list.push(legacy);
+        }
+    }
+    config.preferred.cipher = std::borrow::Cow::Owned(cipher_list);
+}
+
+fn no_common_algorithm_message(kind: &russh::AlgorithmKind, ours: &[String], theirs: &[String]) -> String {
+    let ours = format_algorithm_list(ours);
+    let theirs = format_algorithm_list(theirs);
+    match kind {
+        russh::AlgorithmKind::Kex => {
+            format!("kex_no_common_algorithm: server offered [{theirs}]; client offered [{ours}]")
+        }
+        russh::AlgorithmKind::Key => {
+            format!("host_key_algo_no_common: server offered [{theirs}]; client offered [{ours}]")
+        }
+        russh::AlgorithmKind::Cipher => {
+            format!("cipher_no_common_algorithm: server offered [{theirs}]; client offered [{ours}]")
+        }
+        russh::AlgorithmKind::Mac => {
+            format!("mac_no_common_algorithm: server offered [{theirs}]; client offered [{ours}]")
+        }
+        russh::AlgorithmKind::Compression => {
+            format!("algo_no_common: no common compression algorithm; server offered [{theirs}]; client offered [{ours}]")
+        }
+    }
+}
+
+fn format_algorithm_list(items: &[String]) -> String {
+    if items.is_empty() {
+        "(none)".to_string()
+    } else {
+        items.join(", ")
+    }
+}
+
+async fn open_ssh_tcp(addr: &str) -> Result<tokio::net::TcpStream> {
+    match tokio::time::timeout(SSH_TCP_CONNECT_TIMEOUT, tokio::net::TcpStream::connect(addr)).await
+    {
+        Ok(Ok(socket)) => Ok(socket),
+        Ok(Err(e)) => {
+            error!(error = %e, "SSH TCP connection failed");
+            Err(anyhow!("connect_failed: {}", e))
+        }
+        Err(_) => {
+            error!(
+                target = %addr,
+                timeout_ms = SSH_TCP_CONNECT_TIMEOUT.as_millis() as u64,
+                "SSH TCP connection timed out"
+            );
+            Err(anyhow!(
+                "connect_timeout: no response from {} after {} seconds",
+                addr,
+                SSH_TCP_CONNECT_TIMEOUT.as_secs()
+            ))
+        }
+    }
+}
+
+fn classify_ssh_handshake_error(
+    error: russh::Error,
+    last_host_key_error: &Arc<StdMutex<Option<String>>>,
+) -> anyhow::Error {
+    if let Some(host_key_error) = last_host_key_error
+        .lock()
+        .unwrap_or_else(|err| err.into_inner())
+        .clone()
+    {
+        error!(error = %host_key_error, "SSH handshake failed due to host key");
+        return anyhow!("{host_key_error}");
+    }
+    if let russh::Error::NoCommonAlgo { kind, ours, theirs } = &error {
+        let message = no_common_algorithm_message(kind, ours, theirs);
+        error!(error = %error, message = %message, "SSH algorithm negotiation failed");
+        return anyhow!(message);
+    }
+    let err_str = error.to_string();
+    let err_lower = err_str.to_lowercase();
+    if err_lower.contains("no common") && (err_lower.contains("kex") || err_lower.contains("key exchange")) {
+        error!(error = %error, "SSH KEX algorithm negotiation failed (no overlap with server)");
+        return anyhow!("kex_no_common_algorithm: {err_str}");
+    }
+    if err_lower.contains("no common") && (err_lower.contains("host key") || err_lower.contains(" key")) {
+        error!(error = %error, "SSH host key algorithm negotiation failed (no overlap with server)");
+        return anyhow!("host_key_algo_no_common: {err_str}");
+    }
+    if err_lower.contains("no common") && err_lower.contains("mac") {
+        error!(error = %error, "SSH MAC algorithm negotiation failed (no overlap with server)");
+        return anyhow!("mac_no_common_algorithm: {err_str}");
+    }
+    if err_lower.contains("no common") && err_lower.contains("cipher") {
+        error!(error = %error, "SSH cipher algorithm negotiation failed (no overlap with server)");
+        return anyhow!("cipher_no_common_algorithm: {err_str}");
+    }
+    if err_lower.contains("no common") {
+        error!(error = %error, "SSH algorithm negotiation failed");
+        return anyhow!("algo_no_common: {err_str}");
+    }
+    error!(error = %error, "SSH handshake / key exchange error");
+    anyhow!("network_unreachable: {err_str}")
+}
+
+fn should_retry_with_legacy_profile(error: &anyhow::Error) -> bool {
+    let raw = error.to_string().to_lowercase();
+    if raw.contains("host_key_") {
+        return false;
+    }
+    raw.contains("no_common_algorithm")
+        || raw.contains("algo_no_common")
+        || raw.contains("no common")
+        || raw.contains("key exchange")
+        || raw.contains("kex")
+        || raw.contains("strict kex")
+        || raw.contains("network_unreachable")
+}
+
 #[async_trait]
 impl Handler for ClientHandler {
     type Error = russh::Error;
@@ -236,56 +410,6 @@ impl SshSession {
         args: SshOpenArgs,
         challenge_registry: HostKeyChallengeRegistry,
     ) -> Result<Self> {
-        let mut config = client::Config::default();
-        // ── Legacy algorithm compatibility for routers / switches / embedded devices ──
-        //
-        // Many Cisco IOS / IOS XE / Nexus, Huawei VRP, and older embedded Linux
-        // devices only offer SHA-1 based KEX, host key, and MAC algorithms.
-        // russh implements them but excludes them from the safe defaults since
-        // SHA-1 is considered broken.  Netssh adds them at the *end* of each
-        // preference list so that modern (safe) algorithms are always tried first,
-        // and the old variants are only used as a last-resort fallback.
-        {
-            // Inject SHA-1 KEX algorithms at the end so they are only
-            // negotiated when the server offers nothing else.
-            // Note: diffie-hellman-group-exchange-sha1 is not available in
-            // russh 0.46; only group1-sha1 and group14-sha1 are included.
-            {
-                let mut kex_list: Vec<russh::kex::Name> = config.preferred.kex.to_vec();
-                for legacy in [russh::kex::DH_G14_SHA1, russh::kex::DH_G1_SHA1] {
-                    if !kex_list.iter().any(|k| k.as_ref() == legacy.as_ref()) {
-                        kex_list.push(legacy);
-                    }
-                }
-                config.preferred.kex = std::borrow::Cow::Owned(kex_list);
-            }
-
-            // 注入 SHA-1 MAC 算法，同样放在末尾作为备选。
-            {
-                let mut mac_list: Vec<russh::mac::Name> = config.preferred.mac.to_vec();
-                for legacy in [russh::mac::HMAC_SHA1, russh::mac::HMAC_SHA1_ETM] {
-                    if !mac_list.iter().any(|m| m.as_ref() == legacy.as_ref()) {
-                        mac_list.push(legacy);
-                    }
-                }
-                config.preferred.mac = std::borrow::Cow::Owned(mac_list);
-            }
-
-            // 注入 ssh-rsa 主机密钥算法，同样放在末尾作为备选。
-            //
-            // 华为 VRP 交换机（如 S5700 V200R022）通常只提供 ssh-rsa 作为主机密钥算法，
-            // 不支持现代 rsa-sha2-256 / rsa-sha2-512。russh 0.46 的安全默认列表中已移除
-            // ssh-rsa（SHA-1 被认为不安全），因此必须显式加回才能与这些设备完成协商。
-            {
-                let mut key_list: Vec<russh_keys::key::Name> = config.preferred.key.to_vec();
-                let ssh_rsa = russh_keys::key::SSH_RSA;
-                if !key_list.iter().any(|k| k.as_ref() == ssh_rsa.as_ref()) {
-                    key_list.push(ssh_rsa);
-                }
-                config.preferred.key = std::borrow::Cow::Owned(key_list);
-            }
-        }
-        let config = Arc::new(config);
         let addr = format!("{}:{}", args.host, args.port);
         let password = args.password.clone().filter(|p| !p.trim().is_empty());
         let identity_file = args
@@ -332,76 +456,55 @@ impl SshSession {
             known_count = accepted_keys.len(),
             "Accepted host key fingerprints loaded"
         );
-        let last_host_key_error = Arc::new(StdMutex::new(None));
+        let profiles = [
+            SshAlgorithmProfile::ModernWithLegacyFallback,
+            SshAlgorithmProfile::LegacyNetworkDevice,
+        ];
+        let mut last_error: Option<anyhow::Error> = None;
+        let mut handle = None;
 
-        let handler = ClientHandler {
-            app: app.clone(),
-            session_id: id.to_string(),
-            alias: args.alias.clone(),
-            host: args.host.clone(),
-            port: args.port,
-            accepted_keys,
-            challenge_registry,
-            last_host_key_error: last_host_key_error.clone(),
-        };
-        info!("Opening TCP connection for SSH");
-        let socket = match tokio::time::timeout(
-            SSH_TCP_CONNECT_TIMEOUT,
-            tokio::net::TcpStream::connect(&addr),
-        )
-        .await
-        {
-            Ok(Ok(socket)) => socket,
-            Ok(Err(e)) => {
-                error!(error = %e, "SSH TCP connection failed");
-                return Err(anyhow!("connect_failed: {}", e));
+        for profile in profiles {
+            let last_host_key_error = Arc::new(StdMutex::new(None));
+            let handler = ClientHandler {
+                app: app.clone(),
+                session_id: id.to_string(),
+                alias: args.alias.clone(),
+                host: args.host.clone(),
+                port: args.port,
+                accepted_keys: accepted_keys.clone(),
+                challenge_registry: challenge_registry.clone(),
+                last_host_key_error: last_host_key_error.clone(),
+            };
+            info!(profile = ?profile, "Opening TCP connection for SSH");
+            let socket = open_ssh_tcp(&addr).await?;
+            info!(profile = ?profile, "Starting SSH handshake and key exchange");
+            match client::connect_stream(Arc::new(ssh_client_config(profile)), socket, handler).await
+            {
+                Ok(h) => {
+                    info!(profile = ?profile, "SSH handshake + key exchange completed");
+                    handle = Some(h);
+                    break;
+                }
+                Err(error) => {
+                    let classified = classify_ssh_handshake_error(error, &last_host_key_error);
+                    if profile == SshAlgorithmProfile::ModernWithLegacyFallback
+                        && should_retry_with_legacy_profile(&classified)
+                    {
+                        warn!(
+                            error = %classified,
+                            "Retrying SSH handshake with legacy network-device algorithms"
+                        );
+                        last_error = Some(classified);
+                        continue;
+                    }
+                    return Err(classified);
+                }
             }
-            Err(_) => {
-                error!(
-                    timeout_ms = SSH_TCP_CONNECT_TIMEOUT.as_millis() as u64,
-                    "SSH TCP connection timed out"
-                );
-                return Err(anyhow!(
-                    "connect_timeout: no response from {} after {} seconds",
-                    addr,
-                    SSH_TCP_CONNECT_TIMEOUT.as_secs()
-                ));
-            }
-        };
+        }
 
-        info!("Starting SSH handshake and key exchange");
-        let mut handle = match client::connect_stream(config, socket, handler).await {
-            Ok(h) => {
-                info!("SSH handshake + key exchange completed");
-                h
-            }
-            Err(e) => {
-                if let Some(host_key_error) = last_host_key_error
-                    .lock()
-                    .unwrap_or_else(|err| err.into_inner())
-                    .clone()
-                {
-                    error!(error = %host_key_error, "SSH handshake failed due to host key");
-                    return Err(anyhow!("{host_key_error}"));
-                }
-                let err_str = e.to_string();
-                // Classify the error so the frontend can show a meaningful message.
-                if err_str.contains("No common Kex") {
-                    error!(error = %e, "SSH KEX algorithm negotiation failed (no overlap with server)");
-                    return Err(anyhow!("kex_no_common_algorithm: {err_str}"));
-                }
-                if err_str.contains("No common Key") {
-                    error!(error = %e, "SSH host key algorithm negotiation failed (no overlap with server)");
-                    return Err(anyhow!("host_key_algo_no_common: {err_str}"));
-                }
-                if err_str.contains("No common") {
-                    error!(error = %e, "SSH algorithm negotiation failed");
-                    return Err(anyhow!("algo_no_common: {err_str}"));
-                }
-                error!(error = %e, "SSH handshake / key exchange error");
-                return Err(anyhow!("network_unreachable: {err_str}"));
-            }
-        };
+        let mut handle = handle.ok_or_else(|| {
+            last_error.unwrap_or_else(|| anyhow!("network_unreachable: SSH handshake did not complete"))
+        })?;
 
         // Authenticate: try publickey first, then password / keyboard-interactive.
         let authed = if let Some(ref identity_file) = identity_file {
@@ -1838,6 +1941,50 @@ Cisco Catalyst 9300 Switch uptime is 2 weeks
         let args = test_ssh_args(Some("ubuntu"));
         assert!(!prefers_keyboard_interactive(&args));
         assert!(metadata_from_device_hint("session-1", &args).is_none());
+    }
+
+    #[test]
+    fn no_common_algorithm_message_labels_kex_failures() {
+        let message = no_common_algorithm_message(
+            &russh::AlgorithmKind::Kex,
+            &["diffie-hellman-group14-sha1".to_string()],
+            &["diffie-hellman-group-exchange-sha1".to_string()],
+        );
+
+        assert!(message.starts_with("kex_no_common_algorithm:"));
+        assert!(message.contains("diffie-hellman-group-exchange-sha1"));
+    }
+
+    #[test]
+    fn no_common_algorithm_message_labels_mac_failures() {
+        let message = no_common_algorithm_message(
+            &russh::AlgorithmKind::Mac,
+            &["hmac-sha2-256".to_string()],
+            &["hmac-sha1-96".to_string()],
+        );
+
+        assert!(message.starts_with("mac_no_common_algorithm:"));
+        assert!(message.contains("hmac-sha1-96"));
+    }
+
+    #[test]
+    fn modern_profile_keeps_legacy_network_algorithms_as_fallback() {
+        let config = ssh_client_config(SshAlgorithmProfile::ModernWithLegacyFallback);
+        assert!(config.preferred.kex.iter().any(|item| item.as_ref() == "diffie-hellman-group14-sha1"));
+        assert!(config.preferred.kex.iter().any(|item| item.as_ref() == "diffie-hellman-group1-sha1"));
+        assert!(config.preferred.key.iter().any(|item| item.as_ref() == "ssh-rsa"));
+        assert!(config.preferred.cipher.iter().any(|item| item.as_ref() == "aes128-cbc"));
+        assert!(config.preferred.cipher.iter().any(|item| item.as_ref() == "3des-cbc"));
+        assert!(config.preferred.mac.iter().any(|item| item.as_ref() == "hmac-sha1"));
+    }
+
+    #[test]
+    fn legacy_network_profile_offers_cisco_compatible_algorithms_first() {
+        let config = ssh_client_config(SshAlgorithmProfile::LegacyNetworkDevice);
+        assert_eq!(config.preferred.kex[0].as_ref(), "diffie-hellman-group14-sha1");
+        assert_eq!(config.preferred.key[0].as_ref(), "ssh-rsa");
+        assert_eq!(config.preferred.cipher[0].as_ref(), "aes128-ctr");
+        assert_eq!(config.preferred.mac[0].as_ref(), "hmac-sha1");
     }
 
     fn test_ssh_args(device_hint: Option<&str>) -> SshOpenArgs {

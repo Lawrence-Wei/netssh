@@ -2,6 +2,7 @@ import { describe, it, expect, beforeEach } from "vitest";
 import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { createElement } from "react";
+import { invoke } from "@tauri-apps/api/core";
 import App from "../pages/App";
 import { ConfirmProvider } from "../components/ConfirmDialog";
 import { useCredentials } from "../store/credentials";
@@ -59,12 +60,14 @@ beforeEach(() => {
     showSessionRail: false,
     allowConfigWrite: false,
   });
+  vi.mocked(invoke).mockClear();
 });
 
 describe("Settings GUI wiring", () => {
   it("applies terminal font preferences to app CSS variables", async () => {
     const { user } = renderApp();
-    await openSettings(user);
+    const nav = await openSettings(user);
+    await user.click(within(nav).getByText("Appearance"));
 
     await user.click(screen.getByText("Consolas"));
     await user.click(screen.getByText("16 pt"));
@@ -113,6 +116,7 @@ describe("Settings GUI wiring", () => {
   it("toggles runtime body and hardware settings", async () => {
     const { user } = renderApp();
     const nav = await openSettings(user);
+    await user.click(within(nav).getByText("Appearance"));
 
     await user.click(screen.getByLabelText("Translucency"));
     await waitFor(() => expect(document.body.classList.contains("no-translucency")).toBe(true));
@@ -120,6 +124,20 @@ describe("Settings GUI wiring", () => {
     await user.click(within(nav).getByText("Advanced"));
     await user.click(screen.getByLabelText("Hardware acceleration"));
     expect(useSettings.getState().hardwareAcceleration).toBe(false);
+  });
+
+  it("enables Windows autostart through the Tauri lifecycle command", async () => {
+    const { user } = renderApp();
+    const nav = await openSettings(user);
+
+    await user.click(within(nav).getByText("Advanced"));
+    await waitFor(() =>
+      expect(vi.mocked(invoke).mock.calls.some(([cmd]) => cmd === "autostart_status")).toBe(true)
+    );
+    await user.click(screen.getByLabelText("Auto-start with Windows"));
+
+    await waitFor(() => expect(invoke).toHaveBeenCalledWith("autostart_set_enabled", { enabled: true }));
+    await waitFor(() => expect(useSettings.getState().autostart).toBe(true));
   });
 
   it("does not persist credential passwords through metadata edits", async () => {

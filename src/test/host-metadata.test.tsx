@@ -5,6 +5,7 @@ import { Sidebar } from "../layouts/Sidebar";
 import { ConfirmProvider } from "../components/ConfirmDialog";
 import { useHosts } from "../store/hosts";
 import { displayGroupName, groupHostsForDisplay } from "../utils/groups";
+import { sortHostsForSidebar } from "../utils/hostFilters";
 import { deployScopeLabel, deviceTypeFromHost } from "../utils/deployScope";
 import { brandLabel } from "../components/BrandIcons";
 import type { Group, Host } from "../config/types";
@@ -26,6 +27,7 @@ function host(id: string, alias: string, patch: Partial<Host> = {}): Host {
 }
 
 function renderSidebar(hosts: Host[]) {
+  const onReorderHost = vi.fn();
   return render(
     <ConfirmProvider>
       <Sidebar
@@ -40,6 +42,7 @@ function renderSidebar(hosts: Host[]) {
         onRenameGroup={vi.fn()}
         onRemoveGroup={vi.fn()}
         onMoveHostToGroup={vi.fn()}
+        onReorderHost={onReorderHost}
         onAddHostQuick={vi.fn()}
         onRemoveHosts={vi.fn()}
         onToggleFavorite={vi.fn()}
@@ -63,6 +66,7 @@ function renderSidebarWithGroups(hosts: Host[], sidebarGroups: Group[], lang: "e
         onRenameGroup={vi.fn()}
         onRemoveGroup={vi.fn()}
         onMoveHostToGroup={vi.fn()}
+        onReorderHost={vi.fn()}
         onAddHostQuick={vi.fn()}
         onRemoveHosts={vi.fn()}
         onToggleFavorite={vi.fn()}
@@ -95,6 +99,71 @@ describe("host metadata", () => {
     expect(updated?.pinned).toBe(true);
     expect(updated?.lastConnectedAt).toBe(1_800_000_000_000);
     expect(updated?.status).toBe("ok");
+  });
+
+  it("exposes manual up/down ordering for sidebar hosts", async () => {
+    const user = userEvent.setup();
+    const onPickHost = vi.fn();
+    const onReorderHost = vi.fn();
+    render(
+      <ConfirmProvider>
+        <Sidebar
+          lang="en"
+          hosts={[
+            host("a", "alpha"),
+            host("b", "beta"),
+            host("c", "gamma"),
+          ]}
+          groups={groups}
+          onPickHost={onPickHost}
+          onDoubleClickHost={vi.fn()}
+          onContextMenu={vi.fn()}
+          onOpenImport={vi.fn()}
+          onAddGroup={vi.fn()}
+          onRenameGroup={vi.fn()}
+          onRemoveGroup={vi.fn()}
+          onMoveHostToGroup={vi.fn()}
+          onReorderHost={onReorderHost}
+          onAddHostQuick={vi.fn()}
+          onRemoveHosts={vi.fn()}
+          onToggleFavorite={vi.fn()}
+        />
+      </ConfirmProvider>
+    );
+
+    const moveUpButtons = screen.getAllByTitle("Move up");
+    await user.click(moveUpButtons[1]);
+
+    expect(onReorderHost).toHaveBeenCalledWith("b", 0, "unassigned", ["b", "a", "c"]);
+    expect(onPickHost).not.toHaveBeenCalled();
+  });
+
+  it("sorts explicit manual order against unordered neighbors", () => {
+    const sorted = sortHostsForSidebar([
+      host("a", "alpha"),
+      host("m", "macbook", { order: 2.5 }),
+      host("z", "zulu"),
+    ], "all");
+
+    expect(sorted.map((item) => item.alias)).toEqual(["alpha", "zulu", "macbook"]);
+  });
+
+  it("renumbers the whole target group when reordering a host", () => {
+    useHosts.setState((state) => ({
+      ...state,
+      hosts: [
+        host("wxgw", "wxgw", { group: "wuxi" }),
+        host("win11", "win11", { group: "wuxi" }),
+        host("mac", "macbook", { group: "wuxi", order: 3.5 }),
+      ],
+      groups: [{ id: "wuxi", name: "Wuxi", color: "#6f7f95" }],
+    }), true);
+
+    useHosts.getState().reorderHost("mac", 1, "wuxi", ["wxgw", "mac", "win11"]);
+
+    const sorted = sortHostsForSidebar(useHosts.getState().hosts, "all");
+    expect(sorted.map((item) => item.alias)).toEqual(["wxgw", "macbook", "win11"]);
+    expect(sorted.map((item) => item.order)).toEqual([0, 1, 2]);
   });
 
   it("normalizes uppercase unassigned groups during import and persistence", () => {

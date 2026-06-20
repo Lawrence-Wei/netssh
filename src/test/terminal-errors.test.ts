@@ -31,6 +31,18 @@ describe("describeConnectionError", () => {
       "auth_timeout: password authentication timed out for lawrence@192.168.100.253",
       "Authentication timed out",
     ],
+    [
+      "network_unreachable: No common algorithm",
+      "SSH algorithm negotiation failed",
+    ],
+    [
+      "kex_no_common_algorithm: server offered [diffie-hellman-group-exchange-sha1,diffie-hellman-group14-sha1]",
+      "SSH algorithm negotiation failed",
+    ],
+    [
+      "Unable to negotiate: no matching MAC found. Their offer: hmac-sha1,hmac-sha1-96",
+      "SSH algorithm negotiation failed",
+    ],
   ])("classifies %s", (raw, expected) => {
     expect(describeConnectionError(new Error(raw))).toContain(expected);
   });

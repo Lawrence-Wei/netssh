@@ -813,6 +813,9 @@ function shouldLoadWebglAddon(enabled: boolean) {
   if (!enabled) return false;
   const tauriWindow = window as Window & { __TAURI_INTERNALS__?: unknown };
   if (!tauriWindow.__TAURI_INTERNALS__) return false;
+  // WebView2 GPU/WebGL terminal rendering can terminate the whole Tauri window
+  // on some Windows machines. Keep the stable canvas renderer for live sessions.
+  if (/Windows/i.test(navigator.userAgent)) return false;
   if (/Headless/i.test(navigator.userAgent)) return false;
   const canvas = document.createElement("canvas");
   try {
@@ -841,7 +844,7 @@ function terminalTheme() {
     background: "rgba(0,0,0,0)",
     foreground: getCSS("--term-fg"),
     cursor: getCSS("--term-cursor"),
-    cursorAccent: "#0a0617",
+    cursorAccent: getCSS("--term-cursor-accent", "#0a0617"),
     selectionBackground: getCSS("--term-selection"),
     black: "#1a0a2e",
     red: "#f87171",
@@ -893,13 +896,19 @@ export function describeConnectionError(error: unknown, lang: Lang = "en") {
   if (!raw) return t("conn.error.message.generic", lang);
 
   // Categorize common SSH errors
-  if (/kex_no_common_algorithm/i.test(raw)) {
+  if (/kex_no_common_algorithm|no common.*(kex|key exchange)|no matching key exchange/i.test(raw)) {
     return t("conn.error.message.kexNoCommonAlgorithm", lang);
   }
-  if (/host_key_algo_no_common/i.test(raw)) {
+  if (/host_key_algo_no_common|no common.*host key|no matching host key/i.test(raw)) {
     return t("conn.error.message.hostKeyAlgoNoCommon", lang);
   }
-  if (/algo_no_common/i.test(raw)) {
+  if (/mac_no_common_algorithm|no common.*mac|no matching mac/i.test(raw)) {
+    return t("conn.error.message.macNoCommonAlgorithm", lang);
+  }
+  if (/cipher_no_common_algorithm|no common.*cipher|no matching cipher/i.test(raw)) {
+    return t("conn.error.message.cipherNoCommonAlgorithm", lang);
+  }
+  if (/algo_no_common|no common algorithm|no matching .* found/i.test(raw)) {
     return t("conn.error.message.algoNoCommon", lang);
   }
   if (/host_key_mismatch/i.test(raw)) {

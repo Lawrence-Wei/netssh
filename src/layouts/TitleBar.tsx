@@ -1,4 +1,4 @@
-import { Fragment, type MouseEvent, type ReactNode } from "react";
+import { type MouseEvent, type ReactNode } from "react";
 import { t } from "../utils/i18n";
 import type { Host, Lang, Tab } from "../config/types";
 import { brandIcon } from "../components/BrandIcons";
@@ -20,6 +20,7 @@ interface TitleBarProps {
   onDisconnectActive: () => void;
   onGoHome: () => void;
   onOpenSettings: () => void;
+  onOpenCredentials: () => void;
   sidebarCollapsed: boolean;
   onToggleSidebar: () => void;
 }
@@ -39,6 +40,7 @@ export function TitleBar({
   onDisconnectActive,
   onGoHome,
   onOpenSettings,
+  onOpenCredentials,
   sidebarCollapsed,
   onToggleSidebar,
 }: TitleBarProps) {
@@ -50,8 +52,29 @@ export function TitleBar({
   const canToggleSplit = activeTab?.kind === "host" && !!activeTab.hostId && !!activeTab.connected;
   const splitActive = !!activeTab && splitTabIds.includes(activeTab.id);
   const settingsLabel = t("titlebar.settings", lang);
+  const credentialsLabel = t("titlebar.credentials", lang);
   const splitLabel = t("workspace.split.toggle", lang);
-  const hasHomeTab = tabs.some(isHomeTab);
+  const homeTabs = tabs.filter(isHomeTab);
+  const sessionTabs = tabs.filter((tab) => !isHomeTab(tab));
+  const renderTab = (tab: Tab) => (
+    <div
+      key={tab.id}
+      className={"tab " + (tab.id === activeTabId ? "active" : "")}
+      onClick={() => onSelectTab(tab.id)}
+      onContextMenu={(event) => onTabContextMenu?.(event, tab)}
+      title={displayTabTitle(tab, lang)}
+    >
+      <span className="tab-icon" style={{ color: tab.hue || "var(--accent)" }}>
+        {tabIcon(tab, hosts, ephemeralHosts)}
+      </span>
+      <span className="label">{displayTabTitle(tab, lang)}</span>
+      {!tab.pinned && (
+        <button className="x" onClick={(event) => closeClicked(event, tab.id, onCloseTab)} aria-label={`Close ${displayTabTitle(tab, lang)}`}>
+          {Icon.x}
+        </button>
+      )}
+    </div>
+  );
   const sessionMenu = (
     <nav className="app-menu" aria-label={lang === "zh" ? "会话菜单" : "Session menu"}>
       <MenuButton label={lang === "zh" ? "会话" : "Session"}>
@@ -102,28 +125,11 @@ export function TitleBar({
       </div>
 
       <div className="tabstrip" data-tauri-drag-region>
-        {tabs.map((tab) => (
-          <Fragment key={tab.id}>
-            <div
-              className={"tab " + (tab.id === activeTabId ? "active" : "")}
-              onClick={() => onSelectTab(tab.id)}
-              onContextMenu={(event) => onTabContextMenu?.(event, tab)}
-              title={displayTabTitle(tab, lang)}
-            >
-              <span className="tab-icon" style={{ color: tab.hue || "var(--accent)" }}>
-                {tabIcon(tab, hosts, ephemeralHosts)}
-              </span>
-              <span className="label">{displayTabTitle(tab, lang)}</span>
-              {!tab.pinned && (
-                <button className="x" onClick={(event) => closeClicked(event, tab.id, onCloseTab)} aria-label={`Close ${displayTabTitle(tab, lang)}`}>
-                  {Icon.x}
-                </button>
-              )}
-            </div>
-            {isHomeTab(tab) && sessionMenu}
-          </Fragment>
-        ))}
-        {!hasHomeTab && sessionMenu}
+        {homeTabs.map(renderTab)}
+        {sessionMenu}
+        <div className="tabstrip-scroll" data-tauri-drag-region>
+          {sessionTabs.map(renderTab)}
+        </div>
         <button className="tab-new" onClick={onNewTab} title={t("titlebar.newtab", lang)} aria-label={t("titlebar.newtab", lang)}>
           {Icon.plus}
         </button>
@@ -141,6 +147,15 @@ export function TitleBar({
             {Icon.split}
           </button>
         )}
+        <button
+          className="icon-btn titlebar-account-btn"
+          onClick={onOpenCredentials}
+          title={credentialsLabel}
+          aria-label={credentialsLabel}
+          type="button"
+        >
+          {Icon.user}
+        </button>
         <button
           className="icon-btn titlebar-settings-btn"
           onClick={onOpenSettings}
@@ -172,6 +187,7 @@ function tabIcon(tab: Tab, hosts: Host[], ephemeralHosts: Record<string, Host>) 
 function displayTabTitle(tab: Tab, lang: Lang) {
   if (tab.kind === "home" || tab.title === "Home") return t("titlebar.home", lang);
   if (tab.title === "New session") return lang === "zh" ? "新会话" : "New session";
+  if (tab.title === "New host") return t("sidebar.foot.add", lang);
   if (tab.kind === "settings") return t("titlebar.settings", lang);
   if (tab.kind === "snippets" || tab.title === "Snippets") return lang === "zh" ? "命令片段" : "Snippets";
   if (tab.kind === "local" && tab.title === "PowerShell") return lang === "zh" ? "PowerShell" : "PowerShell";

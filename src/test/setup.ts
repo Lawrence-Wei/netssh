@@ -59,7 +59,7 @@ vi.mock("@tauri-apps/api/window", () => ({
 // Mock Tauri core invoke
 // ============================================================
 vi.mock("@tauri-apps/api/core", () => ({
-  invoke: vi.fn((cmd: string) => {
+  invoke: vi.fn((cmd: string, args?: Record<string, unknown>) => {
     /** Return practical defaults by command name so components can render. */
     switch (cmd) {
       case "config_parse":
@@ -70,6 +70,10 @@ vi.mock("@tauri-apps/api/core", () => ({
         return Promise.resolve([]);
       case "i18n_detect_system":
         return Promise.resolve("en");
+      case "autostart_status":
+        return Promise.resolve({ enabled: false });
+      case "autostart_set_enabled":
+        return Promise.resolve({ enabled: Boolean(args?.enabled) });
       case "ssh_open":
         return Promise.resolve("mock-ssh-id");
       case "pty_open":

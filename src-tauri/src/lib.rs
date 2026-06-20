@@ -1,3 +1,4 @@
+mod app_lifecycle;
 mod commands;
 mod credentials;
 mod pty;
@@ -60,7 +61,14 @@ pub fn run() {
             commands::app_state_delete,
             commands::connection_log_open,
             commands::connection_log_close,
+            commands::autostart_status,
+            commands::autostart_set_enabled,
         ])
+        .setup(|app| {
+            app_lifecycle::setup(app)?;
+            Ok(())
+        })
+        .on_window_event(app_lifecycle::handle_window_event)
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }

@@ -8,7 +8,7 @@ use base64::{engine::general_purpose::STANDARD, Engine};
 use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Emitter, State};
 
-use crate::{credentials, pty, serial, ssh, ssh_config, storage};
+use crate::{app_lifecycle, credentials, pty, serial, ssh, ssh_config, storage};
 
 #[derive(Default)]
 pub struct AppState {
@@ -354,6 +354,29 @@ pub fn i18n_detect_system() -> String {
     }
 
     "en".into()
+}
+
+// ─── app lifecycle ────────────────────────────────────────────────────────
+
+#[derive(Serialize)]
+pub struct AutostartStatus {
+    pub enabled: bool,
+}
+
+#[tauri::command]
+pub fn autostart_status() -> Result<AutostartStatus, String> {
+    let status = app_lifecycle::autostart_status()?;
+    Ok(AutostartStatus {
+        enabled: status.enabled,
+    })
+}
+
+#[tauri::command]
+pub fn autostart_set_enabled(enabled: bool) -> Result<AutostartStatus, String> {
+    let status = app_lifecycle::set_autostart_enabled(enabled)?;
+    Ok(AutostartStatus {
+        enabled: status.enabled,
+    })
 }
 
 // ─── reachability ─────────────────────────────────────────────────────────

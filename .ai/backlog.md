@@ -8,6 +8,7 @@
 - [x] Add a README app interface screenshot.
 - [x] Refresh the README screenshot with a multi-site network topology view.
 - [x] Refine the landing workspace for function-first SSH operations (topology filters, compact manual connect, and non-blocking layout).
+- [x] Implement Windows autostart with launch-to-tray behavior and tray restore/exit controls.
 
 ## Phase 1: Asset Inventory + Quick SSH
 
@@ -19,6 +20,7 @@
 - [x] Add diagnostics for duplicate hostnames and duplicate `HostName` directives.
 - [x] Add diagnostics for missing identity files.
 - [x] Add favorites and recent connection timestamps.
+- [x] Add manual host ordering controls for sidebar nodes and keep topology order in sync.
 - [x] Improve quick connect error diagnostics for DNS, route, port, auth, and key-passphrase failures.
 - [x] Fix unknown host key handling so the user confirms TOFU before trust is granted.
 - [x] Implement blocking TOFU host key challenge with `ssh_host_key_decide`.
