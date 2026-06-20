@@ -42,6 +42,7 @@ export function deviceTypeFromHost(host: Host): string {
     .join(" ")
     .toLowerCase();
   if (/zspace|zima|nance/i.test(haystack)) return "zspace";
+  if (/\bzabbix\b|\bzbx\b/i.test(haystack)) return "zabbix";
   if (/luckfox|picokvm|pico[-_ ]?kvm/i.test(haystack)) return "luckfox";
   if (/asus|asuswrt|rog[-_ ]?rapture|aimesh|rt[-_ ]?a[ctx]|gt[-_ ]?a[ctx]|tuf[-_ ]?a[ctx]/i.test(haystack)) return "asus";
   if (/huawei|hw[-_]?|vrp|usg|s5700|s6700|s7700|s9700|s12700/i.test(haystack)) return "huawei";
@@ -52,7 +53,7 @@ export function deviceTypeFromHost(host: Host): string {
   if (/istoreos|istore/i.test(haystack)) return "istoreos";
   if (/windows|win10|win11/i.test(haystack)) return "windows";
   if (/macbook|imac|macos|osx/i.test(haystack)) return "macos";
-  if (/router|gateway|gw\b/i.test(haystack)) return "router";
+  if (/router|gateway|\bgw\b|gw[-_]/i.test(haystack)) return "router";
   if (/nas|synology|qnap|truenas/i.test(haystack)) return "nas";
   return "auto";
 }

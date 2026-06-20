@@ -823,7 +823,7 @@ input, textarea { background: none; border: 0; outline: none; }
 .host-row {
   position: relative;
   display: grid;
-  grid-template-columns: 22px 1fr auto;
+  grid-template-columns: 22px minmax(0, 1fr) 68px;
   align-items: center;
   gap: 10px;
   padding: 7px 14px 7px 18px;
@@ -883,7 +883,10 @@ input, textarea { background: none; border: 0; outline: none; }
   letter-spacing: 0;
 }
 
-.host-main { min-width: 0; }
+.host-main {
+  min-width: 0;
+  overflow: hidden;
+}
 .host-alias {
   font-family: var(--font-mono);
   font-size: 12.5px;
@@ -900,6 +903,7 @@ input, textarea { background: none; border: 0; outline: none; }
   color: var(--text-mute);
   margin-top: 1px;
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  max-width: 100%;
 }
 .host-tags {
   display: flex;
@@ -1037,6 +1041,19 @@ input, textarea { background: none; border: 0; outline: none; }
 .host-row:hover .host-reorder-actions,
 .host-row:focus-within .host-reorder-actions {
   opacity: 1;
+}
+.host-row > .row-flex {
+  width: 68px;
+  justify-content: flex-end;
+  flex-shrink: 0;
+}
+.host-row .latency[data-tooltip]::before {
+  left: auto;
+  right: -2px;
+  transform: translateY(2px);
+}
+.host-row .latency[data-tooltip]:hover::before {
+  transform: translateY(0);
 }
 .host-order-btn {
   width: 16px;
@@ -4348,7 +4365,7 @@ body.reduce-motion *::after {
 
 /* Host row grid adjustment for batch mode */
 .host-row:has(.batch-check) {
-  grid-template-columns: 18px 22px 1fr auto;
+  grid-template-columns: 18px 22px minmax(0, 1fr) 68px;
 }
 
 /* ============================================================

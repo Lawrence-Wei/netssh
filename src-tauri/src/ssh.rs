@@ -121,7 +121,8 @@ printf '__NETSSH_END__\n'"#;
 
 const NETWORK_METADATA_COMMANDS: &[&str] = &["display version", "show version"];
 const SSH_TCP_CONNECT_TIMEOUT: Duration = Duration::from_secs(8);
-const SSH_AUTH_ATTEMPT_TIMEOUT: Duration = Duration::from_secs(12);
+const SSH_AUTH_ATTEMPT_TIMEOUT: Duration = Duration::from_secs(8);
+const SSH_BANNER_PEEK_TIMEOUT: Duration = Duration::from_millis(500);
 const NETWORK_DEVICE_HINTS: &[&str] = &["huawei", "cisco"];
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -462,6 +463,8 @@ impl SshSession {
         ];
         let mut last_error: Option<anyhow::Error> = None;
         let mut handle = None;
+        let mut banner_device_hint = None;
+        let mut banner_metadata_emitted = false;
 
         for profile in profiles {
             let last_host_key_error = Arc::new(StdMutex::new(None));
@@ -477,6 +480,22 @@ impl SshSession {
             };
             info!(profile = ?profile, "Opening TCP connection for SSH");
             let socket = open_ssh_tcp(&addr).await?;
+            if banner_device_hint.is_none() {
+                if let Some(banner) = peek_ssh_banner(&socket).await {
+                    banner_device_hint = infer_device_hint_from_ssh_banner(&banner);
+                    if let Some(hint) = banner_device_hint.as_deref() {
+                        debug!(banner = %banner, hint = hint, "SSH server banner inferred device hint");
+                        if !banner_metadata_emitted {
+                            if let Some(metadata) =
+                                metadata_from_device_hint(id, &args, Some(hint))
+                            {
+                                let _ = app.emit("ssh:host-metadata", metadata);
+                                banner_metadata_emitted = true;
+                            }
+                        }
+                    }
+                }
+            }
             info!(profile = ?profile, "Starting SSH handshake and key exchange");
             match client::connect_stream(Arc::new(ssh_client_config(profile)), socket, handler).await
             {
@@ -562,7 +581,8 @@ impl SshSession {
         if !authed {
             if let Some(ref password) = password {
                 validate_username(&args.user)?;
-                let prefer_keyboard_interactive = prefers_keyboard_interactive(&args);
+                let prefer_keyboard_interactive =
+                    prefers_keyboard_interactive(&args, banner_device_hint.as_deref());
 
                 if prefer_keyboard_interactive {
                     info!(
@@ -571,21 +591,60 @@ impl SshSession {
                         device_hint = ?clean_device_hint(args.device_hint.as_deref()),
                         "Attempting keyboard-interactive auth before password auth"
                     );
-                    let keyboard_ok = match tokio::time::timeout(
+                    match tokio::time::timeout(
                         SSH_AUTH_ATTEMPT_TIMEOUT,
                         try_keyboard_interactive_auth(&mut handle, &args.user, password),
                     )
                     .await
                     {
-                        Ok(Ok(ok)) => ok,
+                        Ok(Ok(true)) => {
+                            info!(user = %args.user, "Keyboard-interactive auth succeeded");
+                        }
+                        Ok(Ok(false)) => {
+                            warn!(user = %args.user, host = %args.host, "Keyboard-interactive auth rejected by server");
+                            return Err(anyhow!(
+                                "password_incorrect: password rejected for {}@{}",
+                                args.user,
+                                args.host
+                            ));
+                        }
+                        Ok(Err(err)) if is_keyboard_interactive_unavailable(&err) => {
+                            warn!(
+                                user = %args.user,
+                                host = %args.host,
+                                error = %err,
+                                "Keyboard-interactive auth unavailable, trying password auth"
+                            );
+                            let ok = try_password_auth_with_timeout(
+                                &mut handle,
+                                &args.user,
+                                &args.host,
+                                password,
+                            )
+                            .await?;
+                            if ok {
+                                info!(user = %args.user, "Password auth succeeded");
+                            } else {
+                                warn!(user = %args.user, host = %args.host, "Password auth rejected by server");
+                                return Err(anyhow!(
+                                    "password_incorrect: password rejected for {}@{}",
+                                    args.user,
+                                    args.host
+                                ));
+                            }
+                        }
                         Ok(Err(err)) => {
                             warn!(
                                 user = %args.user,
                                 host = %args.host,
                                 error = %err,
-                                "Keyboard-interactive auth failed, falling back to password auth"
+                                "Keyboard-interactive auth failed"
                             );
-                            false
+                            return Err(anyhow!(
+                                "password_incorrect: password rejected for {}@{}",
+                                args.user,
+                                args.host
+                            ));
                         }
                         Err(_) => {
                             error!(
@@ -600,24 +659,6 @@ impl SshSession {
                                 args.host
                             ));
                         }
-                    };
-
-                    if keyboard_ok {
-                        info!(user = %args.user, "Keyboard-interactive auth succeeded");
-                    } else {
-                        info!(user = %args.user, "Keyboard-interactive auth rejected, trying password auth");
-                        let password_ok =
-                            try_password_auth_with_timeout(&mut handle, &args.user, &args.host, password)
-                                .await?;
-                        if !password_ok {
-                            warn!(user = %args.user, host = %args.host, "Keyboard-interactive and password auth rejected by server");
-                            return Err(anyhow!(
-                                "password_incorrect: password rejected for {}@{}",
-                                args.user,
-                                args.host
-                            ));
-                        }
-                        info!(user = %args.user, "Password auth succeeded");
                     }
                 } else {
                     info!(user = %args.user, host = %args.host, "Attempting password auth");
@@ -627,37 +668,12 @@ impl SshSession {
                     if ok {
                         info!(user = %args.user, "Password auth succeeded");
                     } else {
-                        info!(user = %args.user, "Password auth rejected, trying keyboard-interactive");
-                        let keyboard_ok = match tokio::time::timeout(
-                            SSH_AUTH_ATTEMPT_TIMEOUT,
-                            try_keyboard_interactive_auth(&mut handle, &args.user, password),
-                        )
-                        .await
-                        {
-                            Ok(result) => result?,
-                            Err(_) => {
-                                error!(
-                                    user = %args.user,
-                                    host = %args.host,
-                                    timeout_ms = SSH_AUTH_ATTEMPT_TIMEOUT.as_millis() as u64,
-                                    "Keyboard-interactive auth timed out"
-                                );
-                                return Err(anyhow!(
-                                    "auth_timeout: keyboard-interactive authentication timed out for {}@{}",
-                                    args.user,
-                                    args.host
-                                ));
-                            }
-                        };
-                        if !keyboard_ok {
-                            warn!(user = %args.user, host = %args.host, "Password and keyboard-interactive rejected by server");
-                            return Err(anyhow!(
-                                "password_incorrect: password rejected for {}@{}",
-                                args.user,
-                                args.host
-                            ));
-                        }
-                        info!(user = %args.user, "Keyboard-interactive auth succeeded");
+                        warn!(user = %args.user, host = %args.host, "Password auth rejected by server");
+                        return Err(anyhow!(
+                            "password_incorrect: password rejected for {}@{}",
+                            args.user,
+                            args.host
+                        ));
                     }
                 }
             } else {
@@ -683,7 +699,7 @@ impl SshSession {
             }
         }
 
-        if let Some(metadata) = metadata_from_device_hint(id, &args) {
+        if let Some(metadata) = metadata_from_device_hint(id, &args, banner_device_hint.as_deref()) {
             debug!(
                 alias = %args.alias,
                 host = %args.host,
@@ -1411,6 +1427,33 @@ async fn try_password_auth_with_timeout(
     }
 }
 
+async fn peek_ssh_banner(socket: &tokio::net::TcpStream) -> Option<String> {
+    let mut buffer = [0u8; 256];
+    let read = tokio::time::timeout(SSH_BANNER_PEEK_TIMEOUT, socket.peek(&mut buffer))
+        .await
+        .ok()?
+        .ok()?;
+    if read == 0 {
+        return None;
+    }
+
+    let text = String::from_utf8_lossy(&buffer[..read]);
+    text.lines()
+        .find(|line| line.starts_with("SSH-"))
+        .map(|line| line.trim().to_string())
+}
+
+fn infer_device_hint_from_ssh_banner(banner: &str) -> Option<String> {
+    let text = banner.to_ascii_lowercase();
+    if text.contains("cisco") {
+        return Some("cisco".into());
+    }
+    if text.contains("huawei") || text.contains("vrp") {
+        return Some("huawei".into());
+    }
+    None
+}
+
 async fn try_keyboard_interactive_auth(
     handle: &mut Handle<ClientHandler>,
     user: &str,
@@ -1419,7 +1462,7 @@ async fn try_keyboard_interactive_auth(
     let mut response = handle
         .authenticate_keyboard_interactive_start(user, None)
         .await
-        .map_err(|e| anyhow!("keyboard_interactive_error: {}", e))?;
+        .map_err(|e| anyhow!("keyboard_interactive_unavailable: {}", e))?;
 
     for _ in 0..4 {
         match response {
@@ -1436,6 +1479,10 @@ async fn try_keyboard_interactive_auth(
     }
 
     Ok(false)
+}
+
+fn is_keyboard_interactive_unavailable(err: &anyhow::Error) -> bool {
+    err.to_string().starts_with("keyboard_interactive_unavailable:")
 }
 
 fn keyboard_interactive_responses(prompts: &[Prompt], password: &str) -> Vec<String> {
@@ -1487,15 +1534,26 @@ fn clean_device_hint(value: Option<&str>) -> Option<String> {
     }
 }
 
-fn prefers_keyboard_interactive(args: &SshOpenArgs) -> bool {
-    clean_device_hint(args.device_hint.as_deref())
+fn prefers_keyboard_interactive(args: &SshOpenArgs, banner_hint: Option<&str>) -> bool {
+    let explicit_hint = clean_device_hint(args.device_hint.as_deref());
+    let hint = explicit_hint
         .as_deref()
-        .is_some_and(|hint| NETWORK_DEVICE_HINTS.contains(&hint))
+        .filter(|hint| *hint != "auto")
+        .or(banner_hint);
+    hint.is_some_and(|hint| NETWORK_DEVICE_HINTS.contains(&hint))
 }
 
-fn metadata_from_device_hint(session_id: &str, args: &SshOpenArgs) -> Option<SshHostMetadata> {
-    let hint = clean_device_hint(args.device_hint.as_deref())?;
-    match hint.as_str() {
+fn metadata_from_device_hint(
+    session_id: &str,
+    args: &SshOpenArgs,
+    banner_hint: Option<&str>,
+) -> Option<SshHostMetadata> {
+    let explicit_hint = clean_device_hint(args.device_hint.as_deref());
+    let hint = explicit_hint
+        .as_deref()
+        .filter(|hint| *hint != "auto")
+        .or(banner_hint)?;
+    match hint {
         "huawei" => Some(SshHostMetadata {
             session_id: session_id.to_string(),
             alias: args.alias.clone(),
@@ -1929,8 +1987,8 @@ Cisco Catalyst 9300 Switch uptime is 2 weeks
     #[test]
     fn huawei_device_hint_prefers_keyboard_interactive() {
         let args = test_ssh_args(Some("huawei"));
-        assert!(prefers_keyboard_interactive(&args));
-        let metadata = metadata_from_device_hint("session-1", &args).expect("metadata");
+        assert!(prefers_keyboard_interactive(&args, None));
+        let metadata = metadata_from_device_hint("session-1", &args, None).expect("metadata");
         assert_eq!(metadata.icon_override.as_deref(), Some("huawei"));
         assert_eq!(metadata.role.as_deref(), Some("switch"));
         assert!(metadata.tags.contains(&"vrp".to_string()));
@@ -1939,8 +1997,31 @@ Cisco Catalyst 9300 Switch uptime is 2 weeks
     #[test]
     fn linux_device_hint_keeps_default_auth_order() {
         let args = test_ssh_args(Some("ubuntu"));
-        assert!(!prefers_keyboard_interactive(&args));
-        assert!(metadata_from_device_hint("session-1", &args).is_none());
+        assert!(!prefers_keyboard_interactive(&args, None));
+        assert!(metadata_from_device_hint("session-1", &args, None).is_none());
+    }
+
+    #[test]
+    fn keyboard_interactive_unavailable_error_is_detected() {
+        let unavailable = anyhow::anyhow!("keyboard_interactive_unavailable: no method");
+        let rejected = anyhow::anyhow!("keyboard_interactive_error: rejected");
+
+        assert!(is_keyboard_interactive_unavailable(&unavailable));
+        assert!(!is_keyboard_interactive_unavailable(&rejected));
+    }
+
+    #[test]
+    fn cisco_ssh_banner_infers_device_hint_and_metadata() {
+        let args = test_ssh_args(None);
+        assert_eq!(
+            infer_device_hint_from_ssh_banner("SSH-2.0-Cisco-1.25").as_deref(),
+            Some("cisco")
+        );
+        assert!(prefers_keyboard_interactive(&args, Some("cisco")));
+        let metadata =
+            metadata_from_device_hint("session-1", &args, Some("cisco")).expect("metadata");
+        assert_eq!(metadata.icon_override.as_deref(), Some("cisco"));
+        assert_eq!(metadata.role.as_deref(), Some("switch"));
     }
 
     #[test]

@@ -265,15 +265,35 @@ describe("host metadata", () => {
     expect(deviceTypeFromHost(asusHost)).toBe("asus");
     expect(brandLabel(asusHost)).toBe("ASUS Router");
     expect(brandLabel(host("asus-override", "router", { iconOverride: "asus" }))).toBe("ASUS Router");
+    expect(brandLabel(host("asus-generic-router", "asus-router", { iconOverride: "router" }))).toBe("ASUS Router");
+    expect(brandLabel(host("asus-linux-router", "asus-router", { iconOverride: "linux", tags: ["router"] }))).toBe("ASUS Router");
   });
 
   it("maps explicit and inferred device icons to brand labels", () => {
     expect(brandLabel(host("huawei", "core-s5700"))).toBe("Huawei Switch");
-    expect(brandLabel(host("cisco", "lab-catalyst"))).toBe("Cisco");
+    expect(brandLabel(host("cisco", "lab-catalyst"))).toBe("Cisco Switch");
     expect(brandLabel(host("mac", "operator-laptop", { iconOverride: "macos" }))).toBe("macOS");
     expect(brandLabel(host("nas", "storage-box", { iconOverride: "nas" }))).toBe("NAS / Storage");
     expect(brandLabel(host("qnap", "qnap-nas"))).toBe("QNAP");
     expect(brandLabel(host("metrics", "metrics", { tags: ["ubuntu", "observability"] }))).toBe("Ubuntu");
+  });
+
+  it("keeps Zabbix service identity ahead of generic OS detection", () => {
+    const zabbix = host("zabbix", "zabbix", {
+      iconOverride: "proxmox",
+      tags: ["ubuntu", "observability"],
+    });
+    expect(deviceTypeFromHost(zabbix)).toBe("zabbix");
+    expect(brandLabel(zabbix)).toBe("Zabbix");
+  });
+
+  it("recognizes PR gateway aliases as routers instead of generic initials", () => {
+    const prgw = host("prgw", "prgw-lan", {
+      iconOverride: "proxmox",
+      tags: ["linux"],
+    });
+    expect(deviceTypeFromHost(prgw)).toBe("router");
+    expect(brandLabel(prgw)).toBe("Router / Gateway");
   });
 
   it("filters sidebar hosts by favorites and recent connections", async () => {

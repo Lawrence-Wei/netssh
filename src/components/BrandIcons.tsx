@@ -36,6 +36,17 @@ interface BrandRule {
 
 const BRAND_RULES: BrandRule[] = [
   {
+    id: "zabbix",
+    test: /\bzabbix\b|\bzbx\b/i,
+    icon: (
+      <svg viewBox="0 0 14 14" fill="none" aria-label="Zabbix">
+        <rect x="1.2" y="1.2" width="11.6" height="11.6" rx="2.2" fill="#D40000" />
+        <path d="M4 4h6L4.3 10H10" stroke="#fff" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" />
+      </svg>
+    ),
+    label: "Zabbix",
+  },
+  {
     id: "zspace",
     test: /zspace|z-space|zima|nance/i,
     icon: <img src={zspaceImg} alt="ZSpace" className="brand-img" />,
@@ -163,7 +174,7 @@ const BRAND_RULES: BrandRule[] = [
     id: "cisco",
     test: /cisco|catalyst|ios[-_]?xe|nx[-_]?os/i,
     icon: <img src={ciscoImg} alt="Cisco" className="brand-img" />,
-    label: "Cisco",
+    label: "Cisco Switch",
   },
   {
     id: "h3c",
@@ -178,7 +189,7 @@ const BRAND_RULES: BrandRule[] = [
   },
   {
     id: "istoreos",
-    test: /istoreos|istore[\s-]?os|\bistore\b|\b(sh|wx|wuxi|shanghai)[-_]?gw\b/i,
+    test: /istoreos|istore[\s-]?os|\bistore\b|\b(sh|wx|wuxi|shanghai)[-_]?gw(?:[-_]\w+)?\b/i,
     icon: <img src={istoreosImg} alt="iStoreOS" className="brand-img" />,
     label: "iStoreOS",
   },
@@ -219,6 +230,12 @@ const BRAND_RULES: BrandRule[] = [
     label: "TrueNAS",
   },
   {
+    id: "router",
+    test: /\b(router|gateway)\b|\bgw\b|\b(pr|sh|wx|wuxi|shanghai)[-_]?gw(?:[-_]\w+)?\b/i,
+    icon: Icon.router,
+    label: "Router / Gateway",
+  },
+  {
     id: "nas",
     test: /nas|storage|openmediavault|unraid|xigmanas/i,
     icon: (
@@ -229,10 +246,20 @@ const BRAND_RULES: BrandRule[] = [
     ),
     label: "NAS / Storage",
   },
+  {
+    id: "server",
+    test: /\b(server|srv)\b/i,
+    icon: Icon.server,
+    label: "Server",
+  },
 ];
 
 function matchBrand(text: string) {
   return BRAND_RULES.find((rule) => rule.test.test(text));
+}
+
+function matchSemanticBrand(text: string) {
+  return BRAND_RULES.find((rule) => ["zabbix", "router", "server"].includes(rule.id) && rule.test.test(text));
 }
 
 function brandRuleById(id: string) {
@@ -240,19 +267,53 @@ function brandRuleById(id: string) {
   return BRAND_RULES.find((rule) => rule.id === normalized);
 }
 
-export function brandIcon(host: Host) {
-  // Check explicit icon override first
-  if (host.iconOverride) {
-    const overrideBrand = brandRuleById(host.iconOverride);
-    if (overrideBrand) return overrideBrand.icon;
-  }
+function isGenericOsBrand(id: string) {
+  return ["linux", "ubuntu", "debian", "centos", "rocky", "alma"].includes(id);
+}
 
+function isGenericOverrideBrand(id: string) {
+  return ["router", "server", "nas", "proxmox"].includes(id) || isGenericOsBrand(id);
+}
+
+function isSpecificInferredBrand(id: string) {
+  return !["router", "server", "nas", "linux", "ubuntu", "debian", "centos", "rocky", "alma", "proxmox"].includes(id);
+}
+
+function inferredBrandOverridesIcon(inferredId: string, overrideId: string) {
+  return inferredId !== overrideId && isSpecificInferredBrand(inferredId) && isGenericOverrideBrand(overrideId);
+}
+
+function semanticBrandOverridesIcon(semanticId: string, overrideId: string) {
+  if (semanticId === "zabbix") return true;
+  if (semanticId === "router") return isGenericOsBrand(overrideId) || overrideId === "proxmox" || overrideId === "server";
+  if (semanticId === "server") return isGenericOsBrand(overrideId);
+  return false;
+}
+
+function resolvedBrand(host: Host) {
   const haystack = [host.alias, host.hostname, host.role, host.env, (host.tags || []).join(" ")]
     .filter(Boolean)
     .join(" ")
     .toLowerCase();
+  const semanticBrand = matchSemanticBrand(haystack);
+  const inferredBrand = matchBrand(haystack);
 
-  const brand = matchBrand(haystack);
+  if (host.iconOverride) {
+    const overrideBrand = brandRuleById(host.iconOverride);
+    if (overrideBrand && inferredBrand && inferredBrandOverridesIcon(inferredBrand.id, overrideBrand.id)) {
+      return inferredBrand;
+    }
+    if (overrideBrand && semanticBrand && semanticBrandOverridesIcon(semanticBrand.id, overrideBrand.id)) {
+      return semanticBrand;
+    }
+    if (overrideBrand) return overrideBrand;
+  }
+
+  return inferredBrand || null;
+}
+
+export function brandIcon(host: Host) {
+  const brand = resolvedBrand(host);
   if (brand) return brand.icon;
 
   // Role-based fallback (legacy behaviour).
@@ -266,15 +327,5 @@ export function brandIcon(host: Host) {
 }
 
 export function brandLabel(host: Host): string | null {
-  if (host.iconOverride) {
-    const overrideBrand = brandRuleById(host.iconOverride);
-    if (overrideBrand) return overrideBrand.label;
-  }
-
-  const haystack = [host.alias, host.hostname, host.role, host.env, (host.tags || []).join(" ")]
-    .filter(Boolean)
-    .join(" ")
-    .toLowerCase();
-  const brand = matchBrand(haystack);
-  return brand?.label || null;
+  return resolvedBrand(host)?.label || null;
 }

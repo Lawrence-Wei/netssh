@@ -530,6 +530,7 @@ export function HostEditorFull({
                   <option value="istoreos">iStoreOS</option>
                   <option value="nas">{t("host.device.nas", lang)}</option>
                   <option value="zspace">ZSpace / Zima</option>
+                  <option value="zabbix">Zabbix</option>
                   <option value="luckfox">Luckfox</option>
                   <option value="raspberry">Raspberry Pi</option>
                   <option value="ubuntu">Ubuntu</option>
