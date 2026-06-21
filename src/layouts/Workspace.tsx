@@ -2,7 +2,7 @@ import { useMemo } from "react";
 import { shallow } from "zustand/shallow";
 import type { QuickCommand } from "../config/defaults";
 import { useSessions } from "../store/sessions";
-import type { Group, Host, Lang, SettingsSectionId, Snippet, Tab } from "../config/types";
+import type { Group, Host, Lang, ReadonlyCheckId, SettingsSectionId, Snippet, Tab } from "../config/types";
 import { HostDetail } from "../pages/HostDetail";
 import { Settings } from "../pages/Settings";
 import { SnippetsLibrary } from "../pages/SnippetsLibrary";
@@ -26,7 +26,6 @@ interface WorkspaceProps {
   setSetting: Parameters<typeof Settings>[0]["setSetting"];
   setLang: (lang: Lang) => void;
   onConnect: () => void;
-  onDisconnect: () => void;
   onRunSnippet: (snippet: Snippet | QuickCommand) => void;
   runQueue: QueuedCommand[];
   groups: Group[];
@@ -38,9 +37,13 @@ interface WorkspaceProps {
   onUpdateHost: (id: string, patch: Partial<Host>) => void;
   onRemoveHost: (id: string) => void;
   onManualConnect: (host: Host) => void;
+  onHostConnected: (host: Host) => void;
+  onRememberCredential: (hostId: string, credentialProfileId: string) => void;
   onAddGroup: (name: string, subnet?: string) => Group;
   onOpenImport: () => void;
   onOpenHost: (host: Host) => void;
+  onRunReadonlyCheck: (hosts: Host[], checkId: ReadonlyCheckId) => void;
+  onBackupConfig: (hosts: Host[]) => void;
 }
 
 export function Workspace({
@@ -61,7 +64,6 @@ export function Workspace({
   setSetting,
   setLang,
   onConnect,
-  onDisconnect,
   onRunSnippet,
   runQueue,
   groups,
@@ -73,9 +75,13 @@ export function Workspace({
   onUpdateHost,
   onRemoveHost,
   onManualConnect,
+  onHostConnected,
+  onRememberCredential,
   onAddGroup,
   onOpenImport,
   onOpenHost,
+  onRunReadonlyCheck,
+  onBackupConfig,
 }: WorkspaceProps) {
   const { splitTabIds, tabs, activeTabId, setActive, toggleSplit, openQuad } = useSessions(
     (s) => ({
@@ -99,6 +105,72 @@ export function Workspace({
     if (!active) return ordered;
     return [active, ...ordered.filter((t) => t.id !== activeTabId)];
   }, [splitTabIds, tabs, activeTabId]);
+  const connectedTerminalTabs = useMemo(
+    () =>
+      tabs.filter(
+        (item) =>
+          (item.kind === "host" && item.connected && item.hostId) ||
+          (item.kind === "local" && item.connected)
+      ),
+    [tabs]
+  );
+  const activeTerminalVisible = connectedTerminalTabs.some((item) => item.id === activeTabId);
+
+  const terminalStack = connectedTerminalTabs.length > 0 && (
+    <div className="terminal-stack" aria-hidden={!activeTerminalVisible}>
+      {connectedTerminalTabs.map((terminalTab) => {
+        const isActive = terminalTab.id === activeTabId;
+        if (terminalTab.kind === "local") {
+          return (
+            <div
+              key={terminalTab.id}
+              className={"terminal-stack__pane" + (isActive ? " active" : "")}
+              data-tab-id={terminalTab.id}
+            >
+              <TerminalPane
+                lang={lang}
+                shellId={terminalTab.shellId}
+                shellPath={terminalTab.shellPath}
+                shellTitle={terminalTab.title}
+                active={isActive}
+                onClose={() => useSessions.getState().disconnectTab(terminalTab.id)}
+                runQueue={isActive ? runQueue : undefined}
+              />
+            </div>
+          );
+        }
+
+        const sessionHost =
+          hosts.find((host) => host.id === terminalTab.hostId) ||
+          (terminalTab.hostId ? ephemeralHosts[terminalTab.hostId] : undefined);
+        if (!sessionHost) return null;
+
+        return (
+          <div
+            key={terminalTab.id}
+            className={"terminal-stack__pane" + (isActive ? " active" : "")}
+            data-tab-id={terminalTab.id}
+          >
+            <TerminalPane
+              lang={lang}
+              host={sessionHost}
+              hosts={hosts}
+              active={isActive}
+              onClose={() => useSessions.getState().disconnectTab(terminalTab.id)}
+              onRetry={() => setActive(terminalTab.id)}
+              onEditHost={() => {
+                useSessions.getState().disconnectTab(terminalTab.id);
+                setEditingHostId(sessionHost.id);
+              }}
+              onRememberCredential={onRememberCredential}
+              onConnected={onHostConnected}
+              runQueue={isActive ? runQueue : undefined}
+            />
+          </div>
+        );
+      })}
+    </div>
+  );
 
   if (splitTabs.length >= 2 && tab?.kind === "host") {
     return (
@@ -145,6 +217,7 @@ export function Workspace({
                       key={`${st.id}-${sessionHost.id}`}
                       lang={lang}
                       host={sessionHost}
+                      hosts={hosts}
                       onClose={() => toggleSplit(st.id)}
                       onRetry={() => setActive(st.id)}
                       onEditHost={() => {
@@ -152,6 +225,8 @@ export function Workspace({
                         toggleSplit(st.id);
                         setEditingHostId(sessionHost.id);
                       }}
+                      onRememberCredential={onRememberCredential}
+                      onConnected={onHostConnected}
                       runQueue={isPrimary ? runQueue : undefined}
                     />
                   ) : (
@@ -170,6 +245,7 @@ export function Workspace({
 
   return (
     <main className="workspace">
+      {terminalStack}
       {tab?.kind === "settings" && (
         <Settings
           lang={lang}
@@ -191,16 +267,6 @@ export function Workspace({
       )}
       {tab?.kind === "snippets" && (
         <SnippetsLibrary lang={lang} snippets={snippets} categories={categories} onRun={onRunSnippet} />
-      )}
-      {tab?.kind === "local" && (
-        <TerminalPane
-          lang={lang}
-          shellId={tab.shellId}
-          shellPath={tab.shellPath}
-          shellTitle={tab.title}
-          onClose={onDisconnect}
-          runQueue={runQueue}
-        />
       )}
       {(!tab || tab.kind === "home") && (
         <HostDetail
@@ -229,6 +295,8 @@ export function Workspace({
             useSessions.getState().selectHost(host);
           }}
           onOpenHost={onOpenHost}
+          onRunReadonlyCheck={onRunReadonlyCheck}
+          onBackupConfig={onBackupConfig}
           onOpenQuad={openQuad}
           canOpenQuad={tabs.filter((item) => item.kind === "host" && item.connected && item.hostId).length >= 2}
         />
@@ -263,25 +331,11 @@ export function Workspace({
             useSessions.getState().selectHost(host);
           }}
           onOpenHost={onOpenHost}
+          onRunReadonlyCheck={onRunReadonlyCheck}
+          onBackupConfig={onBackupConfig}
           onOpenQuad={openQuad}
           canOpenQuad={tabs.filter((item) => item.kind === "host" && item.connected && item.hostId).length >= 2}
         />
-      )}
-      {tab?.kind === "host" && tab.connected && activeHost && (
-        <div className="terminal-wrap">
-          <TerminalPane
-            key={`${tab.id}-${activeHost.id}`}
-            lang={lang}
-            host={activeHost}
-            onClose={onDisconnect}
-            onRetry={onConnect}
-            onEditHost={() => {
-              onDisconnect();
-              setEditingHostId(activeHost.id);
-            }}
-            runQueue={runQueue}
-          />
-        </div>
       )}
     </main>
   );

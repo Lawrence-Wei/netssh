@@ -6,11 +6,12 @@
  *
  * Run: npm test
  */
-import { describe, it, expect, beforeEach, vi } from "vitest";
-import { render, screen, fireEvent, waitFor, within } from "@testing-library/react";
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
+import { cleanup, render, screen, fireEvent, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { createElement } from "react";
+import { act, createElement } from "react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
+import { invoke } from "@tauri-apps/api/core";
 import App from "../pages/App";
 import { ConfirmProvider } from "../components/ConfirmDialog";
 import { APP_VERSION } from "../config/app";
@@ -25,6 +26,7 @@ import { useSnippets } from "../store/snippets";
 import { useSettings } from "../store/settings";
 import { useCredentials } from "../store/credentials";
 import { useIdentities } from "../store/identities";
+import { resetLiveSessions } from "../utils/liveSessions";
 
 /** Save initial store states for test resets. */
 let initialStates: Record<string, unknown> = {};
@@ -48,7 +50,13 @@ beforeEach(() => {
   useSettings.setState(initialStates.settings as never, true);
   useCredentials.setState(initialStates.credentials as never, true);
   useIdentities.setState(initialStates.identities as never, true);
+  resetLiveSessions();
   window.localStorage.clear();
+});
+
+afterEach(() => {
+  cleanup();
+  resetLiveSessions();
 });
 
 /** Render App with ConfirmProvider. */
@@ -134,6 +142,21 @@ function seedChineseTopologyHome() {
   useHosts.setState((state) => ({ ...state, groups, hosts }), true);
 }
 
+function mockDragDataTransfer() {
+  const data = new Map<string, string>();
+  const dataTransfer = {
+    types: [] as string[],
+    effectAllowed: "move",
+    dropEffect: "move",
+    setData: vi.fn((type: string, value: string) => {
+      data.set(type, value);
+      if (!dataTransfer.types.includes(type)) dataTransfer.types.push(type);
+    }),
+    getData: vi.fn((type: string) => data.get(type) || ""),
+  };
+  return dataTransfer as unknown as DataTransfer;
+}
+
 // ============================================================
 // 1. APP SHELL - shell rendering
 // ============================================================
@@ -177,41 +200,41 @@ describe("2. TitleBar", () => {
     expect(screen.getByTitle("Go home")).toBeTruthy();
   });
 
-  it("Session menu exists", () => {
+  it("does not render the legacy Session menu", () => {
     renderApp();
-    expect(document.querySelector(".app-menu")).toBeTruthy();
+    expect(document.querySelector(".app-menu")).toBeFalsy();
   });
 
-  it("places the Session menu after the Home tab", () => {
+  it("places the new tab button immediately after the Home tab", () => {
     renderApp();
     const tabstrip = document.querySelector(".tabstrip")!;
     const children = Array.from(tabstrip.children);
     const homeTab = children.find((child) => child.classList.contains("tab") && child.textContent?.includes("Home"));
-    const sessionMenu = tabstrip.querySelector(".app-menu");
+    const newTab = tabstrip.querySelector(".tab-new");
 
     expect(homeTab).toBeTruthy();
-    expect(sessionMenu).toBeTruthy();
-    expect(children.indexOf(sessionMenu!)).toBeGreaterThan(children.indexOf(homeTab!));
+    expect(newTab).toBeTruthy();
+    expect(children.indexOf(newTab!)).toBe(children.indexOf(homeTab!) + 1);
   });
 
-  it("keeps the Session menu outside the clipped tab scroller", () => {
+  it("keeps the new tab button outside the clipped tab scroller", () => {
     renderApp();
     const tabstrip = document.querySelector(".tabstrip")!;
-    const sessionMenu = tabstrip.querySelector(":scope > .app-menu");
+    const newTab = tabstrip.querySelector(":scope > .tab-new");
     const scroller = tabstrip.querySelector(".tabstrip-scroll")!;
 
-    expect(sessionMenu).toBeTruthy();
+    expect(newTab).toBeTruthy();
     expect(scroller).toBeTruthy();
-    expect(scroller.contains(sessionMenu)).toBe(false);
-    expect(scroller.querySelector(".app-menu")).toBeFalsy();
+    expect(scroller.contains(newTab)).toBe(false);
+    expect(scroller.querySelector(".tab-new")).toBeFalsy();
   });
 
-  it("double-clicking the Session titlebar area toggles maximize", async () => {
+  it("double-clicking the empty tab scroller toggles maximize", async () => {
     renderApp();
     const win = getCurrentWindow();
     vi.mocked(win.toggleMaximize).mockClear();
 
-    fireEvent.doubleClick(screen.getByText("Session"));
+    fireEvent.doubleClick(document.querySelector(".tabstrip-scroll")!);
 
     await waitFor(() => {
       expect(win.toggleMaximize).toHaveBeenCalledTimes(1);
@@ -270,6 +293,38 @@ describe("2. TitleBar", () => {
     });
   });
 
+  it("drags an open session tab into a site bucket", () => {
+    const groups: Group[] = [
+      { id: "shanghai", name: "Shanghai", color: "#8f7a65" },
+      { id: "wuxi", name: "Wuxi", color: "#6f7f95" },
+    ];
+    const sessionHost: Host = {
+      id: "router-session",
+      alias: "router-session",
+      hostname: "192.168.100.1",
+      user: "admin",
+      port: 22,
+      group: "shanghai",
+      status: "off",
+      latency: null,
+    };
+    useHosts.setState((state) => ({ ...state, groups, hosts: [sessionHost] }), true);
+    useSessions.getState().openHost(sessionHost, false);
+    renderApp();
+
+    const tab = document.querySelector(".tabstrip-scroll .tab[draggable=\"true\"]") as HTMLElement;
+    const targetGroup = within(sidebar()).getByText("Wuxi").closest(".host-group")!;
+    const dataTransfer = mockDragDataTransfer();
+
+    act(() => {
+      fireEvent.dragStart(tab, { dataTransfer });
+      fireEvent.dragOver(targetGroup, { dataTransfer });
+      fireEvent.drop(targetGroup, { dataTransfer });
+    });
+
+    expect(useHosts.getState().hosts.find((host) => host.id === "router-session")?.group).toBe("wuxi");
+  });
+
   it("new session tab opens direct SSH connection fields", async () => {
     const { user } = renderApp();
     fireEvent.click(document.querySelector(".tab-new")!);
@@ -290,9 +345,29 @@ describe("2. TitleBar", () => {
     await user.type(within(card).getByLabelText("Username"), "root");
     await user.type(within(card).getByLabelText("Password"), "secret");
     await user.click(within(card).getByRole("button", { name: "Connect" }));
+    (globalThis as unknown as { __netsshEmitTauriEvent?: (event: string, payload: unknown) => void }).__netsshEmitTauriEvent?.(
+      "ssh:host-metadata",
+      {
+        session_id: "mock-ssh-id",
+        alias: "10.0.0.50",
+        host: "10.0.0.50",
+        port: 22,
+        icon_override: "cisco",
+        icon_confidence: 100,
+        role: "switch",
+        tags: ["cisco"],
+      }
+    );
     await waitFor(() => {
       expect(document.querySelectorAll(".tab").length).toBe(beforeConnectTabs);
-      expect(screen.getByText("root@10.0.0.50")).toBeTruthy();
+      expect(screen.getAllByText("root@10.0.0.50").length).toBeGreaterThan(0);
+    });
+    await waitFor(() => {
+      const saved = useHosts.getState().hosts.find((host) => host.hostname === "10.0.0.50" && host.user === "root");
+      expect(saved).toBeTruthy();
+      expect(saved?.ephemeralPassword).toBeUndefined();
+      expect(saved?.iconOverride).toBe("cisco");
+      expect(Object.keys(useSessions.getState().ephemeralHosts)).toHaveLength(0);
     });
   });
 });
@@ -387,6 +462,24 @@ describe("3. Sidebar", () => {
     }), true);
     renderApp();
     expect(document.querySelector(".host-group")).toBeTruthy();
+  });
+
+  it("Chinese host delete confirmation is localized", async () => {
+    seedChineseTopologyHome();
+    const { user } = renderApp();
+    await waitFor(() => {
+      expect(within(sidebar()).getByText("asus-router")).toBeTruthy();
+    });
+
+    fireEvent.contextMenu(within(sidebar()).getByText("asus-router").closest(".host-row")!);
+    await user.click(screen.getByText("移除主机"));
+
+    expect(screen.getByText('移除主机 "asus-router"？')).toBeTruthy();
+    expect(screen.getByText("只会移除 Netssh 本地数据，不会修改 ~/.ssh/config。")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "取消" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "移除" })).toBeTruthy();
+    expect(screen.queryByText("Remove")).toBeFalsy();
+    expect(screen.queryByText("Cancel")).toBeFalsy();
   });
 });
 
@@ -487,12 +580,31 @@ describe("4. Landing / Home Page", () => {
 
     renderApp();
     const topology = document.querySelector(".topology-panel") as HTMLElement;
-    const labels = within(topology)
-      .getAllByRole("button")
+    const labels = Array.from(topology.querySelectorAll(".topology-node"))
       .map((button) => button.textContent || "");
 
     expect(labels[0]).toContain("server-a");
     expect(labels[1]).toContain("server-b");
+  });
+
+  it("double-clicking a topology node opens a connected session", async () => {
+    seedChineseTopologyHome();
+    const { user } = renderApp();
+    const topology = document.querySelector(".topology-panel") as HTMLElement;
+    const switchNode = Array.from(topology.querySelectorAll<HTMLButtonElement>(".topology-node"))
+      .find((node) => node.textContent?.includes("switch"));
+
+    expect(switchNode).toBeTruthy();
+    await user.dblClick(switchNode!);
+
+    await waitFor(() => {
+      const state = useSessions.getState();
+      const active = state.tabs.find((tab) => tab.id === state.activeTabId);
+      expect(active?.kind).toBe("host");
+      expect(active?.hostId).toBe("real-switch");
+      expect(active?.connected).toBe(true);
+    });
+    expect(useHosts.getState().hosts.find((host) => host.id === "real-switch")?.lastConnectedAt).toBeTruthy();
   });
 });
 
@@ -586,7 +698,7 @@ describe("5. HostDetail & Editor", () => {
 
     await user.click(screen.getByText("Connect"));
     await waitFor(() => {
-      expect(document.querySelector(".terminal-wrap")).toBeTruthy();
+      expect(document.querySelector(".terminal-stack__pane.active")).toBeTruthy();
     });
 
     const sessionTab = document.querySelector(".tab.active") as HTMLElement;
@@ -600,6 +712,59 @@ describe("5. HostDetail & Editor", () => {
     await waitFor(() => {
       expect(screen.getByText(/Edit host/i)).toBeTruthy();
     });
+  });
+
+  it("keeps connected terminal sessions mounted while switching tabs", async () => {
+    const invokeMock = vi.mocked(invoke);
+    const defaultInvoke = invokeMock.getMockImplementation();
+    if (defaultInvoke) invokeMock.mockImplementation(defaultInvoke);
+    invokeMock.mockClear();
+
+    const zabbix: Host = {
+      id: "session-zabbix",
+      alias: "zabbix",
+      hostname: "192.168.77.10",
+      user: "root",
+      port: 22,
+      group: "shanghai",
+      identityFile: "~/.ssh/id_rsa",
+      status: "ok",
+    };
+    const metrics: Host = {
+      ...zabbix,
+      id: "session-metrics",
+      alias: "metrics",
+      hostname: "192.168.77.11",
+    };
+    useHosts.setState({ hosts: [zabbix, metrics] });
+    useSessions.setState({
+      tabs: [
+        { id: "tab-home", kind: "home", title: "Home", hue: "#a78bfa", pinned: true },
+        { id: "tab-zabbix", kind: "host", hostId: zabbix.id, title: zabbix.alias, connected: true },
+        { id: "tab-metrics", kind: "host", hostId: metrics.id, title: metrics.alias, connected: true },
+      ],
+      activeTabId: "tab-metrics",
+      ephemeralHosts: {},
+      splitTabIds: [],
+    });
+
+    const { user } = renderApp();
+
+    await waitFor(() => {
+      expect(document.querySelectorAll(".terminal-stack__pane")).toHaveLength(2);
+      expect(invokeMock.mock.calls.filter(([cmd]) => cmd === "ssh_open")).toHaveLength(2);
+    });
+    const openCount = invokeMock.mock.calls.filter(([cmd]) => cmd === "ssh_open").length;
+
+    await user.click(screen.getByTitle("zabbix"));
+    await user.click(screen.getByTitle("metrics"));
+
+    await waitFor(() => {
+      expect(document.querySelectorAll(".terminal-stack__pane")).toHaveLength(2);
+      expect(document.querySelector('.terminal-stack__pane.active[data-tab-id="tab-metrics"]')).toBeTruthy();
+    });
+    expect(invokeMock.mock.calls.filter(([cmd]) => cmd === "ssh_open")).toHaveLength(openCount);
+    expect(invokeMock.mock.calls.some(([cmd]) => cmd === "ssh_detach")).toBe(false);
   });
 });
 

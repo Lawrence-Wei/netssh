@@ -3,7 +3,7 @@
 
 import { invoke as tauriInvoke } from "@tauri-apps/api/core";
 import { listen as tauriListen, type UnlistenFn } from "@tauri-apps/api/event";
-import type { Host, ShellInfo, SerialFlowControl, SerialLineEnding, SerialParity, SerialStopBits, SshKey } from "../config/types";
+import type { ConfigBackupProfile, Host, ReadonlyCheckId, ShellInfo, SerialFlowControl, SerialLineEnding, SerialParity, SerialStopBits, SshKey } from "../config/types";
 
 type InvokeArgs = Record<string, unknown> | undefined;
 type TauriEvent<T> = { payload: T };
@@ -62,6 +62,28 @@ function browserInvokeFallback<T>(cmd: string, args?: InvokeArgs): T {
       return undefined as T;
     case "connection_log_open":
       return `browser-log-${Date.now()}` as T;
+    case "readonly_check_run":
+      return {
+        check_id: args?.args && typeof args.args === "object" ? (args.args as Record<string, unknown>).check_id : "reachability",
+        status: "ok",
+        output: "Browser preview check placeholder",
+        bytes: 33,
+        duration_ms: 1,
+      } as T;
+    case "config_backup_run":
+      return {
+        record: {
+          id: `browser-backup-${Date.now()}`,
+          host_alias: "browser",
+          path: "",
+          bytes: 0,
+          profile: "linux",
+          status: "ok",
+          created_at: Math.floor(Date.now() / 1000),
+        },
+      } as T;
+    case "config_backup_list":
+      return [] as T;
     case "cred_load":
       return "" as T;
     case "ssh_open":
@@ -137,6 +159,18 @@ export interface SshOpenArgs {
   terminalLocale?: string;
   terminalTimezone?: string;
   deviceHint?: string;
+  jump?: SshJumpArgs;
+}
+
+export interface SshJumpArgs {
+  alias: string;
+  host: string;
+  user: string;
+  port: number;
+  identityFile?: string;
+  password?: string;
+  passphrase?: string;
+  deviceHint?: string;
 }
 
 export async function sshOpen(args: SshOpenArgs): Promise<string> {
@@ -153,6 +187,18 @@ export async function sshOpen(args: SshOpenArgs): Promise<string> {
       terminal_locale: args.terminalLocale,
       terminal_timezone: args.terminalTimezone,
       device_hint: args.deviceHint,
+      jump: args.jump
+        ? {
+            alias: args.jump.alias,
+            host: args.jump.host,
+            user: args.jump.user,
+            port: args.jump.port,
+            identity_file: args.jump.identityFile,
+            password: args.jump.password,
+            passphrase: args.jump.passphrase,
+            device_hint: args.jump.deviceHint,
+          }
+        : undefined,
     },
   });
 }
@@ -388,6 +434,7 @@ export interface HostKeyChallenge {
   status: "unknown" | "mismatch";
   known_fingerprints: string[];
   can_remember: boolean;
+  path_role?: "direct" | "jump" | "target";
 }
 
 export type HostKeyChallengeHandler = (event: HostKeyChallenge) => void;
@@ -405,4 +452,97 @@ export async function sshHostKeyDecide(
 
 export async function sshForgetTrustedHostKey(host: string, port: number): Promise<void> {
   return invoke("ssh_forget_trusted_host_key", { host, port });
+}
+
+// ─── safe readonly checks + config backups ───────────────────────────────
+
+export interface SshExecHostArgs {
+  alias: string;
+  host: string;
+  user: string;
+  port: number;
+  identityFile?: string;
+  password?: string;
+  passphrase?: string;
+  deviceHint?: string;
+  jump?: SshJumpArgs;
+}
+
+export interface ReadonlyCheckRunArgs {
+  checkId: ReadonlyCheckId;
+  profile?: ConfigBackupProfile;
+  host: SshExecHostArgs;
+}
+
+export interface ReadonlyCheckResult {
+  check_id: ReadonlyCheckId;
+  status: string;
+  output: string;
+  bytes: number;
+  duration_ms: number;
+}
+
+export async function readonlyCheckRun(args: ReadonlyCheckRunArgs): Promise<ReadonlyCheckResult> {
+  return invoke("readonly_check_run", {
+    args: {
+      check_id: args.checkId,
+      profile: args.profile,
+      host: execHostToTauri(args.host),
+    },
+  });
+}
+
+export interface ConfigBackupRecord {
+  id: string;
+  host_alias: string;
+  path: string;
+  bytes: number;
+  profile: ConfigBackupProfile;
+  status: string;
+  created_at: number;
+}
+
+export interface ConfigBackupRunResult {
+  record: ConfigBackupRecord;
+}
+
+export async function configBackupRun(
+  profile: ConfigBackupProfile,
+  host: SshExecHostArgs
+): Promise<ConfigBackupRunResult> {
+  return invoke("config_backup_run", {
+    args: {
+      profile,
+      host: execHostToTauri(host),
+    },
+  });
+}
+
+export async function configBackupList(hostAlias?: string): Promise<ConfigBackupRecord[]> {
+  return invoke("config_backup_list", { hostAlias });
+}
+
+function execHostToTauri(host: SshExecHostArgs) {
+  return {
+    alias: host.alias,
+    host: host.host,
+    user: host.user,
+    port: host.port,
+    identity_file: host.identityFile,
+    password: host.password,
+    passphrase: host.passphrase,
+    device_hint: host.deviceHint,
+    jump: host.jump
+      ? {
+          alias: host.jump.alias,
+          host: host.jump.host,
+          user: host.jump.user,
+          port: host.jump.port,
+          identity_file: host.jump.identityFile,
+          password: host.jump.password,
+          passphrase: host.jump.passphrase,
+          device_hint: host.jump.deviceHint,
+        }
+      : undefined,
+  };
 }

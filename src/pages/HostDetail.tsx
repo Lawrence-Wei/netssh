@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { t } from "../utils/i18n";
 import type { QuickCommand } from "../config/defaults";
-import type { Group, Host, Lang, Snippet } from "../config/types";
+import type { Group, Host, Lang, ReadonlyCheckId, Snippet } from "../config/types";
 import { Icon } from "../components/Icons";
 import { useConfirm } from "../components/ConfirmDialog";
 import { useCredentials, type Credential } from "../store/credentials";
@@ -35,6 +35,8 @@ interface HostDetailProps {
   onOpenImport: () => void;
   onPickHost: (host: Host) => void;
   onOpenHost: (host: Host) => void;
+  onRunReadonlyCheck: (hosts: Host[], checkId: ReadonlyCheckId) => void;
+  onBackupConfig: (hosts: Host[]) => void;
   onOpenQuad: () => void;
   canOpenQuad: boolean;
 }
@@ -63,6 +65,8 @@ export function HostDetail({
   onOpenImport,
   onPickHost,
   onOpenHost,
+  onRunReadonlyCheck,
+  onBackupConfig,
   onOpenQuad,
   canOpenQuad,
 }: HostDetailProps) {
@@ -87,6 +91,8 @@ export function HostDetail({
         onOpenImport={onOpenImport}
         onPickHost={onPickHost}
         onOpenHost={onOpenHost}
+        onRunReadonlyCheck={onRunReadonlyCheck}
+        onBackupConfig={onBackupConfig}
         onOpenQuad={onOpenQuad}
         canOpenQuad={canOpenQuad}
       />
@@ -100,6 +106,7 @@ export function HostDetail({
         lang={lang}
         host={host}
         groups={groups}
+        hosts={hosts}
         onSave={(patch) => {
           onUpdateHost(host.id, patch);
           finishEditing();
@@ -108,9 +115,7 @@ export function HostDetail({
         onRemove={() => {
           void confirm({
             title: t("host.action.confirmRemove", lang, { alias: host.alias }),
-            message: lang === "zh"
-              ? "Only Netssh local metadata is removed; ~/.ssh/config is not changed."
-              : "Only Netssh local data is removed. Your ~/.ssh/config stays untouched.",
+            message: t("host.action.removeMessage", lang),
             confirmLabel: t("host.action.remove", lang),
             cancelLabel: t("common.cancel", lang),
             danger: true,
@@ -162,6 +167,20 @@ export function HostDetail({
           <button className="btn" onClick={onConnect}>
             {Icon.power}
             <span>{t("landing.connect", lang)}</span>
+          </button>
+          <button className="btn ghost" onClick={() => onRunReadonlyCheck([host], "identity")}>
+            {Icon.check}
+            <span>{t("ops.check.identity", lang)}</span>
+          </button>
+          <button
+            className="btn ghost"
+            onClick={() => {
+              if ((host.connectionType || "ssh") === "serial") onConnect();
+              else onBackupConfig([host]);
+            }}
+          >
+            {Icon.import}
+            <span>{(host.connectionType || "ssh") === "serial" ? t("ops.action.openSerialBackup", lang) : t("ops.action.backupConfig", lang)}</span>
           </button>
           <button className="btn ghost" onClick={startEditing}>
             {Icon.edit}
@@ -339,6 +358,8 @@ function Landing({
   onOpenImport,
   onPickHost,
   onOpenHost,
+  onRunReadonlyCheck,
+  onBackupConfig,
   onOpenQuad,
   canOpenQuad,
 }: {
@@ -353,6 +374,8 @@ function Landing({
   onOpenImport: () => void;
   onPickHost: (host: Host) => void;
   onOpenHost: (host: Host) => void;
+  onRunReadonlyCheck: (hosts: Host[], checkId: ReadonlyCheckId) => void;
+  onBackupConfig: (hosts: Host[]) => void;
   onOpenQuad: () => void;
   canOpenQuad: boolean;
 }) {
@@ -444,6 +467,8 @@ function Landing({
           groups={groups}
           onPickHost={onPickHost}
           onOpenHost={onOpenHost}
+          onRunReadonlyCheck={onRunReadonlyCheck}
+          onBackupConfig={onBackupConfig}
           showRouters={showRouters}
           showSwitches={showSwitches}
           showDevices={showDevices}

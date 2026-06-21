@@ -6,7 +6,7 @@ import { createJSONStorage, persist } from "zustand/middleware";
 import { HOST_GROUPS, MOCK_HOSTS } from "../config/defaults";
 import { parseSshConfig } from "../api/tauri";
 import { slugify } from "../utils/slugify";
-import { canonicalGroupColor, canonicalGroupId, canonicalGroupName } from "../utils/groups";
+import { canonicalGroupColor, canonicalGroupId, canonicalGroupName, storageGroupName } from "../utils/groups";
 import type { Host, Group, GroupId } from "../config/types";
 import { appStorage } from "./persistence";
 
@@ -104,11 +104,11 @@ function normalizeHostsData(hosts: Host[], groups: Group[]) {
           normalizedGroups.push(fallback || { id: UNASSIGNED_GROUP_ID, name: "Unassigned", color: "#897e6e" });
           lookup.set(UNASSIGNED_GROUP_ID, UNASSIGNED_GROUP_ID);
         }
-      } else if (!lookup.get(canonicalId)) {
+    } else if (!lookup.get(canonicalId)) {
         normalizedGroups.push({
           ...group,
           id: canonicalId,
-          name: canonicalGroupName(canonicalId),
+          name: storageGroupName(canonicalId, rawName || rawId),
           color: group.color || canonicalGroupColor(canonicalId),
         });
         lookup.set(canonicalId, canonicalId);
@@ -151,9 +151,36 @@ function normalizeHostsData(hosts: Host[], groups: Group[]) {
   HOST_GROUPS.forEach(addGroup);
   groups.forEach(addGroup);
 
+  const ensureGroupForHost = (value: string | undefined): GroupId => {
+    const raw = String(value || "").trim();
+    if (!raw || isUnassignedGroup(raw)) return UNASSIGNED_GROUP_ID;
+    const rawLower = raw.toLowerCase();
+    const rawKey = groupKey(raw);
+    const existing = remap.get(raw) || lookup.get(rawLower) || lookup.get(rawKey);
+    if (existing) return existing;
+
+    const canonicalId = canonicalGroupId(raw);
+    const id = (canonicalId || rawKey || raw) as GroupId;
+    const known = lookup.get(String(id).toLowerCase()) || lookup.get(groupKey(id));
+    if (known) {
+      remember(raw, known);
+      return known;
+    }
+
+    normalizedGroups.push({
+      id,
+      name: canonicalId ? storageGroupName(id, raw) : raw,
+      color: canonicalGroupColor(id, nextHue(normalizedGroups.length)),
+    });
+    lookup.set(String(id).toLowerCase(), id);
+    const idKey = groupKey(id);
+    if (idKey) lookup.set(idKey, id);
+    remember(raw, id);
+    return id;
+  };
+
   const normalizedHosts = hosts.map((host) => {
-    const rawGroup = String(host.group || "").trim();
-    const group = remap.get(rawGroup) || lookup.get(rawGroup.toLowerCase()) || lookup.get(groupKey(rawGroup)) || UNASSIGNED_GROUP_ID;
+    const group = ensureGroupForHost(host.group);
     return group === host.group ? host : { ...host, group };
   });
 
@@ -207,7 +234,7 @@ export const useHosts = create<HostsState>()(
               favorite: host.favorite ?? host.pinned ?? false,
             });
           });
-          set({ hosts: merged });
+          set(normalizeHostsData(merged, get().groups));
         } catch {
           // Silently ignore ssh_config parse failures; user can still import manually.
         }
@@ -252,8 +279,9 @@ export const useHosts = create<HostsState>()(
           hue: raw.hue ?? nextHue(get().hosts.length),
           favorite: raw.favorite ?? raw.pinned ?? false,
         };
-        set({ hosts: [...get().hosts, host] });
-        return host;
+        const data = normalizeHostsData([...get().hosts, host], get().groups);
+        set(data);
+        return data.hosts.find((item) => item.id === id) || host;
       },
 
       importHosts: (list) => {
@@ -291,10 +319,7 @@ export const useHosts = create<HostsState>()(
           existingAliases.add(host.alias.toLowerCase());
           created.push(host);
         });
-        set({
-          hosts: [...existing, ...created],
-          groups: nextGroups,
-        });
+        set(normalizeHostsData([...existing, ...created], nextGroups));
         return created;
       },
 
@@ -302,9 +327,10 @@ export const useHosts = create<HostsState>()(
         const nextPatch = patch.group
           ? { ...patch, group: resolveKnownGroupId(patch.group, get().groups) }
           : patch;
-        set({
-          hosts: get().hosts.map((h) => (h.id === id ? { ...h, ...nextPatch } : h)),
-        });
+        set(normalizeHostsData(
+          get().hosts.map((h) => (h.id === id ? { ...h, ...nextPatch } : h)),
+          get().groups
+        ));
       },
 
       removeHost: (id) => {
@@ -331,28 +357,44 @@ export const useHosts = create<HostsState>()(
       },
 
       renameGroup: (id, name, subnet) => {
+        const groupId = resolveKnownGroupId(id, get().groups);
+        const existing = get().groups.some((g) => g.id === groupId);
+        if (!existing) {
+          set(normalizeHostsData(get().hosts, [
+            ...get().groups,
+            {
+              id: groupId,
+              name,
+              color: canonicalGroupColor(groupId, nextHue(get().groups.length)),
+              subnet,
+            },
+          ]));
+          return;
+        }
         set({
-          groups: get().groups.map((g) => (g.id === id ? { ...g, name, subnet } : g)),
+          groups: get().groups.map((g) => (g.id === groupId ? { ...g, name, subnet } : g)),
         });
       },
 
       removeGroup: (id) => {
+        const groupId = resolveKnownGroupId(id, get().groups);
         // hosts in the removed group fall back to "unassigned"
         set({
-          groups: get().groups.filter((g) => g.id !== id),
+          groups: get().groups.filter((g) => g.id !== groupId),
           hosts: get().hosts.map((h) =>
-            h.group === id ? { ...h, group: "unassigned" } : h
+            h.group === groupId ? { ...h, group: "unassigned" } : h
           ),
         });
       },
 
       moveHostToGroup: (hostId, groupId) => {
         const targetGroupId = resolveKnownGroupId(groupId, get().groups);
-        set({
-          hosts: get().hosts.map((host) =>
+        set(normalizeHostsData(
+          get().hosts.map((host) =>
             host.id === hostId ? { ...host, group: targetGroupId } : host
           ),
-        });
+          get().groups
+        ));
       },
 
       reorderHost: (hostId, targetOrder, targetGroupId, orderedHostIds) => {
@@ -363,8 +405,8 @@ export const useHosts = create<HostsState>()(
           ? [...new Set(orderedHostIds.filter(Boolean))]
           : undefined;
 
-        set({
-          hosts: get().hosts.map((host) => {
+        set(normalizeHostsData(
+          get().hosts.map((host) => {
             if (orderedIds?.includes(host.id)) {
               const order = orderedIds.indexOf(host.id);
               return {
@@ -380,7 +422,8 @@ export const useHosts = create<HostsState>()(
             }
             return next;
           }),
-        });
+          get().groups
+        ));
       },
     }),
     {

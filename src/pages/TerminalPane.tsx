@@ -33,15 +33,16 @@ import {
 } from "../api/tauri";
 import { t } from "../utils/i18n";
 import { SERIAL_PRESETS } from "../config/defaults";
-import { useCredentials } from "../store/credentials";
+import { useCredentials, type Credential } from "../store/credentials";
 import { useSettings } from "../store/settings";
 import { registerLiveSession, getLiveSession, removeLiveSession } from "../utils/liveSessions";
+import { findCredentialForHost, mergeHostCredentialTags } from "../utils/credentialMatching";
 
 import type { Host, Lang, SerialProfile, TerminalLocale, TerminalTimezone } from "../config/types";
 import { Icon } from "../components/Icons";
 import { createDemoShell } from "../utils/demoShell";
 import { brandIcon } from "../components/BrandIcons";
-import type { HostKeyChallenge, HostKeyDecision } from "../api/tauri";
+import type { HostKeyChallenge, HostKeyDecision, SshJumpArgs } from "../api/tauri";
 import { deviceTypeFromHost } from "../utils/deployScope";
 
 export interface QueuedCommand {
@@ -55,11 +56,15 @@ interface TerminalPaneProps {
   shellId?: string;
   shellPath?: string;
   shellTitle?: string;
+  hosts?: Host[];
+  active?: boolean;
   /** If set, reattach to an existing live SSH session instead of opening a new one. */
   reattachSessionId?: string;
   onClose?: () => void;
   onRetry?: () => void;
   onEditHost?: () => void;
+  onRememberCredential?: (hostId: string, credentialProfileId: string) => void;
+  onConnected?: (host: Host) => void;
   runQueue?: QueuedCommand[];
 }
 
@@ -79,11 +84,29 @@ interface PendingHostKeyDecision {
   decision: HostKeyDecision;
 }
 
-export function TerminalPane({ lang, host, shellId, shellPath, shellTitle, reattachSessionId, onClose, onRetry, onEditHost, runQueue }: TerminalPaneProps) {
+const EMPTY_HOSTS: Host[] = [];
+
+export function TerminalPane({
+  lang,
+  host,
+  shellId,
+  shellPath,
+  shellTitle,
+  hosts = EMPTY_HOSTS,
+  active = true,
+  reattachSessionId,
+  onClose,
+  onRetry,
+  onEditHost,
+  onRememberCredential,
+  onConnected,
+  runQueue,
+}: TerminalPaneProps) {
   const mountRef = useRef<HTMLDivElement>(null);
   const termRef = useRef<XTerm | null>(null);
   const fitRef = useRef<FitAddon | null>(null);
   const modeRef = useRef<LiveMode>("demo");
+  const activeRef = useRef(active);
   const sessionIdRef = useRef<string | null>(null);
   const demoRef = useRef<ReturnType<typeof createDemoShell> | null>(null);
   const lastRunLengthRef = useRef(0);
@@ -94,6 +117,8 @@ export function TerminalPane({ lang, host, shellId, shellPath, shellTitle, reatt
   const [skipOpenSshKnownHosts, setSkipOpenSshKnownHosts] = useState(false);
   const [sessionPassword, setSessionPassword] = useState("");
   const [passwordDraft, setPasswordDraft] = useState("");
+  const [rememberPassword, setRememberPassword] = useState(true);
+  const [passwordSaveError, setPasswordSaveError] = useState<string | null>(null);
   const [connectionPhase, setConnectionPhase] = useState<ConnectionPhase>(() => (host || shellId ? "opening" : "idle"));
   const [clock, setClock] = useState(() => new Date());
   const isLogClosedRef = useRef(false);
@@ -103,6 +128,10 @@ export function TerminalPane({ lang, host, shellId, shellPath, shellTitle, reatt
   const bytesOutRef = useRef(0);
   const connectionLogIdRef = useRef<string | null>(null);
   const pendingHostKeyDecisionRef = useRef<PendingHostKeyDecision | null>(null);
+  const onConnectedRef = useRef(onConnected);
+  const hostsRef = useRef(hosts);
+  hostsRef.current = hosts;
+  onConnectedRef.current = onConnected;
   const {
     terminalCursorStyle,
     terminalCursorBlink,
@@ -129,8 +158,26 @@ export function TerminalPane({ lang, host, shellId, shellPath, shellTitle, reatt
   }, []);
 
   useEffect(() => {
+    activeRef.current = active;
+    const term = termRef.current;
+    const fit = fitRef.current;
+    if (!term) return;
+    if (!active) {
+      term.blur();
+      return;
+    }
+    window.setTimeout(() => {
+      if (!activeRef.current) return;
+      if (fit) safeFit(fit);
+      term.focus();
+    }, 0);
+  }, [active]);
+
+  useEffect(() => {
     setSessionPassword("");
     setPasswordDraft("");
+    setRememberPassword(true);
+    setPasswordSaveError(null);
   }, [host?.id]);
 
   const closeConnectionLog = async (error?: string, exitStatus: number | null = null) => {
@@ -331,14 +378,18 @@ export function TerminalPane({ lang, host, shellId, shellPath, shellTitle, reatt
             });
             unlistenExit = await onSerialExit(id, () => onCloseRef.current?.());
             setConnectionPhase("connected");
+            onConnectedRef.current?.(host);
             queueResize();
             return;
           }
 
           modeRef.current = "ssh";
           setLiveMode("ssh");
+          const jumpHost = host.jumpHostId ? hostsRef.current.find((item) => item.id === host.jumpHostId) : undefined;
           unlistenHostKeyChallenge = await onHostKeyChallenge((event) => {
-            if (event.host !== host.hostname || event.port !== host.port) return;
+            const isTargetEvent = event.host === host.hostname && event.port === host.port;
+            const isJumpEvent = jumpHost && event.host === jumpHost.hostname && event.port === jumpHost.port;
+            if (!isTargetEvent && !isJumpEvent) return;
             const pendingDecision = pendingHostKeyDecisionRef.current;
             if (
               pendingDecision &&
@@ -364,9 +415,7 @@ export function TerminalPane({ lang, host, shellId, shellPath, shellTitle, reatt
           resetMetrics();
           const credentials = useCredentials.getState().credentials;
           const loadPassword = useCredentials.getState().loadPassword;
-          const credentialProfile = host.credentialProfileId
-            ? credentials.find((item) => item.id === host.credentialProfileId)
-            : undefined;
+          const credentialProfile = findCredentialForHost(host, credentials);
           const username = credentialProfile?.user || host.user;
           const identityFile = credentialProfile?.identityFile || host.identityFile;
           let password: string | undefined = sessionPassword || host.ephemeralPassword || undefined;
@@ -375,6 +424,15 @@ export function TerminalPane({ lang, host, shellId, shellPath, shellTitle, reatt
           }
           if (!password && !identityFile) {
             startDemo(`password_required: password is required for ${username}@${host.hostname}`);
+            return;
+          }
+          const jump = await resolveJumpArgs(host, jumpHost, credentials, loadPassword);
+          if (jump === "missing") {
+            startDemo(`jump_host_missing: jump host is not available for ${host.alias}`);
+            return;
+          }
+          if (jump === "credentials_required") {
+            startDemo(`jump_credentials_required: jump host needs credentials for ${host.alias}`);
             return;
           }
           try {
@@ -400,6 +458,7 @@ export function TerminalPane({ lang, host, shellId, shellPath, shellTitle, reatt
               password,
               skipOpenSshKnownHosts,
               deviceHint: host.iconOverride || deviceTypeFromHost(host),
+              jump,
               ...resolveTerminalEnv(terminalLocale, terminalTimezone),
             });
             registerLiveSession(host.id, id);
@@ -419,9 +478,15 @@ export function TerminalPane({ lang, host, shellId, shellPath, shellTitle, reatt
           });
           unlistenExit = await onSshExit(id, () => {
             void closeConnectionLog();
+            if (host) removeLiveSession(host.id);
+            sessionIdRef.current = null;
             onCloseRef.current?.();
           });
           setConnectionPhase("connected");
+          if (credentialProfile && !host.credentialProfileId) {
+            onRememberCredential?.(host.id, credentialProfile.id);
+          }
+          onConnectedRef.current?.(host);
           queueResize();
           return;
         }
@@ -436,7 +501,7 @@ export function TerminalPane({ lang, host, shellId, shellPath, shellTitle, reatt
     })();
 
     focusTimer = window.setTimeout(() => {
-      if (!disposed) term.focus();
+      if (!disposed && activeRef.current) term.focus();
     }, 50);
 
     return () => {
@@ -456,6 +521,7 @@ export function TerminalPane({ lang, host, shellId, shellPath, shellTitle, reatt
       const id = sessionIdRef.current;
       if (id && modeRef.current === "ssh") {
         void sshDetach(id);
+        if (host) removeLiveSession(host.id);
         void closeConnectionLog();
       }
       if (id && modeRef.current === "serial") void serialClose(id);
@@ -556,10 +622,53 @@ export function TerminalPane({ lang, host, shellId, shellPath, shellTitle, reatt
     setRetryNonce((n) => n + 1);
     onRetry?.();
   };
-  const submitPasswordRetry = (event: FormEvent<HTMLFormElement>) => {
+  const rememberPasswordForHost = async (password: string) => {
+    if (!host || host.connectionType === "serial") return;
+    const credentialStore = useCredentials.getState();
+    const credentialProfile = findCredentialForHost(host, credentialStore.credentials);
+    const username = (credentialProfile?.user || host.user || "").trim();
+    if (!username) throw new Error("username_required");
+    const identityFile = credentialProfile?.identityFile || host.identityFile;
+
+    if (credentialProfile) {
+      await credentialStore.update(credentialProfile.id, {
+        user: username,
+        identityFile,
+        tags: mergeHostCredentialTags(credentialProfile.tags, host, username),
+      });
+      const saved = await useCredentials.getState().savePassword(credentialProfile.id, password);
+      if (!saved) throw new Error("credential_save_failed");
+      onRememberCredential?.(host.id, credentialProfile.id);
+      return;
+    }
+
+    const created = await credentialStore.add({
+      name: host.alias.trim() || host.hostname.trim() || `${username}@${host.port}`,
+      group: preferredCredentialGroup(host),
+      user: username,
+      identityFile,
+      tags: mergeHostCredentialTags(undefined, host, username),
+      notes: host.alias !== host.hostname ? host.hostname : undefined,
+    });
+    const saved = await useCredentials.getState().savePassword(created.id, password);
+    if (!saved) {
+      await useCredentials.getState().remove(created.id);
+      throw new Error("credential_save_failed");
+    }
+    onRememberCredential?.(host.id, created.id);
+  };
+  const submitPasswordRetry = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     const nextPassword = passwordDraft;
     if (!nextPassword) return;
+    setPasswordSaveError(null);
+    if (rememberPassword) {
+      try {
+        await rememberPasswordForHost(nextPassword);
+      } catch {
+        setPasswordSaveError(t("term.password.saveFailed", lang));
+      }
+    }
     setSessionPassword(nextPassword);
     setPasswordDraft("");
     handleRetry();
@@ -608,6 +717,20 @@ export function TerminalPane({ lang, host, shellId, shellPath, shellTitle, reatt
       });
     }
   };
+  const closeCurrentSession = () => {
+    const id = sessionIdRef.current;
+    const mode = modeRef.current;
+    sessionIdRef.current = null;
+    demoRef.current = null;
+    if (id && mode === "ssh") {
+      void sshClose(id);
+      if (host) removeLiveSession(host.id);
+      void closeConnectionLog();
+    }
+    if (id && mode === "serial") void serialClose(id);
+    if (id && mode === "pty") void ptyClose(id);
+    onCloseRef.current?.();
+  };
 
   return (
     <>
@@ -626,7 +749,7 @@ export function TerminalPane({ lang, host, shellId, shellPath, shellTitle, reatt
         <div className="spacer" />
         <div className="conn-actions">
           <button className="icon-btn" title={t("conn.action.reconnect", lang)} onClick={() => handleRetry()}>{Icon.refresh}</button>
-          <button className="icon-btn danger" title={t("conn.action.disconnect", lang)} onClick={onClose}>{Icon.power}</button>
+          <button className="icon-btn danger" title={t("conn.action.disconnect", lang)} onClick={closeCurrentSession}>{Icon.power}</button>
         </div>
       </div>
 
@@ -669,20 +792,38 @@ export function TerminalPane({ lang, host, shellId, shellPath, shellTitle, reatt
               )}
               {host.connectionType !== "serial" && isPasswordRecoverableError(connectionError) && (
                 <form className="connection-error__password" onSubmit={submitPasswordRetry}>
-                  <label>
-                    <span className="k">{t("manual.field.password", lang)}</span>
+                  <div className="connection-error__password-row">
+                    <label className="connection-error__field">
+                      <span className="k">{t("manual.field.password", lang)}</span>
+                      <input
+                        type="password"
+                        value={passwordDraft}
+                        onChange={(event) => {
+                          setPasswordDraft(event.target.value);
+                          setPasswordSaveError(null);
+                        }}
+                        placeholder={t("term.password.placeholder", lang)}
+                        autoComplete="current-password"
+                      />
+                    </label>
+                    <button className="btn" type="submit" disabled={!passwordDraft}>
+                      {Icon.power}
+                      <span>{t("term.password.retry", lang)}</span>
+                    </button>
+                  </div>
+                  <label className="connection-error__remember">
                     <input
-                      type="password"
-                      value={passwordDraft}
-                      onChange={(event) => setPasswordDraft(event.target.value)}
-                      placeholder={t("term.password.placeholder", lang)}
-                      autoComplete="current-password"
+                      type="checkbox"
+                      checked={rememberPassword}
+                      onChange={(event) => setRememberPassword(event.target.checked)}
                     />
+                    <span>{t("term.password.remember", lang)}</span>
                   </label>
-                  <button className="btn" type="submit" disabled={!passwordDraft}>
-                    {Icon.power}
-                    <span>{t("term.password.retry", lang)}</span>
-                  </button>
+                  {passwordSaveError && (
+                    <div className="connection-error__password-note" role="status">
+                      {passwordSaveError}
+                    </div>
+                  )}
                 </form>
               )}
               <div className="connection-error__actions">
@@ -716,6 +857,39 @@ export function TerminalPane({ lang, host, shellId, shellPath, shellTitle, reatt
   );
 }
 
+function preferredCredentialGroup(host: Host) {
+  const detected = host.iconOverride || deviceTypeFromHost(host);
+  if (detected && detected !== "auto") return detected;
+  return host.role?.trim() || host.group?.trim() || "ssh";
+}
+
+async function resolveJumpArgs(
+  host: Host,
+  jumpHost: Host | undefined,
+  credentials: Credential[],
+  loadPassword: (id: string) => Promise<string | null>
+): Promise<SshJumpArgs | "missing" | "credentials_required" | undefined> {
+  if (!host.jumpHostId) return undefined;
+  if (!jumpHost) return "missing";
+  if ((jumpHost.connectionType || "ssh") !== "ssh") return "missing";
+  const credentialProfile = findCredentialForHost(jumpHost, credentials);
+  const user = credentialProfile?.user || jumpHost.user;
+  const identityFile = credentialProfile?.identityFile || jumpHost.identityFile;
+  const password = credentialProfile
+    ? (await loadPassword(credentialProfile.id).catch(() => null)) || undefined
+    : jumpHost.ephemeralPassword || undefined;
+  if (!password && !identityFile) return "credentials_required";
+  return {
+    alias: jumpHost.alias,
+    host: jumpHost.hostname,
+    user,
+    port: jumpHost.port || 22,
+    identityFile,
+    password,
+    deviceHint: jumpHost.iconOverride || deviceTypeFromHost(jumpHost),
+  };
+}
+
 function HostKeyChallengeOverlay({
   lang,
   challenge,
@@ -732,6 +906,7 @@ function HostKeyChallengeOverlay({
   onForgetTrustedHostKey: () => void;
 }) {
   const isMismatch = challenge.status === "mismatch";
+  const pathRole = challenge.path_role || "direct";
   return (
     <div className={"host-key-challenge" + (isMismatch ? " host-key-challenge--danger" : "")}>
       <span className="eyebrow">{t("hostkey.eyebrow", lang)}</span>
@@ -745,6 +920,8 @@ function HostKeyChallengeOverlay({
       <div className="host-key-challenge__grid">
         <span className="k">{t("hostkey.field.host", lang)}</span>
         <span className="v">{challenge.host}:{challenge.port}</span>
+        <span className="k">{t("hostkey.field.pathRole", lang)}</span>
+        <span className="v">{t(`hostkey.path.${pathRole}`, lang)}</span>
         <span className="k">{t("hostkey.field.type", lang)}</span>
         <span className="v">{challenge.key_type}</span>
         <span className="k">{t("hostkey.field.fingerprint", lang)}</span>
@@ -923,6 +1100,12 @@ export function describeConnectionError(error: unknown, lang: Lang = "en") {
   if (/host_key_store_failed/i.test(raw)) {
     return t("conn.error.message.hostKeyStoreFailed", lang);
   }
+  if (/jump_host_missing/i.test(raw)) {
+    return t("conn.error.message.jumpHostMissing", lang);
+  }
+  if (/jump_credentials_required|jump_password_required/i.test(raw)) {
+    return t("conn.error.message.jumpCredentialsRequired", lang);
+  }
   if (/auth_timeout|authentication timed out|password authentication timed out|keyboard-interactive authentication timed out/i.test(raw)) {
     return t("conn.error.message.authTimeout", lang);
   }
@@ -959,5 +1142,6 @@ export function describeConnectionError(error: unknown, lang: Lang = "en") {
 
 export function isPasswordRecoverableError(error: unknown) {
   const raw = (error instanceof Error ? error.message : String(error || "")).toLowerCase();
+  if (/^jump_/i.test(raw)) return false;
   return /password_required|no_credentials|password_incorrect|auth_timeout|authentication timed out|permission denied|publickey|keyboard-interactive|no supported auth|all authentication methods failed/i.test(raw);
 }

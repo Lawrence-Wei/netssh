@@ -15,11 +15,12 @@ use russh::client::{Handle, Handler, KeyboardInteractiveAuthResponse, Prompt};
 use russh::*;
 use russh_keys::key::PublicKey;
 use tauri::{AppHandle, Emitter};
+use tokio::io::{AsyncRead, AsyncWrite};
 use tokio::sync::mpsc::{unbounded_channel, UnboundedSender};
 use tokio::sync::{oneshot, Mutex};
 use tracing::{debug, error, info, warn};
 
-use crate::commands::{emit_data, SshKey, SshOpenArgs};
+use crate::commands::{emit_data, SshExecHostArgs, SshJumpArgs, SshKey, SshOpenArgs};
 use crate::storage;
 
 pub type HostKeyChallengeRegistry =
@@ -28,6 +29,7 @@ pub type HostKeyChallengeRegistry =
 pub struct SshSession {
     id: String,
     handle: Arc<Mutex<Handle<ClientHandler>>>,
+    jump_handle: Option<Arc<Mutex<Handle<ClientHandler>>>>,
     commands: UnboundedSender<SshCommand>,
     /// True when the frontend tab closed but the session should stay alive.
     pub detached: bool,
@@ -42,6 +44,7 @@ struct ClientHandler {
     accepted_keys: HashSet<String>,
     challenge_registry: HostKeyChallengeRegistry,
     last_host_key_error: Arc<StdMutex<Option<String>>>,
+    path_role: String,
 }
 
 #[derive(Debug, Clone, serde::Serialize)]
@@ -56,6 +59,7 @@ pub struct HostKeyChallenge {
     pub status: String,
     pub known_fingerprints: Vec<String>,
     pub can_remember: bool,
+    pub path_role: String,
 }
 
 #[derive(Debug, Clone, serde::Serialize)]
@@ -299,6 +303,334 @@ fn should_retry_with_legacy_profile(error: &anyhow::Error) -> bool {
         || raw.contains("network_unreachable")
 }
 
+fn normalized_identity_file(args: &SshOpenArgs) -> Option<String> {
+    args.identity_file.as_ref().and_then(|v| {
+        let v = v.trim();
+        if v.is_empty() {
+            None
+        } else {
+            Some(v.to_string())
+        }
+    })
+}
+
+fn normalized_password(args: &SshOpenArgs) -> Option<String> {
+    args.password.clone().filter(|p| !p.trim().is_empty())
+}
+
+fn accepted_host_keys(args: &SshOpenArgs) -> HashSet<String> {
+    let mut accepted_keys = if args.skip_open_ssh_known_hosts.unwrap_or(false) {
+        info!("Skipping OpenSSH known_hosts for explicit host-key recovery retry");
+        HashSet::new()
+    } else {
+        load_known_hosts(&args.host, args.port)
+    };
+    if let Ok(conn) = storage::open() {
+        if let Ok(trusted) = storage::list_trusted_host_fingerprints(&conn, &args.host, args.port)
+        {
+            if !trusted.is_empty() {
+                debug!(count = trusted.len(), "Loaded persisted trusted host keys");
+            }
+            accepted_keys.extend(trusted);
+        }
+    }
+    debug!(
+        known_count = accepted_keys.len(),
+        host = %args.host,
+        port = args.port,
+        "Accepted host key fingerprints loaded"
+    );
+    accepted_keys
+}
+
+async fn handshake_on_stream<S>(
+    app: &AppHandle,
+    id: &str,
+    args: &SshOpenArgs,
+    challenge_registry: HostKeyChallengeRegistry,
+    accepted_keys: HashSet<String>,
+    last_host_key_error: Arc<StdMutex<Option<String>>>,
+    profile: SshAlgorithmProfile,
+    stream: S,
+    path_role: &str,
+) -> Result<Handle<ClientHandler>>
+where
+    S: AsyncRead + AsyncWrite + Unpin + Send + 'static,
+{
+    let handler = ClientHandler {
+        app: app.clone(),
+        session_id: id.to_string(),
+        alias: args.alias.clone(),
+        host: args.host.clone(),
+        port: args.port,
+        accepted_keys,
+        challenge_registry,
+        last_host_key_error: last_host_key_error.clone(),
+        path_role: path_role.into(),
+    };
+    client::connect_stream(Arc::new(ssh_client_config(profile)), stream, handler)
+        .await
+        .map_err(|error| classify_ssh_handshake_error(error, &last_host_key_error))
+}
+
+async fn connect_authenticated_tcp(
+    app: &AppHandle,
+    id: &str,
+    args: &SshOpenArgs,
+    challenge_registry: HostKeyChallengeRegistry,
+    path_role: &str,
+) -> Result<(Handle<ClientHandler>, Option<String>)> {
+    let addr = format!("{}:{}", args.host, args.port);
+    let accepted_keys = accepted_host_keys(args);
+    let profiles = [
+        SshAlgorithmProfile::ModernWithLegacyFallback,
+        SshAlgorithmProfile::LegacyNetworkDevice,
+    ];
+    let mut last_error: Option<anyhow::Error> = None;
+    let mut banner_device_hint = None;
+
+    for profile in profiles {
+        let last_host_key_error = Arc::new(StdMutex::new(None));
+        info!(profile = ?profile, path_role = path_role, "Opening TCP connection for SSH");
+        let socket = open_ssh_tcp(&addr).await?;
+        if banner_device_hint.is_none() {
+            if let Some(banner) = peek_ssh_banner(&socket).await {
+                banner_device_hint = infer_device_hint_from_ssh_banner(&banner);
+                if let Some(hint) = banner_device_hint.as_deref() {
+                    debug!(banner = %banner, hint = hint, "SSH server banner inferred device hint");
+                }
+            }
+        }
+        info!(profile = ?profile, path_role = path_role, "Starting SSH handshake and key exchange");
+        match handshake_on_stream(
+            app,
+            id,
+            args,
+            challenge_registry.clone(),
+            accepted_keys.clone(),
+            last_host_key_error,
+            profile,
+            socket,
+            path_role,
+        )
+        .await
+        {
+            Ok(handle) => return Ok((handle, banner_device_hint)),
+            Err(error) => {
+                if profile == SshAlgorithmProfile::ModernWithLegacyFallback
+                    && should_retry_with_legacy_profile(&error)
+                {
+                    warn!(
+                        error = %error,
+                        "Retrying SSH handshake with legacy network-device algorithms"
+                    );
+                    last_error = Some(error);
+                    continue;
+                }
+                return Err(error);
+            }
+        }
+    }
+
+    Err(last_error.unwrap_or_else(|| anyhow!("network_unreachable: SSH handshake did not complete")))
+}
+
+async fn connect_authenticated_stream<S>(
+    app: &AppHandle,
+    id: &str,
+    args: &SshOpenArgs,
+    challenge_registry: HostKeyChallengeRegistry,
+    stream: S,
+    path_role: &str,
+) -> Result<Handle<ClientHandler>>
+where
+    S: AsyncRead + AsyncWrite + Unpin + Send + 'static,
+{
+    handshake_on_stream(
+        app,
+        id,
+        args,
+        challenge_registry,
+        accepted_host_keys(args),
+        Arc::new(StdMutex::new(None)),
+        SshAlgorithmProfile::ModernWithLegacyFallback,
+        stream,
+        path_role,
+    )
+    .await
+}
+
+async fn authenticate_handle(
+    handle: &mut Handle<ClientHandler>,
+    args: &SshOpenArgs,
+    banner_device_hint: Option<&str>,
+) -> Result<()> {
+    let password = normalized_password(args);
+    let identity_file = normalized_identity_file(args);
+
+    let authed = if let Some(ref identity_file) = identity_file {
+        match tokio::time::timeout(
+            SSH_AUTH_ATTEMPT_TIMEOUT,
+            try_publickey_auth(handle, &args.user, identity_file, &args.passphrase),
+        )
+        .await
+        {
+            Ok(Ok(true)) => {
+                info!(user = %args.user, key = %identity_file, "Public-key auth succeeded");
+                true
+            }
+            Ok(Ok(false)) => false,
+            Ok(Err(err)) if password.is_some() => {
+                warn!(
+                    user = %args.user,
+                    key = %identity_file,
+                    error = %err,
+                    "Public-key auth failed, falling back to password"
+                );
+                false
+            }
+            Ok(Err(err)) => {
+                error!(user = %args.user, key = %identity_file, error = %err, "Public-key auth fatal");
+                return Err(err);
+            }
+            Err(_) if password.is_some() => {
+                warn!(
+                    user = %args.user,
+                    key = %identity_file,
+                    timeout_ms = SSH_AUTH_ATTEMPT_TIMEOUT.as_millis() as u64,
+                    "Public-key auth timed out, falling back to password"
+                );
+                false
+            }
+            Err(_) => {
+                error!(
+                    user = %args.user,
+                    key = %identity_file,
+                    timeout_ms = SSH_AUTH_ATTEMPT_TIMEOUT.as_millis() as u64,
+                    "Public-key auth timed out"
+                );
+                return Err(anyhow!(
+                    "auth_timeout: public-key authentication timed out for {}@{}",
+                    args.user,
+                    args.host
+                ));
+            }
+        }
+    } else {
+        false
+    };
+
+    if authed {
+        return Ok(());
+    }
+
+    if let Some(ref password) = password {
+        validate_username(&args.user)?;
+        let prefer_keyboard_interactive = prefers_keyboard_interactive(args, banner_device_hint);
+
+        if prefer_keyboard_interactive {
+            info!(
+                user = %args.user,
+                host = %args.host,
+                device_hint = ?clean_device_hint(args.device_hint.as_deref()),
+                "Attempting keyboard-interactive auth before password auth"
+            );
+            match tokio::time::timeout(
+                SSH_AUTH_ATTEMPT_TIMEOUT,
+                try_keyboard_interactive_auth(handle, &args.user, password),
+            )
+            .await
+            {
+                Ok(Ok(true)) => {
+                    info!(user = %args.user, "Keyboard-interactive auth succeeded");
+                    Ok(())
+                }
+                Ok(Ok(false)) => Err(anyhow!(
+                    "password_incorrect: password rejected for {}@{}",
+                    args.user,
+                    args.host
+                )),
+                Ok(Err(err)) if is_keyboard_interactive_unavailable(&err) => {
+                    warn!(
+                        user = %args.user,
+                        host = %args.host,
+                        error = %err,
+                        "Keyboard-interactive auth unavailable, trying password auth"
+                    );
+                    let ok = try_password_auth_with_timeout(
+                        handle,
+                        &args.user,
+                        &args.host,
+                        password,
+                    )
+                    .await?;
+                    if ok {
+                        info!(user = %args.user, "Password auth succeeded");
+                        Ok(())
+                    } else {
+                        Err(anyhow!(
+                            "password_incorrect: password rejected for {}@{}",
+                            args.user,
+                            args.host
+                        ))
+                    }
+                }
+                Ok(Err(err)) => {
+                    warn!(
+                        user = %args.user,
+                        host = %args.host,
+                        error = %err,
+                        "Keyboard-interactive auth failed"
+                    );
+                    Err(anyhow!(
+                        "password_incorrect: password rejected for {}@{}",
+                        args.user,
+                        args.host
+                    ))
+                }
+                Err(_) => Err(anyhow!(
+                    "auth_timeout: keyboard-interactive authentication timed out for {}@{}",
+                    args.user,
+                    args.host
+                )),
+            }
+        } else {
+            info!(user = %args.user, host = %args.host, "Attempting password auth");
+            let ok = try_password_auth_with_timeout(handle, &args.user, &args.host, password).await?;
+            if ok {
+                info!(user = %args.user, "Password auth succeeded");
+                Ok(())
+            } else {
+                Err(anyhow!(
+                    "password_incorrect: password rejected for {}@{}",
+                    args.user,
+                    args.host
+                ))
+            }
+        }
+    } else {
+        validate_username(&args.user)?;
+        if identity_file.is_some() {
+            warn!(
+                alias = %args.alias,
+                host = %args.host,
+                "Public key was not accepted and no password is available"
+            );
+            return Err(anyhow!(
+                "password_required: SSH key was not accepted and no password is available for {}@{}",
+                args.user,
+                args.host
+            ));
+        }
+        warn!(alias = %args.alias, host = %args.host, "Password required but not available");
+        Err(anyhow!(
+            "password_required: password is required for {}@{}",
+            args.user,
+            args.host
+        ))
+    }
+}
+
 #[async_trait]
 impl Handler for ClientHandler {
     type Error = russh::Error;
@@ -354,6 +686,7 @@ impl Handler for ClientHandler {
                 status: status.into(),
                 known_fingerprints,
                 can_remember,
+                path_role: self.path_role.clone(),
             },
         );
 
@@ -411,293 +744,57 @@ impl SshSession {
         args: SshOpenArgs,
         challenge_registry: HostKeyChallengeRegistry,
     ) -> Result<Self> {
-        let addr = format!("{}:{}", args.host, args.port);
-        let password = args.password.clone().filter(|p| !p.trim().is_empty());
-        let identity_file = args
-            .identity_file
-            .as_ref()
-            .and_then(|v| {
-                let v = v.trim();
-                if v.is_empty() {
-                    None
-                } else {
-                    Some(v.to_string())
-                }
-            });
-
         info!(
             host = %args.host,
             port = args.port,
             user = %args.user,
-            has_password = password.is_some(),
-            has_identity = identity_file.is_some(),
+            has_password = normalized_password(&args).is_some(),
+            has_identity = normalized_identity_file(&args).is_some(),
+            has_jump = args.jump.is_some(),
             "SSH connect starting"
         );
 
-        // Load known_hosts for this session unless the frontend is intentionally
-        // retrying after the user cleared Netssh's saved key. In that recovery
-        // flow we must not let a stale OpenSSH known_hosts entry force another
-        // mismatch, but we also never modify the user's OpenSSH files.
-        let mut accepted_keys = if args.skip_open_ssh_known_hosts.unwrap_or(false) {
-            info!("Skipping OpenSSH known_hosts for explicit host-key recovery retry");
-            HashSet::new()
-        } else {
-            load_known_hosts(&args.host, args.port)
-        };
-        if let Ok(conn) = storage::open() {
-            if let Ok(trusted) = storage::list_trusted_host_fingerprints(&conn, &args.host, args.port)
-            {
-                if !trusted.is_empty() {
-                    debug!(count = trusted.len(), "Loaded persisted trusted host keys");
-                }
-                accepted_keys.extend(trusted);
-            }
-        }
-        debug!(
-            known_count = accepted_keys.len(),
-            "Accepted host key fingerprints loaded"
-        );
-        let profiles = [
-            SshAlgorithmProfile::ModernWithLegacyFallback,
-            SshAlgorithmProfile::LegacyNetworkDevice,
-        ];
-        let mut last_error: Option<anyhow::Error> = None;
-        let mut handle = None;
-        let mut banner_device_hint = None;
-        let mut banner_metadata_emitted = false;
-
-        for profile in profiles {
-            let last_host_key_error = Arc::new(StdMutex::new(None));
-            let handler = ClientHandler {
-                app: app.clone(),
-                session_id: id.to_string(),
-                alias: args.alias.clone(),
-                host: args.host.clone(),
-                port: args.port,
-                accepted_keys: accepted_keys.clone(),
-                challenge_registry: challenge_registry.clone(),
-                last_host_key_error: last_host_key_error.clone(),
-            };
-            info!(profile = ?profile, "Opening TCP connection for SSH");
-            let socket = open_ssh_tcp(&addr).await?;
-            if banner_device_hint.is_none() {
-                if let Some(banner) = peek_ssh_banner(&socket).await {
-                    banner_device_hint = infer_device_hint_from_ssh_banner(&banner);
-                    if let Some(hint) = banner_device_hint.as_deref() {
-                        debug!(banner = %banner, hint = hint, "SSH server banner inferred device hint");
-                        if !banner_metadata_emitted {
-                            if let Some(metadata) =
-                                metadata_from_device_hint(id, &args, Some(hint))
-                            {
-                                let _ = app.emit("ssh:host-metadata", metadata);
-                                banner_metadata_emitted = true;
-                            }
-                        }
-                    }
-                }
-            }
-            info!(profile = ?profile, "Starting SSH handshake and key exchange");
-            match client::connect_stream(Arc::new(ssh_client_config(profile)), socket, handler).await
-            {
-                Ok(h) => {
-                    info!(profile = ?profile, "SSH handshake + key exchange completed");
-                    handle = Some(h);
-                    break;
-                }
-                Err(error) => {
-                    let classified = classify_ssh_handshake_error(error, &last_host_key_error);
-                    if profile == SshAlgorithmProfile::ModernWithLegacyFallback
-                        && should_retry_with_legacy_profile(&classified)
-                    {
-                        warn!(
-                            error = %classified,
-                            "Retrying SSH handshake with legacy network-device algorithms"
-                        );
-                        last_error = Some(classified);
-                        continue;
-                    }
-                    return Err(classified);
-                }
-            }
-        }
-
-        let mut handle = handle.ok_or_else(|| {
-            last_error.unwrap_or_else(|| anyhow!("network_unreachable: SSH handshake did not complete"))
-        })?;
-
-        // Authenticate: try publickey first, then password / keyboard-interactive.
-        let authed = if let Some(ref identity_file) = identity_file {
-            match tokio::time::timeout(
-                SSH_AUTH_ATTEMPT_TIMEOUT,
-                try_publickey_auth(&mut handle, &args.user, identity_file, &args.passphrase),
+        let mut jump_handle_for_session = None;
+        let (mut handle, banner_device_hint) = if let Some(jump) = args.jump.clone() {
+            let jump_args = open_args_from_jump(jump, args.skip_open_ssh_known_hosts);
+            let (mut jump_handle, jump_banner_hint) = connect_authenticated_tcp(
+                app,
+                &format!("{id}:jump"),
+                &jump_args,
+                challenge_registry.clone(),
+                "jump",
             )
-            .await
-            {
-                Ok(Ok(true)) => {
-                    info!(user = %args.user, key = %identity_file, "Public-key auth succeeded");
-                    true
-                }
-                Ok(Ok(false)) => false,
-                Ok(Err(err)) if password.is_some() => {
-                    warn!(
-                        user = %args.user,
-                        key = %identity_file,
-                        error = %err,
-                        "Public-key auth failed, falling back to password"
-                    );
-                    false
-                }
-                Ok(Err(err)) => {
-                    error!(user = %args.user, key = %identity_file, error = %err, "Public-key auth fatal");
-                    return Err(err);
-                }
-                Err(_) if password.is_some() => {
-                    warn!(
-                        user = %args.user,
-                        key = %identity_file,
-                        timeout_ms = SSH_AUTH_ATTEMPT_TIMEOUT.as_millis() as u64,
-                        "Public-key auth timed out, falling back to password"
-                    );
-                    false
-                }
-                Err(_) => {
-                    error!(
-                        user = %args.user,
-                        key = %identity_file,
-                        timeout_ms = SSH_AUTH_ATTEMPT_TIMEOUT.as_millis() as u64,
-                        "Public-key auth timed out"
-                    );
-                    return Err(anyhow!(
-                        "auth_timeout: public-key authentication timed out for {}@{}",
-                        args.user,
-                        args.host
-                    ));
-                }
-            }
+            .await?;
+            authenticate_handle(&mut jump_handle, &jump_args, jump_banner_hint.as_deref())
+                .await
+                .map_err(|err| anyhow!("jump_{err}"))?;
+            info!(
+                jump = %jump_args.host,
+                target = %args.host,
+                port = args.port,
+                "Opening direct-tcpip channel through jump host"
+            );
+            let channel = jump_handle
+                .channel_open_direct_tcpip(args.host.clone(), u32::from(args.port), "127.0.0.1", 0)
+                .await
+                .map_err(|err| anyhow!("jump_channel_open_failed: {err}"))?;
+            let stream = channel.into_stream();
+            let target_handle = connect_authenticated_stream(
+                app,
+                id,
+                &args,
+                challenge_registry.clone(),
+                stream,
+                "target",
+            )
+            .await?;
+            jump_handle_for_session = Some(Arc::new(Mutex::new(jump_handle)));
+            (target_handle, None)
         } else {
-            false
+            connect_authenticated_tcp(app, id, &args, challenge_registry.clone(), "direct").await?
         };
 
-        if !authed {
-            if let Some(ref password) = password {
-                validate_username(&args.user)?;
-                let prefer_keyboard_interactive =
-                    prefers_keyboard_interactive(&args, banner_device_hint.as_deref());
-
-                if prefer_keyboard_interactive {
-                    info!(
-                        user = %args.user,
-                        host = %args.host,
-                        device_hint = ?clean_device_hint(args.device_hint.as_deref()),
-                        "Attempting keyboard-interactive auth before password auth"
-                    );
-                    match tokio::time::timeout(
-                        SSH_AUTH_ATTEMPT_TIMEOUT,
-                        try_keyboard_interactive_auth(&mut handle, &args.user, password),
-                    )
-                    .await
-                    {
-                        Ok(Ok(true)) => {
-                            info!(user = %args.user, "Keyboard-interactive auth succeeded");
-                        }
-                        Ok(Ok(false)) => {
-                            warn!(user = %args.user, host = %args.host, "Keyboard-interactive auth rejected by server");
-                            return Err(anyhow!(
-                                "password_incorrect: password rejected for {}@{}",
-                                args.user,
-                                args.host
-                            ));
-                        }
-                        Ok(Err(err)) if is_keyboard_interactive_unavailable(&err) => {
-                            warn!(
-                                user = %args.user,
-                                host = %args.host,
-                                error = %err,
-                                "Keyboard-interactive auth unavailable, trying password auth"
-                            );
-                            let ok = try_password_auth_with_timeout(
-                                &mut handle,
-                                &args.user,
-                                &args.host,
-                                password,
-                            )
-                            .await?;
-                            if ok {
-                                info!(user = %args.user, "Password auth succeeded");
-                            } else {
-                                warn!(user = %args.user, host = %args.host, "Password auth rejected by server");
-                                return Err(anyhow!(
-                                    "password_incorrect: password rejected for {}@{}",
-                                    args.user,
-                                    args.host
-                                ));
-                            }
-                        }
-                        Ok(Err(err)) => {
-                            warn!(
-                                user = %args.user,
-                                host = %args.host,
-                                error = %err,
-                                "Keyboard-interactive auth failed"
-                            );
-                            return Err(anyhow!(
-                                "password_incorrect: password rejected for {}@{}",
-                                args.user,
-                                args.host
-                            ));
-                        }
-                        Err(_) => {
-                            error!(
-                                user = %args.user,
-                                host = %args.host,
-                                timeout_ms = SSH_AUTH_ATTEMPT_TIMEOUT.as_millis() as u64,
-                                "Keyboard-interactive auth timed out"
-                            );
-                            return Err(anyhow!(
-                                "auth_timeout: keyboard-interactive authentication timed out for {}@{}",
-                                args.user,
-                                args.host
-                            ));
-                        }
-                    }
-                } else {
-                    info!(user = %args.user, host = %args.host, "Attempting password auth");
-                    let ok =
-                        try_password_auth_with_timeout(&mut handle, &args.user, &args.host, password)
-                            .await?;
-                    if ok {
-                        info!(user = %args.user, "Password auth succeeded");
-                    } else {
-                        warn!(user = %args.user, host = %args.host, "Password auth rejected by server");
-                        return Err(anyhow!(
-                            "password_incorrect: password rejected for {}@{}",
-                            args.user,
-                            args.host
-                        ));
-                    }
-                }
-            } else {
-                validate_username(&args.user)?;
-                if identity_file.is_some() {
-                    warn!(
-                        alias = %args.alias,
-                        host = %args.host,
-                        "Public key was not accepted and no password is available"
-                    );
-                    return Err(anyhow!(
-                        "password_required: SSH key was not accepted and no password is available for {}@{}",
-                        args.user,
-                        args.host
-                    ));
-                }
-                warn!(alias = %args.alias, host = %args.host, "Password required but not available");
-                return Err(anyhow!(
-                    "password_required: password is required for {}@{}",
-                    args.user,
-                    args.host
-                ));
-            }
-        }
+        authenticate_handle(&mut handle, &args, banner_device_hint.as_deref()).await?;
 
         if let Some(metadata) = metadata_from_device_hint(id, &args, banner_device_hint.as_deref()) {
             debug!(
@@ -809,6 +906,7 @@ impl SshSession {
         Ok(SshSession {
             id: id.to_string(),
             handle: Arc::new(Mutex::new(handle)),
+            jump_handle: jump_handle_for_session,
             commands: tx,
             detached: false,
         })
@@ -829,11 +927,18 @@ impl SshSession {
     pub async fn close(self) -> Result<()> {
         let _ = self.commands.send(SshCommand::Close);
         let handle = self.handle.clone();
+        let jump_handle = self.jump_handle.clone();
         tokio::spawn(async move {
             let guard = handle.lock().await;
             let _ = guard
                 .disconnect(Disconnect::ByApplication, "session closed", "en")
                 .await;
+            if let Some(jump_handle) = jump_handle {
+                let guard = jump_handle.lock().await;
+                let _ = guard
+                    .disconnect(Disconnect::ByApplication, "jump session closed", "en")
+                    .await;
+            }
         });
         Ok(())
     }
@@ -848,6 +953,108 @@ impl SshSession {
     /// sending/receiving data.
     pub fn reattach(&mut self) {
         self.detached = false;
+    }
+}
+
+pub async fn run_exec(
+    app: &AppHandle,
+    id: &str,
+    args: SshExecHostArgs,
+    command: &str,
+    challenge_registry: HostKeyChallengeRegistry,
+) -> Result<String> {
+    let open_args = open_args_from_exec(args);
+    let mut jump_handle_for_disconnect = None;
+    let mut handle = if let Some(jump) = open_args.jump.clone() {
+        let jump_args = open_args_from_jump(jump, open_args.skip_open_ssh_known_hosts);
+        let (mut jump_handle, jump_banner_hint) = connect_authenticated_tcp(
+            app,
+            &format!("{id}:jump"),
+            &jump_args,
+            challenge_registry.clone(),
+            "jump",
+        )
+        .await?;
+        authenticate_handle(&mut jump_handle, &jump_args, jump_banner_hint.as_deref())
+            .await
+            .map_err(|err| anyhow!("jump_{err}"))?;
+        let channel = jump_handle
+            .channel_open_direct_tcpip(
+                open_args.host.clone(),
+                u32::from(open_args.port),
+                "127.0.0.1",
+                0,
+            )
+            .await
+            .map_err(|err| anyhow!("jump_channel_open_failed: {err}"))?;
+        let stream = channel.into_stream();
+        let target_handle = connect_authenticated_stream(
+            app,
+            id,
+            &open_args,
+            challenge_registry.clone(),
+            stream,
+            "target",
+        )
+        .await?;
+        jump_handle_for_disconnect = Some(jump_handle);
+        target_handle
+    } else {
+        let (handle, _banner_hint) =
+            connect_authenticated_tcp(app, id, &open_args, challenge_registry.clone(), "direct")
+                .await?;
+        handle
+    };
+
+    authenticate_handle(&mut handle, &open_args, None).await?;
+    let output = tokio::time::timeout(
+        Duration::from_secs(12),
+        run_host_metadata_command(&mut handle, command),
+    )
+    .await
+    .map_err(|_| anyhow!("readonly_exec_timeout"))??;
+    let _ = handle
+        .disconnect(Disconnect::ByApplication, "exec complete", "en")
+        .await;
+    if let Some(jump_handle) = jump_handle_for_disconnect {
+        let _ = jump_handle
+            .disconnect(Disconnect::ByApplication, "exec jump complete", "en")
+            .await;
+    }
+    Ok(output)
+}
+
+fn open_args_from_exec(args: SshExecHostArgs) -> SshOpenArgs {
+    SshOpenArgs {
+        alias: args.alias,
+        host: args.host,
+        user: args.user,
+        port: args.port,
+        identity_file: args.identity_file,
+        password: args.password,
+        passphrase: args.passphrase,
+        skip_open_ssh_known_hosts: None,
+        terminal_locale: None,
+        terminal_timezone: None,
+        device_hint: args.device_hint,
+        jump: args.jump,
+    }
+}
+
+fn open_args_from_jump(args: SshJumpArgs, skip_known_hosts: Option<bool>) -> SshOpenArgs {
+    SshOpenArgs {
+        alias: args.alias,
+        host: args.host,
+        user: args.user,
+        port: args.port,
+        identity_file: args.identity_file,
+        password: args.password,
+        passphrase: args.passphrase,
+        skip_open_ssh_known_hosts: skip_known_hosts,
+        terminal_locale: None,
+        terminal_timezone: None,
+        device_hint: args.device_hint,
+        jump: None,
     }
 }
 
@@ -2081,6 +2288,7 @@ Cisco Catalyst 9300 Switch uptime is 2 weeks
             terminal_locale: None,
             terminal_timezone: None,
             device_hint: device_hint.map(str::to_string),
+            jump: None,
         }
     }
 }

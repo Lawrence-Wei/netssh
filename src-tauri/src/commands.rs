@@ -3,6 +3,7 @@
 
 use std::collections::HashMap;
 use std::sync::Mutex;
+use std::time::Instant;
 
 use base64::{engine::general_purpose::STANDARD, Engine};
 use serde::{Deserialize, Serialize};
@@ -27,7 +28,19 @@ pub fn config_parse(path: Option<String>) -> Result<Vec<ssh_config::HostEntry>, 
 
 // ─── remote SSH ────────────────────────────────────────────────────────────
 
-#[derive(Deserialize)]
+#[derive(Clone, Deserialize)]
+pub struct SshJumpArgs {
+    pub alias: String,
+    pub host: String,
+    pub user: String,
+    pub port: u16,
+    pub identity_file: Option<String>,
+    pub password: Option<String>,
+    pub passphrase: Option<String>,
+    pub device_hint: Option<String>,
+}
+
+#[derive(Clone, Deserialize)]
 pub struct SshOpenArgs {
     pub alias: String,
     pub host: String,
@@ -40,6 +53,7 @@ pub struct SshOpenArgs {
     pub terminal_locale: Option<String>,
     pub terminal_timezone: Option<String>,
     pub device_hint: Option<String>,
+    pub jump: Option<SshJumpArgs>,
 }
 
 #[tauri::command]
@@ -328,6 +342,165 @@ pub fn cred_delete(account: String) -> Result<(), String> {
     credentials::delete(&account).map_err(|e| e.to_string())
 }
 
+// ─── safe readonly checks + config backup ─────────────────────────────────
+
+#[derive(Clone, Deserialize)]
+pub struct SshExecHostArgs {
+    pub alias: String,
+    pub host: String,
+    pub user: String,
+    pub port: u16,
+    pub identity_file: Option<String>,
+    pub password: Option<String>,
+    pub passphrase: Option<String>,
+    pub device_hint: Option<String>,
+    pub jump: Option<SshJumpArgs>,
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum ReadonlyCheckId {
+    Reachability,
+    Identity,
+    Health,
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum ConfigBackupProfile {
+    Cisco,
+    Huawei,
+    H3c,
+    Openwrt,
+    Linux,
+}
+
+#[derive(Deserialize)]
+pub struct ReadonlyCheckRunArgs {
+    pub check_id: ReadonlyCheckId,
+    pub profile: Option<ConfigBackupProfile>,
+    pub host: SshExecHostArgs,
+}
+
+#[derive(Serialize)]
+pub struct ReadonlyCheckResult {
+    pub check_id: ReadonlyCheckId,
+    pub status: String,
+    pub output: String,
+    pub bytes: usize,
+    pub duration_ms: u64,
+}
+
+#[tauri::command]
+pub async fn readonly_check_run(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    args: ReadonlyCheckRunArgs,
+) -> Result<ReadonlyCheckResult, String> {
+    let started = Instant::now();
+    if args.check_id == ReadonlyCheckId::Reachability {
+        let ping = host_ping(args.host.host.clone(), args.host.port).await;
+        let output = if ping.ok {
+            format!(
+                "TCP {}:{} reachable in {} ms",
+                args.host.host,
+                args.host.port,
+                ping.latency_ms.unwrap_or_default()
+            )
+        } else {
+            format!("TCP {}:{} unreachable", args.host.host, args.host.port)
+        };
+        return Ok(ReadonlyCheckResult {
+            check_id: args.check_id,
+            status: if ping.ok { "ok" } else { "failed" }.into(),
+            bytes: output.len(),
+            output,
+            duration_ms: started.elapsed().as_millis() as u64,
+        });
+    }
+
+    let profile = args
+        .profile
+        .unwrap_or_else(|| infer_profile_from_hint(args.host.device_hint.as_deref()));
+    let command = readonly_command(args.check_id, profile)?;
+    let exec_id = uuid::Uuid::new_v4().to_string();
+    let output = ssh::run_exec(
+        &app,
+        &exec_id,
+        args.host,
+        command,
+        state.host_key_challenges.clone(),
+    )
+    .await
+    .map_err(|e| e.to_string())?;
+    let bytes = output.len();
+    Ok(ReadonlyCheckResult {
+        check_id: args.check_id,
+        status: "ok".into(),
+        output,
+        bytes,
+        duration_ms: started.elapsed().as_millis() as u64,
+    })
+}
+
+#[derive(Deserialize)]
+pub struct ConfigBackupRunArgs {
+    pub profile: ConfigBackupProfile,
+    pub host: SshExecHostArgs,
+}
+
+#[derive(Serialize)]
+pub struct ConfigBackupRunResult {
+    pub record: storage::ConfigBackupRecord,
+}
+
+#[tauri::command]
+pub async fn config_backup_run(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    args: ConfigBackupRunArgs,
+) -> Result<ConfigBackupRunResult, String> {
+    let command = config_backup_command(args.profile)?;
+    let exec_id = uuid::Uuid::new_v4().to_string();
+    let output = ssh::run_exec(
+        &app,
+        &exec_id,
+        args.host.clone(),
+        command,
+        state.host_key_challenges.clone(),
+    )
+    .await
+    .map_err(|e| e.to_string())?;
+    let created_at = storage::now_epoch_seconds().map_err(|e| e.to_string())?;
+    let path = storage::config_backup_path(
+        &args.host.alias,
+        config_backup_profile_key(args.profile),
+        created_at,
+    )
+    .map_err(|e| e.to_string())?;
+    std::fs::write(&path, output.as_bytes()).map_err(|e| e.to_string())?;
+    let conn = storage::open().map_err(|e| e.to_string())?;
+    let record = storage::record_config_backup(
+        &conn,
+        &args.host.alias,
+        &path.to_string_lossy(),
+        output.len() as i64,
+        config_backup_profile_key(args.profile),
+        "ok",
+        created_at,
+    )
+    .map_err(|e| e.to_string())?;
+    Ok(ConfigBackupRunResult { record })
+}
+
+#[tauri::command]
+pub fn config_backup_list(
+    host_alias: Option<String>,
+) -> Result<Vec<storage::ConfigBackupRecord>, String> {
+    let conn = storage::open().map_err(|e| e.to_string())?;
+    storage::list_config_backups(&conn, host_alias.as_deref()).map_err(|e| e.to_string())
+}
+
 // ─── i18n ─────────────────────────────────────────────────────────────────
 
 #[tauri::command]
@@ -489,4 +662,95 @@ pub fn validate_app_state_value(key: &str, value: &str) -> Result<(), String> {
         return Err("app_state_sensitive_value_rejected".into());
     }
     Ok(())
+}
+
+pub fn readonly_command(
+    check_id: ReadonlyCheckId,
+    profile: ConfigBackupProfile,
+) -> Result<&'static str, String> {
+    match check_id {
+        ReadonlyCheckId::Reachability => Err("readonly_reachability_has_no_remote_command".into()),
+        ReadonlyCheckId::Identity => match profile {
+            ConfigBackupProfile::Cisco | ConfigBackupProfile::H3c => Ok("show version"),
+            ConfigBackupProfile::Huawei => Ok("display version"),
+            ConfigBackupProfile::Openwrt | ConfigBackupProfile::Linux => Ok("uname -a"),
+        },
+        ReadonlyCheckId::Health => match profile {
+            ConfigBackupProfile::Openwrt | ConfigBackupProfile::Linux => Ok("uptime && df -h"),
+            ConfigBackupProfile::Cisco | ConfigBackupProfile::H3c => Ok("show version"),
+            ConfigBackupProfile::Huawei => Ok("display version"),
+        },
+    }
+}
+
+pub fn config_backup_command(profile: ConfigBackupProfile) -> Result<&'static str, String> {
+    match profile {
+        ConfigBackupProfile::Cisco | ConfigBackupProfile::H3c => Ok("show running-config"),
+        ConfigBackupProfile::Huawei => Ok("display current-configuration"),
+        ConfigBackupProfile::Openwrt => Ok("uci show || cat /etc/config/network"),
+        ConfigBackupProfile::Linux => Ok("cat /etc/os-release && ip addr show"),
+    }
+}
+
+fn infer_profile_from_hint(hint: Option<&str>) -> ConfigBackupProfile {
+    let hint = hint.unwrap_or_default().to_ascii_lowercase();
+    if hint.contains("huawei") {
+        ConfigBackupProfile::Huawei
+    } else if hint.contains("h3c") {
+        ConfigBackupProfile::H3c
+    } else if hint.contains("cisco") {
+        ConfigBackupProfile::Cisco
+    } else if hint.contains("openwrt") || hint.contains("istore") {
+        ConfigBackupProfile::Openwrt
+    } else {
+        ConfigBackupProfile::Linux
+    }
+}
+
+fn config_backup_profile_key(profile: ConfigBackupProfile) -> &'static str {
+    match profile {
+        ConfigBackupProfile::Cisco => "cisco",
+        ConfigBackupProfile::Huawei => "huawei",
+        ConfigBackupProfile::H3c => "h3c",
+        ConfigBackupProfile::Openwrt => "openwrt",
+        ConfigBackupProfile::Linux => "linux",
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn readonly_whitelist_maps_known_checks_only() {
+        assert_eq!(
+            readonly_command(ReadonlyCheckId::Identity, ConfigBackupProfile::Cisco).unwrap(),
+            "show version"
+        );
+        assert_eq!(
+            readonly_command(ReadonlyCheckId::Identity, ConfigBackupProfile::Huawei).unwrap(),
+            "display version"
+        );
+        assert_eq!(
+            readonly_command(ReadonlyCheckId::Health, ConfigBackupProfile::Linux).unwrap(),
+            "uptime && df -h"
+        );
+        assert!(readonly_command(ReadonlyCheckId::Reachability, ConfigBackupProfile::Linux).is_err());
+    }
+
+    #[test]
+    fn config_backup_profiles_map_to_fixed_commands() {
+        assert_eq!(
+            config_backup_command(ConfigBackupProfile::Cisco).unwrap(),
+            "show running-config"
+        );
+        assert_eq!(
+            config_backup_command(ConfigBackupProfile::Huawei).unwrap(),
+            "display current-configuration"
+        );
+        assert_eq!(
+            config_backup_command(ConfigBackupProfile::Openwrt).unwrap(),
+            "uci show || cat /etc/config/network"
+        );
+    }
 }

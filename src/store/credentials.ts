@@ -25,8 +25,9 @@ export interface Credential {
 
 interface CredentialsState {
   credentials: Credential[];
-  add: (input: Omit<Credential, "id" | "createdAt">) => Promise<Credential>;
+  add: (input: Omit<Credential, "id" | "createdAt"> & { password?: string }) => Promise<Credential>;
   update: (id: string, patch: Partial<Credential>, password?: string) => Promise<void>;
+  savePassword: (id: string, password: string) => Promise<boolean>;
   remove: (id: string) => Promise<void>;
   loadPassword: (id: string) => Promise<string | null>;
 }
@@ -85,6 +86,22 @@ export const useCredentials = create<CredentialsState>()(
             c.id === id ? next : c
           ),
         });
+      },
+
+      savePassword: async (id, password) => {
+        const existing = get().credentials.find((c) => c.id === id);
+        if (!existing || !password) return false;
+        try {
+          await credStore(credAccount(id), password);
+          set({
+            credentials: get().credentials.map((c) =>
+              c.id === id ? { ...c, hasPassword: true } : c
+            ),
+          });
+          return true;
+        } catch {
+          return false;
+        }
       },
 
       remove: async (id) => {

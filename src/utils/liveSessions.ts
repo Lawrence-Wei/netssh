@@ -16,6 +16,14 @@ export function removeLiveSession(hostId: string) {
   liveSessions.delete(hostId);
 }
 
+export function moveLiveSession(fromHostId: string, toHostId: string) {
+  if (fromHostId === toHostId) return;
+  const sessionId = liveSessions.get(fromHostId);
+  if (!sessionId) return;
+  liveSessions.delete(fromHostId);
+  liveSessions.set(toHostId, sessionId);
+}
+
 export function listLiveSessions(): ReadonlyMap<string, string> {
   return liveSessions;
 }

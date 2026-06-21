@@ -4,6 +4,7 @@
  */
 import { useEffect, useState, type CSSProperties } from "react";
 import { SERIAL_PRESETS } from "../config/defaults";
+import { listSerialPorts, type SerialPortInfo } from "../api/tauri";
 import { t } from "../utils/i18n";
 import { Icon } from "./Icons";
 import { useCredentials } from "../store/credentials";
@@ -11,9 +12,12 @@ import { deployScope, deployScopeLabel, deviceTypeFromHost } from "../utils/depl
 import { displayGroupName } from "../utils/groups";
 import type { ConnectionType, DeployScope, Group, GroupId, Host, Lang, SerialProfile } from "../config/types";
 
+const SERIAL_CUSTOM_PORT = "__custom__";
+
 interface HostFormProps {
   lang: Lang;
   host: Host;
+  hosts?: Host[];
   groups: Group[];
   /** Save callback that returns the edited patch to the parent. */
   onSave: (patch: Partial<Host>) => void;
@@ -28,6 +32,7 @@ interface HostFormProps {
 export function HostEditorFull({
   lang,
   host,
+  hosts = [],
   groups,
   onSave,
   onCancel,
@@ -41,13 +46,28 @@ export function HostEditorFull({
   const [hostnameError, setHostnameError] = useState("");
   const [userError, setUserError] = useState("");
   const [serialError, setSerialError] = useState("");
+  const [serialPorts, setSerialPorts] = useState<SerialPortInfo[]>([]);
+  const [serialPortsLoading, setSerialPortsLoading] = useState(false);
+  const [serialPortsError, setSerialPortsError] = useState("");
   const [newSite, setNewSite] = useState("");
   const { credentials } = useCredentials();
   const connectionType = draft.connectionType || "ssh";
+  const jumpCandidates = hosts.filter(
+    (candidate) =>
+      candidate.id !== draft.id &&
+      (candidate.connectionType || "ssh") === "ssh" &&
+      !candidate.jumpHostId
+  );
   const connectionSectionTitle = connectionType === "serial"
     ? t("host.connection.serialSection", lang)
     : t("host.connection.sshSection", lang);
   const serialProfile = normalizeSerialProfile(draft.serialProfile);
+  const selectedSerialPort = serialProfile.portName?.trim() || "";
+  const detectedSerialPortNames = new Set(serialPorts.map((portInfo) => portInfo.port_name));
+  const serialPortSelectValue = selectedSerialPort
+    ? (detectedSerialPortNames.has(selectedSerialPort) ? selectedSerialPort : SERIAL_CUSTOM_PORT)
+    : "";
+  const showManualSerialPort = serialPorts.length === 0 || serialPortSelectValue === SERIAL_CUSTOM_PORT;
 
   useEffect(() => {
     setDraft(host);
@@ -57,6 +77,23 @@ export function HostEditorFull({
     setUserError("");
     setSerialError("");
   }, [host]);
+
+  const refreshSerialPorts = async () => {
+    setSerialPortsLoading(true);
+    setSerialPortsError("");
+    try {
+      setSerialPorts(await listSerialPorts());
+    } catch {
+      setSerialPortsError(t("host.field.serialPortError", lang));
+    } finally {
+      setSerialPortsLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    if (connectionType !== "serial") return;
+    void refreshSerialPorts();
+  }, [connectionType]);
 
   /** Save after alias + port validation. */
   const validateAndSave = () => {
@@ -85,6 +122,7 @@ export function HostEditorFull({
         credentialProfileId: undefined,
         ephemeralPassword: undefined,
         identityFile: undefined,
+        jumpHostId: undefined,
       });
       return;
     }
@@ -116,6 +154,9 @@ export function HostEditorFull({
       return;
     }
     setPortError("");
+    const jumpHostId = jumpCandidates.some((candidate) => candidate.id === draft.jumpHostId)
+      ? draft.jumpHostId
+      : undefined;
     onSave({
       ...draft,
       alias,
@@ -124,6 +165,7 @@ export function HostEditorFull({
       connectionType: "ssh",
       port: portNum,
       credentialProfileId: draft.credentialProfileId,
+      jumpHostId,
       ephemeralPassword: undefined,
     });
   };
@@ -132,6 +174,7 @@ export function HostEditorFull({
     setDraft((current) => ({
       ...current,
       connectionType: nextType,
+      jumpHostId: nextType === "serial" ? undefined : current.jumpHostId,
       serialProfile: nextType === "serial"
         ? normalizeSerialProfile(current.serialProfile)
         : current.serialProfile,
@@ -164,18 +207,33 @@ export function HostEditorFull({
               </h3>
               <span className="host-editor-section__badge">{connectionSectionTitle}</span>
             </div>
+            <div className="host-editor-mode-switch" role="group" aria-label={t("host.field.connectionType", lang)}>
+              <button
+                className={"host-editor-mode" + (connectionType === "ssh" ? " active" : "")}
+                type="button"
+                aria-pressed={connectionType === "ssh"}
+                onClick={() => setConnectionType("ssh")}
+              >
+                <span className="host-editor-mode__icon">{Icon.terminal}</span>
+                <span>
+                  <strong>{t("host.connection.sshMode", lang)}</strong>
+                  <small>{t("host.connection.sshModeMeta", lang)}</small>
+                </span>
+              </button>
+              <button
+                className={"host-editor-mode" + (connectionType === "serial" ? " active" : "")}
+                type="button"
+                aria-pressed={connectionType === "serial"}
+                onClick={() => setConnectionType("serial")}
+              >
+                <span className="host-editor-mode__icon">{Icon.keyboard}</span>
+                <span>
+                  <strong>{t("host.connection.serialMode", lang)}</strong>
+                  <small>{t("host.connection.serialModeMeta", lang)}</small>
+                </span>
+              </button>
+            </div>
             <div className={"host-editor-connect-grid host-editor-connect-grid--" + connectionType}>
-              <label>
-                <span className="k">{t("host.field.connectionType", lang)}</span>
-                <select
-                  aria-label={t("host.field.connectionType", lang)}
-                  value={connectionType}
-                  onChange={(e) => setConnectionType(e.target.value as ConnectionType)}
-                >
-                  <option value="ssh">{t("host.connection.ssh", lang)}</option>
-                  <option value="serial">{t("host.connection.serial", lang)}</option>
-                </select>
-              </label>
               {connectionType === "ssh" ? (
                 <>
                   <label>
@@ -224,19 +282,72 @@ export function HostEditorFull({
                 </>
               ) : (
                 <>
-                  <label>
+                  <label className="serial-port-field">
                     <span className="k">{t("host.field.serialPort", lang)}</span>
-                    <input
-                      value={serialProfile.portName || ""}
-                      onChange={(e) => setDraft({
-                        ...draft,
-                        serialProfile: {
-                          ...serialProfile,
-                          portName: e.target.value,
-                        },
-                      })}
-                      onBlur={() => setSerialError("")}
-                    />
+                    <div className="serial-port-picker">
+                      <select
+                        value={serialPortSelectValue}
+                        onChange={(e) => {
+                          const value = e.target.value;
+                          if (value === SERIAL_CUSTOM_PORT) {
+                            setDraft({
+                              ...draft,
+                              serialProfile: {
+                                ...serialProfile,
+                                portName: serialProfile.portName || "",
+                              },
+                            });
+                            setSerialError("");
+                            return;
+                          }
+                          setDraft({
+                            ...draft,
+                            serialProfile: {
+                              ...serialProfile,
+                              portName: value,
+                            },
+                          });
+                          setSerialError("");
+                        }}
+                        aria-label={t("host.field.serialPort", lang)}
+                      >
+                        <option value="" disabled>
+                          {serialPortsLoading ? t("host.field.serialPortScanning", lang) : t("host.field.serialPortPlaceholder", lang)}
+                        </option>
+                        {serialPorts.map((portInfo) => (
+                          <option key={portInfo.port_name} value={portInfo.port_name}>
+                            {serialPortLabel(portInfo)}
+                          </option>
+                        ))}
+                        <option value={SERIAL_CUSTOM_PORT}>{t("host.field.serialPortCustom", lang)}</option>
+                      </select>
+                      <button
+                        className="icon-btn"
+                        type="button"
+                        title={t("host.field.serialPortRefresh", lang)}
+                        aria-label={t("host.field.serialPortRefresh", lang)}
+                        onClick={() => void refreshSerialPorts()}
+                        disabled={serialPortsLoading}
+                      >
+                        {Icon.refresh}
+                      </button>
+                    </div>
+                    {showManualSerialPort && (
+                      <input
+                        value={serialProfile.portName || ""}
+                        onChange={(e) => setDraft({
+                          ...draft,
+                          serialProfile: {
+                            ...serialProfile,
+                            portName: e.target.value,
+                          },
+                        })}
+                        onBlur={() => setSerialError("")}
+                        placeholder="COM3"
+                        aria-label={t("host.field.serialPortManual", lang)}
+                      />
+                    )}
+                    {serialPortsError && <span className="field-hint">{serialPortsError}</span>}
                     {serialError && <span className="field-error">{serialError}</span>}
                   </label>
                   <label>
@@ -296,7 +407,12 @@ export function HostEditorFull({
 
             <div className="host-editor-advanced">
               <div className="host-editor-advanced__head">
-                <span className="eyebrow">{t("manual.advanced.title", lang)}</span>
+                <span className="eyebrow">
+                  {connectionType === "serial" ? t("host.editor.serialSettings", lang) : t("manual.advanced.title", lang)}
+                </span>
+                {connectionType === "serial" && (
+                  <span className="serial-profile-summary">{serialProfileSummary(serialProfile)}</span>
+                )}
               </div>
               <div className={"host-editor-advanced-grid host-editor-advanced-grid--" + connectionType}>
                 {connectionType === "ssh" ? (
@@ -339,6 +455,22 @@ export function HostEditorFull({
                         placeholder="~/.ssh/id_rsa"
                         autoComplete="off"
                       />
+                    </label>
+                    <label>
+                      <span className="k">{t("host.field.jumpHost", lang)}</span>
+                      <select
+                        aria-label={t("host.field.jumpHost", lang)}
+                        value={draft.jumpHostId || ""}
+                        onChange={(e) => setDraft({ ...draft, jumpHostId: e.target.value || undefined })}
+                      >
+                        <option value="">{t("host.field.jumpHost.none", lang)}</option>
+                        {jumpCandidates.map((candidate) => (
+                          <option key={candidate.id} value={candidate.id}>
+                            {candidate.alias} · {candidate.user}@{candidate.hostname}:{candidate.port || 22}
+                          </option>
+                        ))}
+                      </select>
+                      <span className="field-hint">{t("host.field.jumpHost.hint", lang)}</span>
                     </label>
                   </>
                 ) : (
@@ -639,4 +771,16 @@ function normalizeSerialProfile(profile?: SerialProfile): SerialProfile {
     ...fallback,
     ...profile,
   };
+}
+
+function serialProfileSummary(profile: SerialProfile) {
+  const parity = profile.parity === "none" ? "N" : profile.parity.slice(0, 1).toUpperCase();
+  const lineEnding = profile.lineEnding === "none" ? "raw" : profile.lineEnding.toUpperCase();
+  return `${profile.portName?.trim() || "COM"} · ${profile.baudRate} ${profile.dataBits}${parity}${profile.stopBits} · ${lineEnding}`;
+}
+
+function serialPortLabel(portInfo: SerialPortInfo) {
+  const device = portInfo.product || portInfo.manufacturer || portInfo.transport;
+  const parts = [device, portInfo.serial_number].filter(Boolean);
+  return parts.length > 0 ? `${portInfo.port_name} · ${parts.join(" · ")}` : portInfo.port_name;
 }

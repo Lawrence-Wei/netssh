@@ -6,17 +6,37 @@ import { Sidebar } from "../layouts/Sidebar";
 import { ContextMenu } from "../layouts/ContextMenu";
 import { Workspace } from "../layouts/Workspace";
 import { ImportDialog } from "./ImportDialog";
-import { LOCAL_SHELLS, type QuickCommand } from "../config/defaults";
+import { type QuickCommand } from "../config/defaults";
 import { useHosts } from "../store/hosts";
 import { useSessions } from "../store/sessions";
 import { useSettings } from "../store/settings";
 import { useSnippets } from "../store/snippets";
 import { detectSystemLang, t } from "../utils/i18n";
 import { filterHostsForInventory, sortHostsForSidebar, type HostListFilter } from "../utils/hostFilters";
-import type { Host, Snippet } from "../config/types";
+import type { GroupId, Host, Snippet } from "../config/types";
 import type { QueuedCommand } from "./TerminalPane";
 import { useConfirm } from "../components/ConfirmDialog";
-import { onSshHostMetadata, type SshHostMetadata } from "../api/tauri";
+import { Icon } from "../components/Icons";
+import {
+  configBackupRun,
+  onSshHostMetadata,
+  readonlyCheckRun,
+  type SshExecHostArgs,
+  type SshHostMetadata,
+  type SshJumpArgs,
+} from "../api/tauri";
+import { moveLiveSession } from "../utils/liveSessions";
+import { useCredentials } from "../store/credentials";
+import { deviceTypeFromHost } from "../utils/deployScope";
+import { findCredentialForHost } from "../utils/credentialMatching";
+import type { ConfigBackupProfile, ReadonlyCheckId } from "../config/types";
+
+type OpsNotice = {
+  id: string;
+  title: string;
+  detail: string;
+  status: "running" | "ok" | "failed";
+};
 
 export default function App() {
   const {
@@ -61,10 +81,10 @@ export default function App() {
     openHost,
     openDraftHost,
     openEphemeralHost,
+    replaceEphemeralHost,
     connectActive,
     disconnectTab,
     openSettings,
-    openLocalShell,
     closeTab,
     newTab,
     goHome,
@@ -78,11 +98,11 @@ export default function App() {
       openHost: s.openHost,
       openDraftHost: s.openDraftHost,
       openEphemeralHost: s.openEphemeralHost,
+      replaceEphemeralHost: s.replaceEphemeralHost,
       connectActive: s.connectActive,
       disconnectTab: s.disconnectTab,
       openSettings: s.openSettings,
       openSnippets: s.openSnippets,
-      openLocalShell: s.openLocalShell,
       closeTab: s.closeTab,
       newTab: s.newTab,
       goHome: s.goHome,
@@ -156,6 +176,7 @@ export default function App() {
   const [editingHostId, setEditingHostId] = useState<string | null>(null);
   const [hostQuery, setHostQuery] = useState("");
   const [hostFilter, setHostFilter] = useState<HostListFilter>("all");
+  const [opsNotices, setOpsNotices] = useState<OpsNotice[]>([]);
   const cancelEditCleanup = () => {
     if (editingHostId) {
       const sessionState = useSessions.getState();
@@ -204,10 +225,23 @@ export default function App() {
     void onSshHostMetadata((metadata) => {
       const state = useHosts.getState();
       const target = state.hosts.find((host) => metadataMatchesHost(metadata, host));
-      if (!target || target.connectionType === "serial") return;
-      const patch = hostMetadataPatch(target, metadata);
-      if (Object.keys(patch).length > 0) {
-        state.updateHost(target.id, patch);
+      if (target && target.connectionType !== "serial") {
+        const patch = hostMetadataPatch(target, metadata);
+        if (Object.keys(patch).length > 0) {
+          state.updateHost(target.id, patch);
+        }
+        return;
+      }
+
+      const sessionState = useSessions.getState();
+      const ephemeralTarget = Object.values(sessionState.ephemeralHosts).find((host) =>
+        metadataMatchesHost(metadata, host)
+      );
+      if (ephemeralTarget && ephemeralTarget.connectionType !== "serial") {
+        const patch = hostMetadataPatch(ephemeralTarget, metadata);
+        if (Object.keys(patch).length > 0) {
+          sessionState.updateEphemeralHost(ephemeralTarget.id, patch);
+        }
       }
     }).then((fn) => {
       unlisten = fn;
@@ -271,6 +305,37 @@ export default function App() {
     openHost(host, connectNow);
   };
 
+  const persistConnectedHost = (host: Host) => {
+    const sessionState = useSessions.getState();
+    const latestEphemeralHost = sessionState.ephemeralHosts[host.id];
+    if (!latestEphemeralHost) {
+      markConnected(host.id);
+      return;
+    }
+
+    const hostState = useHosts.getState();
+    const safeHost = inventoryHostFromEphemeral(latestEphemeralHost);
+    const existing = findSavedHostForManualSession(hostState.hosts, safeHost);
+    const connectedAt = Date.now();
+
+    if (existing) {
+      const patch = manualSessionHostPatch(existing, safeHost, connectedAt);
+      hostState.updateHost(existing.id, patch);
+      hostState.markConnected(existing.id, connectedAt);
+      moveLiveSession(host.id, existing.id);
+      replaceEphemeralHost(host.id, { ...existing, ...patch, id: existing.id });
+      return;
+    }
+
+    const saved = hostState.addHost({
+      ...safeHost,
+      status: "ok",
+      lastConnectedAt: connectedAt,
+    });
+    moveLiveSession(host.id, saved.id);
+    replaceEphemeralHost(host.id, saved);
+  };
+
   const saveHostPatch = (id: string, patch: Partial<Host>) => {
     const sessionState = useSessions.getState();
     const draft = sessionState.ephemeralHosts[id];
@@ -283,6 +348,107 @@ export default function App() {
       return;
     }
     updateHost(id, patch);
+  };
+
+  const rememberHostCredential = (hostId: string, credentialProfileId: string) => {
+    const sessionState = useSessions.getState();
+    if (sessionState.ephemeralHosts[hostId]) {
+      sessionState.updateEphemeralHost(hostId, { credentialProfileId });
+      return;
+    }
+    updateHost(hostId, { credentialProfileId });
+  };
+
+  const pushOpsNotice = (notice: Omit<OpsNotice, "id">) => {
+    const id = `ops-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    setOpsNotices((items) => [{ id, ...notice }, ...items].slice(0, 6));
+    return id;
+  };
+
+  const updateOpsNotice = (id: string, patch: Partial<Omit<OpsNotice, "id">>) => {
+    setOpsNotices((items) => items.map((item) => (item.id === id ? { ...item, ...patch } : item)));
+  };
+
+  const runReadonlyChecks = async (targets: Host[], checkId: ReadonlyCheckId) => {
+    const selected = uniqueHosts(targets).filter((host) => host.alias.trim());
+    if (selected.length === 0) return;
+    const noticeId = pushOpsNotice({
+      title: t(`ops.check.${checkId}`, lang),
+      detail: t("ops.status.runningMany", lang, { count: selected.length }),
+      status: "running",
+    });
+    let ok = 0;
+    let failed = 0;
+    await runLimited(selected, 3, async (host) => {
+      try {
+        const execHost = checkId === "reachability"
+          ? reachableExecHostArgs(host)
+          : await resolveExecHostArgs(host, useHosts.getState().hosts);
+        if ("error" in execHost) throw new Error(execHost.error);
+        const result = await readonlyCheckRun({
+          checkId,
+          profile: inferConfigProfile(host),
+          host: execHost,
+        });
+        if (result.status === "ok") ok += 1;
+        else failed += 1;
+      } catch {
+        failed += 1;
+      }
+      updateOpsNotice(noticeId, {
+        detail: t("ops.status.progress", lang, { ok, failed, total: selected.length }),
+        status: failed > 0 ? "failed" : "running",
+      });
+    });
+    updateOpsNotice(noticeId, {
+      detail: t("ops.status.doneMany", lang, { ok, failed, total: selected.length }),
+      status: failed > 0 ? "failed" : "ok",
+    });
+  };
+
+  const backupConfigForHosts = async (targets: Host[]) => {
+    const selected = uniqueHosts(targets).filter((host) => host.alias.trim());
+    if (selected.length === 0) return;
+    const serialHosts = selected.filter((host) => (host.connectionType || "ssh") === "serial");
+    if (serialHosts.length > 0 && selected.length === 1) {
+      openManagedHost(serialHosts[0], true);
+      pushOpsNotice({
+        title: t("ops.action.backupConfig", lang),
+        detail: t("ops.error.serialBackup", lang),
+        status: "failed",
+      });
+      return;
+    }
+    const sshHosts = selected.filter((host) => (host.connectionType || "ssh") === "ssh");
+    const noticeId = pushOpsNotice({
+      title: t("ops.action.backupConfig", lang),
+      detail: t("ops.status.runningMany", lang, { count: sshHosts.length }),
+      status: "running",
+    });
+    let ok = 0;
+    let failed = serialHosts.length;
+    let lastPath = "";
+    await runLimited(sshHosts, 3, async (host) => {
+      try {
+        const execHost = await resolveExecHostArgs(host, useHosts.getState().hosts);
+        if ("error" in execHost) throw new Error(execHost.error);
+        const result = await configBackupRun(inferConfigProfile(host), execHost);
+        ok += 1;
+        lastPath = result.record.path;
+      } catch {
+        failed += 1;
+      }
+      updateOpsNotice(noticeId, {
+        detail: t("ops.status.progress", lang, { ok, failed, total: selected.length }),
+        status: failed > 0 ? "failed" : "running",
+      });
+    });
+    updateOpsNotice(noticeId, {
+      detail: ok === 1 && lastPath
+        ? t("ops.backup.saved", lang, { path: lastPath })
+        : t("ops.status.doneMany", lang, { ok, failed, total: selected.length }),
+      status: failed > 0 ? "failed" : "ok",
+    });
   };
 
   const removeHostOrDraft = (id: string) => {
@@ -408,18 +574,38 @@ export default function App() {
     }
     if (action === "delete") {
       void confirm({
-        title: lang === "zh" ? `Remove host "${host.alias}"?` : `Remove host "${host.alias}"?`,
-        message:
-          lang === "zh"
-            ? "This host is removed from the list. Your ~/.ssh/config stays untouched."
-            : "The host is removed from this list. Your ~/.ssh/config stays untouched.",
-        confirmLabel: lang === "zh" ? "Remove" : "Remove",
-        cancelLabel: lang === "zh" ? "Cancel" : "Cancel",
+        title: t("host.action.confirmRemove", lang, { alias: host.alias }),
+        message: t("host.action.removeMessage", lang),
+        confirmLabel: t("host.action.remove", lang),
+        cancelLabel: t("common.cancel", lang),
         danger: true,
       }).then((ok) => {
         if (ok) removeHost(host.id);
       });
     }
+  };
+
+  const moveHostOrSessionToGroup = (hostId: string, groupId: GroupId) => {
+    const sessionState = useSessions.getState();
+    if (sessionState.ephemeralHosts[hostId]) {
+      sessionState.updateEphemeralHost(hostId, { group: groupId });
+      return;
+    }
+    moveHostToGroup(hostId, groupId);
+  };
+
+  const reorderHostOrMoveSession = (
+    hostId: string,
+    targetOrder: number,
+    targetGroupId?: string,
+    orderedHostIds?: string[]
+  ) => {
+    const sessionState = useSessions.getState();
+    if (sessionState.ephemeralHosts[hostId]) {
+      if (targetGroupId) sessionState.updateEphemeralHost(hostId, { group: targetGroupId });
+      return;
+    }
+    reorderHost(hostId, targetOrder, targetGroupId, orderedHostIds);
   };
 
   const queueCommand = (item: Snippet | QuickCommand) => {
@@ -478,13 +664,6 @@ export default function App() {
           setCtxMenu({ x: event.clientX, y: event.clientY, host });
         }}
         onNewTab={newTab}
-        onNewLocalShell={() => openLocalShell(
-          defaultShellId || "pwsh",
-          defaultShellName || defaultShellTitle(defaultShellId),
-          defaultShellPath
-        )}
-        onConnectActive={connectActiveHost}
-        onDisconnectActive={() => activeTab && disconnectTab(activeTab.id)}
         onGoHome={() => {
           setEditingHostId(null);
           goHome();
@@ -509,8 +688,8 @@ export default function App() {
             onAddGroup={addGroup}
             onRenameGroup={renameGroup}
             onRemoveGroup={removeGroup}
-            onMoveHostToGroup={moveHostToGroup}
-            onReorderHost={reorderHost}
+            onMoveHostToGroup={moveHostOrSessionToGroup}
+            onReorderHost={reorderHostOrMoveSession}
             onRemoveHosts={(ids) => ids.forEach((id) => removeHost(id))}
             onToggleFavorite={toggleFavorite}
             query={hostQuery}
@@ -533,6 +712,7 @@ export default function App() {
               setEditingHostId(created.id);
               openDraftHost(created);
             }}
+            onRunReadonlyCheck={runReadonlyChecks}
           />
         )}
 
@@ -568,7 +748,6 @@ export default function App() {
           setSetting={updateSetting}
           setLang={setLang}
           onConnect={connectActiveHost}
-          onDisconnect={() => activeTab && disconnectTab(activeTab.id)}
           onRunSnippet={queueCommand}
           runQueue={runQueue}
           groups={groups}
@@ -583,12 +762,38 @@ export default function App() {
             setEditingHostId(null);
           }}
           onManualConnect={openEphemeralHost}
+          onHostConnected={persistConnectedHost}
+          onRememberCredential={rememberHostCredential}
           onAddGroup={addGroup}
           onOpenImport={() => setImportOpen(true)}
           onOpenHost={(host) => openManagedHost(host, true)}
+          onRunReadonlyCheck={runReadonlyChecks}
+          onBackupConfig={backupConfigForHosts}
         />
 
       </div>
+
+      {opsNotices.length > 0 && (
+        <div className="ops-toast-stack" aria-live="polite">
+          {opsNotices.map((notice) => (
+            <div key={notice.id} className={"ops-toast ops-toast--" + notice.status}>
+              <span className="latency" />
+              <div>
+                <strong>{notice.title}</strong>
+                <span>{notice.detail}</span>
+              </div>
+              <button
+                type="button"
+                className="icon-btn"
+                title={t("common.close", lang)}
+                onClick={() => setOpsNotices((items) => items.filter((item) => item.id !== notice.id))}
+              >
+                {Icon.x}
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
 
       {ctxMenu && (
         <ContextMenu
@@ -612,6 +817,70 @@ export default function App() {
       )}
     </div>
   );
+}
+
+function inventoryHostFromEphemeral(host: Host): Host {
+  const { ephemeralPassword: _ephemeralPassword, ...safeHost } = host;
+  return {
+    ...safeHost,
+    alias: safeHost.alias.trim() || safeHost.hostname.trim(),
+    hostname: safeHost.hostname.trim(),
+    user: safeHost.user.trim(),
+    port: safeHost.port || 22,
+    group: safeHost.group || "unassigned",
+    connectionType: safeHost.connectionType || "ssh",
+    source: safeHost.source || "manual",
+  };
+}
+
+function findSavedHostForManualSession(hosts: Host[], manualHost: Host) {
+  const alias = hostKey(manualHost.alias);
+  const hostname = hostKey(manualHost.hostname);
+  const port = manualHost.port || 22;
+  const user = hostKey(manualHost.user);
+  const connectionType = manualHost.connectionType || "ssh";
+
+  const aliasMatch = alias
+    ? hosts.find(
+        (host) =>
+          hostKey(host.alias) === alias &&
+          hostKey(host.hostname) === hostname &&
+          (host.port || 22) === port &&
+          (host.connectionType || "ssh") === connectionType
+      )
+    : undefined;
+  if (aliasMatch) return aliasMatch;
+
+  return hosts.find(
+    (host) =>
+      hostKey(host.hostname) === hostname &&
+      (host.port || 22) === port &&
+      hostKey(host.user) === user &&
+      (host.connectionType || "ssh") === connectionType
+  );
+}
+
+function manualSessionHostPatch(existing: Host, manualHost: Host, connectedAt: number): Partial<Host> {
+  return {
+    alias: existing.alias || manualHost.alias,
+    hostname: existing.hostname || manualHost.hostname,
+    user: existing.user || manualHost.user,
+    port: existing.port || manualHost.port || 22,
+    identityFile: manualHost.identityFile ?? existing.identityFile,
+    credentialProfileId: manualHost.credentialProfileId ?? existing.credentialProfileId,
+    connectionType: manualHost.connectionType || existing.connectionType || "ssh",
+    source: existing.source || manualHost.source || "manual",
+    deployScope:
+      existing.deployScope && existing.deployScope !== "unknown"
+        ? existing.deployScope
+        : manualHost.deployScope,
+    status: "ok",
+    lastConnectedAt: connectedAt,
+  };
+}
+
+function hostKey(value?: string | null) {
+  return String(value || "").trim().toLowerCase();
 }
 
 function metadataMatchesHost(metadata: SshHostMetadata, host: Host) {
@@ -656,10 +925,6 @@ function sameStringList(a: string[], b: string[]) {
   return a.every((item, index) => item === b[index]);
 }
 
-function defaultShellTitle(shellId?: string) {
-  return LOCAL_SHELLS.find((shell) => shell.id === shellId)?.name || "PowerShell";
-}
-
 const dangerousCommandPatterns: RegExp[] = [
   /^\s*rm\s+/i,
   /^\s*dd\s+/i,
@@ -679,4 +944,103 @@ const dangerousCommandPatterns: RegExp[] = [
 function isDangerousCommand(command: string) {
   const normalized = command.trim();
   return dangerousCommandPatterns.some((pattern) => pattern.test(normalized));
+}
+
+function uniqueHosts(hosts: Host[]) {
+  const seen = new Set<string>();
+  return hosts.filter((host) => {
+    if (seen.has(host.id)) return false;
+    seen.add(host.id);
+    return true;
+  });
+}
+
+function reachableExecHostArgs(host: Host): SshExecHostArgs {
+  return {
+    alias: host.alias,
+    host: host.hostname,
+    user: host.user,
+    port: host.port || 22,
+    deviceHint: host.iconOverride || deviceTypeFromHost(host),
+  };
+}
+
+async function resolveExecHostArgs(
+  host: Host,
+  allHosts: Host[]
+): Promise<SshExecHostArgs | { error: string }> {
+  if ((host.connectionType || "ssh") !== "ssh") return { error: "ssh_only" };
+  const target = await resolveCredentialForHost(host);
+  if (!target.user) return { error: "username_required" };
+  if (!target.password && !target.identityFile) return { error: "credentials_required" };
+
+  let jump: SshJumpArgs | undefined;
+  if (host.jumpHostId) {
+    const jumpHost = allHosts.find((item) => item.id === host.jumpHostId);
+    if (!jumpHost || (jumpHost.connectionType || "ssh") !== "ssh" || jumpHost.id === host.id || jumpHost.jumpHostId) {
+      return { error: "jump_host_missing" };
+    }
+    const jumpCreds = await resolveCredentialForHost(jumpHost);
+    if (!jumpCreds.user) return { error: "jump_username_required" };
+    if (!jumpCreds.password && !jumpCreds.identityFile) return { error: "jump_credentials_required" };
+    jump = {
+      alias: jumpHost.alias,
+      host: jumpHost.hostname,
+      user: jumpCreds.user,
+      port: jumpHost.port || 22,
+      identityFile: jumpCreds.identityFile,
+      password: jumpCreds.password,
+      deviceHint: jumpHost.iconOverride || deviceTypeFromHost(jumpHost),
+    };
+  }
+
+  return {
+    alias: host.alias,
+    host: host.hostname,
+    user: target.user,
+    port: host.port || 22,
+    identityFile: target.identityFile,
+    password: target.password,
+    deviceHint: host.iconOverride || deviceTypeFromHost(host),
+    jump,
+  };
+}
+
+async function resolveCredentialForHost(host: Host) {
+  const credentialStore = useCredentials.getState();
+  const credentialProfile = findCredentialForHost(host, credentialStore.credentials);
+  const user = (credentialProfile?.user || host.user || "").trim();
+  const identityFile = credentialProfile?.identityFile || host.identityFile || undefined;
+  const password = credentialProfile
+    ? (await credentialStore.loadPassword(credentialProfile.id).catch(() => null)) || undefined
+    : host.ephemeralPassword || undefined;
+  return { user, identityFile, password };
+}
+
+function inferConfigProfile(host: Host): ConfigBackupProfile {
+  const detected = [host.iconOverride, deviceTypeFromHost(host), host.assetType, host.alias, host.hostname, host.role, ...(host.tags || [])]
+    .filter(Boolean)
+    .join(" ")
+    .toLowerCase();
+  if (/\bh3c\b|comware/.test(detected)) return "h3c";
+  if (/huawei|vrp|usg|s\d{4,}/.test(detected)) return "huawei";
+  if (/cisco|catalyst|ios[-_ ]?xe|nx[-_ ]?os|nexus|asa/.test(detected)) return "cisco";
+  if (/openwrt|istoreos|istore|lede|immortalwrt/.test(detected)) return "openwrt";
+  return "linux";
+}
+
+async function runLimited<T>(
+  items: T[],
+  limit: number,
+  worker: (item: T, index: number) => Promise<void>
+) {
+  let index = 0;
+  const runners = Array.from({ length: Math.min(limit, items.length) }, async () => {
+    while (index < items.length) {
+      const current = index;
+      index += 1;
+      await worker(items[current], current);
+    }
+  });
+  await Promise.all(runners);
 }

@@ -1,0 +1,278 @@
+{
+  "baseUrl": "http://127.0.0.1:23187/",
+  "maxClicks": 30,
+  "actions": [
+    {
+      "index": 1,
+      "label": "audit-router - admin@192.0.2.1 audit-router",
+      "selector": "#root > div:nth-of-type(1) > div:nth-of-type(2) > main:nth-of-type(1) > div:nth-of-type(1) > div:nth-of-type(1) > section:nth-of-type(1) > div:nth-of-type(2) > article:nth-of-type(1) > div:nth-of-type(2) > div:nth-of-type(1) > button:nth-of-type(1)",
+      "beforeUrl": "http://127.0.0.1:23187/",
+      "result": "ok",
+      "findingIds": [],
+      "afterUrl": "http://127.0.0.1:23187/"
+    },
+    {
+      "index": 2,
+      "label": "Add host Add host",
+      "selector": "#root > div:nth-of-type(1) > div:nth-of-type(2) > aside:nth-of-type(1) > div:nth-of-type(1) > div:nth-of-type(4) > button:nth-of-type(1)",
+      "beforeUrl": "http://127.0.0.1:23187/",
+      "result": "ok",
+      "findingIds": [],
+      "afterUrl": "http://127.0.0.1:23187/"
+    },
+    {
+      "index": 3,
+      "label": "Import hosts Import",
+      "selector": "#root > div:nth-of-type(1) > div:nth-of-type(2) > aside:nth-of-type(1) > div:nth-of-type(1) > div:nth-of-type(4) > button:nth-of-type(2)",
+      "beforeUrl": "http://127.0.0.1:23187/",
+      "result": "ok",
+      "findingIds": [],
+      "afterUrl": "http://127.0.0.1:23187/"
+    },
+    {
+      "index": 4,
+      "label": "New site #New site",
+      "selector": "#root > div:nth-of-type(1) > div:nth-of-type(2) > aside:nth-of-type(1) > div:nth-of-type(1) > div:nth-of-type(4) > button:nth-of-type(3)",
+      "beforeUrl": "http://127.0.0.1:23187/",
+      "result": "ok",
+      "findingIds": [],
+      "afterUrl": "http://127.0.0.1:23187/"
+    },
+    {
+      "index": 5,
+      "label": "Batch manage hosts Batch",
+      "selector": "#root > div:nth-of-type(1) > div:nth-of-type(2) > aside:nth-of-type(1) > div:nth-of-type(1) > div:nth-of-type(5) > button:nth-of-type(1)",
+      "beforeUrl": "http://127.0.0.1:23187/",
+      "result": "ok",
+      "findingIds": [],
+      "afterUrl": "http://127.0.0.1:23187/"
+    },
+    {
+      "index": 6,
+      "label": "audit-router - admin@192.0.2.1 - Not checked yet: double-click to connect and update status - Never audit-routeradmin@19",
+      "selector": "#root > div:nth-of-type(1) > div:nth-of-type(2) > aside:nth-of-type(1) > div:nth-of-type(2) > div:nth-of-type(1) > div:nth-of-type(2) > div:nth-of-type(1)",
+      "beforeUrl": "http://127.0.0.1:23187/",
+      "result": "ok",
+      "findingIds": [],
+      "afterUrl": "http://127.0.0.1:23187/"
+    },
+    {
+      "index": 7,
+      "label": "audit-server - root@192.0.2.2 - Not checked yet: double-click to connect and update status - Never audit-serverroot@192.",
+      "selector": "#root > div:nth-of-type(1) > div:nth-of-type(2) > aside:nth-of-type(1) > div:nth-of-type(2) > div:nth-of-type(1) > div:nth-of-type(2) > div:nth-of-type(2)",
+      "beforeUrl": "http://127.0.0.1:23187/",
+      "result": "ok",
+      "findingIds": [],
+      "afterUrl": "http://127.0.0.1:23187/"
+    },
+    {
+      "index": 8,
+      "label": "audit-console - @COM9 - Not checked yet: double-click to connect and update status - Never audit-console@COM9Local",
+      "selector": "#root > div:nth-of-type(1) > div:nth-of-type(2) > aside:nth-of-type(1) > div:nth-of-type(2) > div:nth-of-type(1) > div:nth-of-type(2) > div:nth-of-type(3)",
+      "beforeUrl": "http://127.0.0.1:23187/",
+      "result": "ok",
+      "findingIds": [],
+      "afterUrl": "http://127.0.0.1:23187/"
+    },
+    {
+      "index": 9,
+      "label": "Go home Netssh",
+      "selector": "#root > div:nth-of-type(1) > div:nth-of-type(1) > div:nth-of-type(1) > button:nth-of-type(1)",
+      "beforeUrl": "http://127.0.0.1:23187/",
+      "result": "ok",
+      "findingIds": [],
+      "afterUrl": "http://127.0.0.1:23187/"
+    },
+    {
+      "index": 10,
+      "label": "audit-server - root@192.0.2.2 audit-server",
+      "selector": "#root > div:nth-of-type(1) > div:nth-of-type(2) > main:nth-of-type(1) > div:nth-of-type(1) > div:nth-of-type(1) > section:nth-of-type(1) > div:nth-of-type(2) > article:nth-of-type(1) > div:nth-of-type(3) > div:nth-of-type(1) > button:nth-of-type(1)",
+      "beforeUrl": "http://127.0.0.1:23187/",
+      "result": "ok",
+      "findingIds": [],
+      "afterUrl": "http://127.0.0.1:23187/"
+    },
+    {
+      "index": 11,
+      "label": "Hide devices Hide devices",
+      "selector": "#root > div:nth-of-type(1) > div:nth-of-type(1) > div:nth-of-type(1) > button:nth-of-type(2)",
+      "beforeUrl": "http://127.0.0.1:23187/",
+      "result": "ok",
+      "findingIds": [],
+      "afterUrl": "http://127.0.0.1:23187/"
+    },
+    {
+      "index": 12,
+      "label": "Show devices Show devices",
+      "selector": "#root > div:nth-of-type(1) > div:nth-of-type(1) > div:nth-of-type(1) > button:nth-of-type(2)",
+      "beforeUrl": "http://127.0.0.1:23187/",
+      "result": "ok",
+      "findingIds": [],
+      "afterUrl": "http://127.0.0.1:23187/"
+    },
+    {
+      "index": 13,
+      "label": "New tab New tab",
+      "selector": "#root > div:nth-of-type(1) > div:nth-of-type(1) > div:nth-of-type(2) > button:nth-of-type(1)",
+      "beforeUrl": "http://127.0.0.1:23187/",
+      "result": "ok",
+      "findingIds": [],
+      "afterUrl": "http://127.0.0.1:23187/"
+    },
+    {
+      "index": 14,
+      "label": "Credentials Credentials",
+      "selector": "#root > div:nth-of-type(1) > div:nth-of-type(1) > div:nth-of-type(3) > button:nth-of-type(1)",
+      "beforeUrl": "http://127.0.0.1:23187/",
+      "result": "ok",
+      "findingIds": [],
+      "afterUrl": "http://127.0.0.1:23187/"
+    },
+    {
+      "index": 15,
+      "label": "Settings Settings",
+      "selector": "#root > div:nth-of-type(1) > div:nth-of-type(1) > div:nth-of-type(3) > button:nth-of-type(2)",
+      "beforeUrl": "http://127.0.0.1:23187/",
+      "result": "ok",
+      "findingIds": [],
+      "afterUrl": "http://127.0.0.1:23187/"
+    },
+    {
+      "index": 16,
+      "label": "AuroraAurora Purple",
+      "selector": "#root > div:nth-of-type(1) > div:nth-of-type(2) > main:nth-of-type(1) > div:nth-of-type(1) > div:nth-of-type(1) > div:nth-of-type(1) > div:nth-of-type(1) > button:nth-of-type(1)",
+      "beforeUrl": "http://127.0.0.1:23187/",
+      "result": "ok",
+      "findingIds": [],
+      "afterUrl": "http://127.0.0.1:23187/"
+    },
+    {
+      "index": 17,
+      "label": "CobaltCobalt Blue",
+      "selector": "#root > div:nth-of-type(1) > div:nth-of-type(2) > main:nth-of-type(1) > div:nth-of-type(1) > div:nth-of-type(1) > div:nth-of-type(1) > div:nth-of-type(1) > button:nth-of-type(2)",
+      "beforeUrl": "http://127.0.0.1:23187/",
+      "result": "ok",
+      "findingIds": [],
+      "afterUrl": "http://127.0.0.1:23187/"
+    },
+    {
+      "index": 18,
+      "label": "SystemWindows Mica",
+      "selector": "#root > div:nth-of-type(1) > div:nth-of-type(2) > main:nth-of-type(1) > div:nth-of-type(1) > div:nth-of-type(1) > div:nth-of-type(1) > div:nth-of-type(1) > button:nth-of-type(3)",
+      "beforeUrl": "http://127.0.0.1:23187/",
+      "result": "ok",
+      "findingIds": [],
+      "afterUrl": "http://127.0.0.1:23187/"
+    },
+    {
+      "index": 19,
+      "label": "LightDaylight",
+      "selector": "#root > div:nth-of-type(1) > div:nth-of-type(2) > main:nth-of-type(1) > div:nth-of-type(1) > div:nth-of-type(1) > div:nth-of-type(1) > div:nth-of-type(1) > button:nth-of-type(4)",
+      "beforeUrl": "http://127.0.0.1:23187/",
+      "result": "ok",
+      "findingIds": [],
+      "afterUrl": "http://127.0.0.1:23187/"
+    },
+    {
+      "index": 20,
+      "label": "Home Home",
+      "selector": "#root > div:nth-of-type(1) > div:nth-of-type(1) > div:nth-of-type(2) > div:nth-of-type(1)",
+      "beforeUrl": "http://127.0.0.1:23187/",
+      "result": "ok",
+      "findingIds": [],
+      "afterUrl": "http://127.0.0.1:23187/"
+    },
+    {
+      "index": 21,
+      "label": "audit-console - @COM9 audit-console",
+      "selector": "#root > div:nth-of-type(1) > div:nth-of-type(2) > main:nth-of-type(1) > div:nth-of-type(1) > div:nth-of-type(1) > section:nth-of-type(1) > div:nth-of-type(2) > article:nth-of-type(1) > div:nth-of-type(3) > div:nth-of-type(1) > button:nth-of-type(2)",
+      "beforeUrl": "http://127.0.0.1:23187/",
+      "result": "ok",
+      "findingIds": [],
+      "afterUrl": "http://127.0.0.1:23187/"
+    },
+    {
+      "index": 22,
+      "label": "audit-router audit-router",
+      "selector": "#root > div:nth-of-type(1) > div:nth-of-type(1) > div:nth-of-type(2) > div:nth-of-type(2) > div:nth-of-type(1)",
+      "beforeUrl": "http://127.0.0.1:23187/",
+      "result": "ok",
+      "findingIds": [],
+      "afterUrl": "http://127.0.0.1:23187/"
+    },
+    {
+      "index": 23,
+      "label": "New host ?New host",
+      "selector": "#root > div:nth-of-type(1) > div:nth-of-type(1) > div:nth-of-type(2) > div:nth-of-type(2) > div:nth-of-type(2)",
+      "beforeUrl": "http://127.0.0.1:23187/",
+      "result": "ok",
+      "findingIds": [],
+      "afterUrl": "http://127.0.0.1:23187/"
+    },
+    {
+      "index": 24,
+      "label": "audit-server audit-server",
+      "selector": "#root > div:nth-of-type(1) > div:nth-of-type(1) > div:nth-of-type(2) > div:nth-of-type(2) > div:nth-of-type(3)",
+      "beforeUrl": "http://127.0.0.1:23187/",
+      "result": "ok",
+      "findingIds": [],
+      "afterUrl": "http://127.0.0.1:23187/"
+    },
+    {
+      "index": 25,
+      "label": "New session New session",
+      "selector": "#root > div:nth-of-type(1) > div:nth-of-type(1) > div:nth-of-type(2) > div:nth-of-type(2) > div:nth-of-type(4)",
+      "beforeUrl": "http://127.0.0.1:23187/",
+      "result": "ok",
+      "findingIds": [],
+      "afterUrl": "http://127.0.0.1:23187/"
+    },
+    {
+      "index": 26,
+      "label": "Settings Settings",
+      "selector": "#root > div:nth-of-type(1) > div:nth-of-type(1) > div:nth-of-type(2) > div:nth-of-type(2) > div:nth-of-type(5)",
+      "beforeUrl": "http://127.0.0.1:23187/",
+      "result": "ok",
+      "findingIds": [],
+      "afterUrl": "http://127.0.0.1:23187/"
+    },
+    {
+      "index": 27,
+      "label": "audit-console audit-console",
+      "selector": "#root > div:nth-of-type(1) > div:nth-of-type(1) > div:nth-of-type(2) > div:nth-of-type(2) > div:nth-of-type(6)",
+      "beforeUrl": "http://127.0.0.1:23187/",
+      "result": "ok",
+      "findingIds": [],
+      "afterUrl": "http://127.0.0.1:23187/"
+    },
+    {
+      "index": 28,
+      "label": "Close Settings",
+      "selector": "#root > div:nth-of-type(1) > div:nth-of-type(1) > div:nth-of-type(2) > div:nth-of-type(2) > div:nth-of-type(5) > button:nth-of-type(1)",
+      "beforeUrl": "http://127.0.0.1:23187/",
+      "result": "ok",
+      "findingIds": [],
+      "afterUrl": "http://127.0.0.1:23187/"
+    },
+    {
+      "index": 29,
+      "label": "audit-console audit-console",
+      "selector": "#root > div:nth-of-type(1) > div:nth-of-type(1) > div:nth-of-type(2) > div:nth-of-type(2) > div:nth-of-type(5)",
+      "beforeUrl": "http://127.0.0.1:23187/",
+      "result": "ok",
+      "findingIds": [],
+      "afterUrl": "http://127.0.0.1:23187/"
+    },
+    {
+      "index": 30,
+      "label": "Close audit-console",
+      "selector": "#root > div:nth-of-type(1) > div:nth-of-type(1) > div:nth-of-type(2) > div:nth-of-type(2) > div:nth-of-type(5) > button:nth-of-type(1)",
+      "beforeUrl": "http://127.0.0.1:23187/",
+      "result": "ok",
+      "findingIds": [],
+      "afterUrl": "http://127.0.0.1:23187/"
+    }
+  ],
+  "findings": [],
+  "assetsDir": "D:\\projects\\netssh\\.ai\\reports\\click-audit-20260620-212934-assets"
+}

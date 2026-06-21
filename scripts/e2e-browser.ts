@@ -93,6 +93,70 @@ async function browserText(browser: Browser, selector = "body") {
   return (await browser.$(selector)).getText();
 }
 
+async function seedSiteDragFixtures(browser: Browser) {
+  await browser.execute(() => {
+    const groups = [
+      { id: "unassigned", name: "Unassigned", color: "#897e6e" },
+      { id: "wuxi", name: "Wuxi", color: "#6f7f95", subnet: "192.168.66.0/24" },
+    ];
+    const hosts = [
+      {
+        id: "drag-macbook",
+        alias: "drag-macbook",
+        hostname: "192.168.66.200",
+        user: "lawrence",
+        port: 22,
+        group: "unassigned",
+        status: "off",
+        latency: null,
+      },
+    ];
+    window.localStorage.setItem("netssh.hosts", JSON.stringify({ state: { hosts, groups }, version: 0 }));
+    window.localStorage.setItem(
+      "netssh.settings",
+      JSON.stringify({ state: { lang: "zh", followSystem: false, theme: "purple" }, version: 0 }),
+    );
+  });
+  await browser.refresh();
+  await waitForApp(browser);
+}
+
+async function dragSidebarHostToWuxi(browser: Browser) {
+  const moved = await browser.execute(() => {
+    const source = Array.from(document.querySelectorAll<HTMLElement>(".host-row"))
+      .find((item) => item.textContent?.includes("drag-macbook"));
+    const target = Array.from(document.querySelectorAll<HTMLElement>(".host-group"))
+      .find((item) => item.textContent?.includes("无锡") || item.textContent?.includes("Wuxi"));
+    if (!source || !target) return false;
+
+    const dataTransfer = new DataTransfer();
+    dataTransfer.setData("text/plain", "drag-macbook");
+    const eventInit = { bubbles: true, cancelable: true, dataTransfer };
+
+    source.dispatchEvent(new DragEvent("dragstart", eventInit));
+    target.dispatchEvent(new DragEvent("dragenter", eventInit));
+    target.dispatchEvent(new DragEvent("dragover", eventInit));
+    target.dispatchEvent(new DragEvent("drop", eventInit));
+    source.dispatchEvent(new DragEvent("dragend", eventInit));
+    return true;
+  });
+  if (!moved) throw new Error("could not find drag source or Wuxi site target");
+
+  await browser.waitUntil(
+    async () => {
+      const groups = await browser.$$(".host-group");
+      for (const group of groups) {
+        const text = await group.getText();
+        if ((text.includes("无锡") || text.includes("Wuxi")) && text.includes("drag-macbook")) {
+          return true;
+        }
+      }
+      return false;
+    },
+    { timeout: 5_000, timeoutMsg: "dragged host did not appear under Wuxi site" },
+  );
+}
+
 const tests: TestCase[] = [
   {
     name: "app shell renders",
@@ -109,7 +173,7 @@ const tests: TestCase[] = [
       await (await expectExists(browser, ".titlebar-settings-btn", "settings gear")).click();
       await expectExists(browser, ".settings-nav", "settings nav");
       const cards = await browser.$$(".theme-card");
-      if (cards.length !== 3) throw new Error(`expected 3 theme cards, got ${cards.length}`);
+      if (cards.length !== 4) throw new Error(`expected 4 theme cards, got ${cards.length}`);
     },
   },
   {
@@ -130,6 +194,13 @@ const tests: TestCase[] = [
       const topology = await browserText(browser, ".topology-panel");
       if (!topology.includes("e2e-ecs")) throw new Error("matching host not in topology");
       if (topology.includes("e2e-router")) throw new Error("nonmatching host remained in topology");
+    },
+  },
+  {
+    name: "sidebar host can be dragged into Wuxi site",
+    run: async (browser) => {
+      await seedSiteDragFixtures(browser);
+      await dragSidebarHostToWuxi(browser);
     },
   },
   {

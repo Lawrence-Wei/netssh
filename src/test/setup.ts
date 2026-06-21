@@ -98,6 +98,28 @@ vi.mock("@tauri-apps/api/core", () => ({
         return Promise.resolve({ ok: false, latency_ms: null });
       case "connection_log_open":
         return Promise.resolve(`log-${Date.now()}`);
+      case "readonly_check_run":
+        return Promise.resolve({
+          check_id: args?.args && typeof args.args === "object" ? (args.args as Record<string, unknown>).check_id : "reachability",
+          status: "ok",
+          output: "mock readonly check",
+          bytes: 19,
+          duration_ms: 1,
+        });
+      case "config_backup_run":
+        return Promise.resolve({
+          record: {
+            id: `backup-${Date.now()}`,
+            host_alias: "mock",
+            path: "C:\\Users\\lawrence\\AppData\\Local\\Netssh\\backups\\mock\\mock.txt",
+            bytes: 19,
+            profile: "linux",
+            status: "ok",
+            created_at: Math.floor(Date.now() / 1000),
+          },
+        });
+      case "config_backup_list":
+        return Promise.resolve([]);
       case "app_state_get":
         return Promise.resolve(null);
       case "app_state_put":

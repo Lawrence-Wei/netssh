@@ -61,6 +61,9 @@ pub fn run() {
             commands::app_state_delete,
             commands::connection_log_open,
             commands::connection_log_close,
+            commands::readonly_check_run,
+            commands::config_backup_run,
+            commands::config_backup_list,
             commands::autostart_status,
             commands::autostart_set_enabled,
         ])

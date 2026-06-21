@@ -1,9 +1,12 @@
-import type { Group, Host, Lang } from "../config/types";
+import { useEffect, useRef } from "react";
+import type { CSSProperties } from "react";
+import type { Group, Host, Lang, ReadonlyCheckId } from "../config/types";
 import { brandIcon } from "../components/BrandIcons";
 import { t } from "../utils/i18n";
 import { displayGroupName, groupHostsForDisplay } from "../utils/groups";
 
 type TopologyKind = "router" | "switch" | "server" | "pc";
+const TOPOLOGY_NODE_CLICK_DELAY_MS = 180;
 
 interface TopologyNode {
   host: Host;
@@ -16,6 +19,8 @@ interface TopologyViewProps {
   groups: Group[];
   onPickHost: (host: Host) => void;
   onOpenHost: (host: Host) => void;
+  onRunReadonlyCheck: (hosts: Host[], checkId: ReadonlyCheckId) => void;
+  onBackupConfig: (hosts: Host[]) => void;
   showRouters: boolean;
   showSwitches: boolean;
   showDevices: boolean;
@@ -28,6 +33,8 @@ export function TopologyView({
   groups,
   onPickHost,
   onOpenHost,
+  onRunReadonlyCheck,
+  onBackupConfig,
   showRouters,
   showSwitches,
   showDevices,
@@ -64,13 +71,31 @@ export function TopologyView({
             const routers = nodes.filter((node) => node.kind === "router");
             const switches = nodes.filter((node) => node.kind === "switch");
             const leaves = nodes.filter((node) => node.kind !== "router" && node.kind !== "switch");
+            const siteHosts = nodes.map((node) => node.host);
+            const sshCount = siteHosts.filter((host) => (host.connectionType || "ssh") === "ssh").length;
+            const serialCount = siteHosts.length - sshCount;
             return (
-              <article key={group.id} className="topology-site">
+              <article key={group.id} className="topology-site" style={{ "--site-color": group.color } as CSSProperties}>
                 <div className="topology-site__title">
-                  <span className="topology-site__dot" style={{ background: group.color }} />
-                  <span>{displayGroupName(group, lang)}</span>
-                  {group.subnet && <span className="topology-site__subnet">{group.subnet}</span>}
-                  <small>{total}</small>
+                  <div className="topology-site__identity">
+                    <span className="topology-site__dot" style={{ background: group.color }} />
+                    <span className="topology-site__name">{displayGroupName(group, lang)}</span>
+                    {group.subnet && <span className="topology-site__subnet">{group.subnet}</span>}
+                    <small>{total}</small>
+                    <small>SSH {sshCount}</small>
+                    {serialCount > 0 && <small>{t("host.connection.serial", lang)} {serialCount}</small>}
+                  </div>
+                  <div className="topology-site__actions">
+                    <button className="chip" onClick={() => onRunReadonlyCheck(siteHosts, "reachability")}>
+                      {t("ops.check.reachability", lang)}
+                    </button>
+                    <button className="chip" onClick={() => onRunReadonlyCheck(siteHosts.filter((host) => (host.connectionType || "ssh") === "ssh"), "identity")}>
+                      {t("ops.check.identity", lang)}
+                    </button>
+                    <button className="chip" onClick={() => onBackupConfig(siteHosts)}>
+                      {t("ops.action.backupConfig", lang)}
+                    </button>
+                  </div>
                 </div>
                 <TopologyLayer label={t("topology.layer.routers", lang)} nodes={routers} onPickHost={onPickHost} onOpenHost={onOpenHost} />
                 <TopologyLayer label={t("topology.layer.switches", lang)} nodes={switches} onPickHost={onPickHost} onOpenHost={onOpenHost} />
@@ -101,20 +126,70 @@ function TopologyLayer({
       <span className="topology-layer__label">{label}</span>
       <div className="topology-nodes">
         {nodes.map(({ host, kind }) => (
-          <button
+          <TopologyNodeButton
             key={host.id}
-            className={"topology-node topology-node--" + kind}
-            onClick={() => onPickHost(host)}
-            onDoubleClick={() => onOpenHost(host)}
-            title={`${host.alias} - ${host.user}@${host.hostname}`}
-          >
-            <span className="topology-node__icon" style={{ color: host.hue || "var(--accent)" }}>{brandIcon(host)}</span>
-            <span className="topology-node__label">{host.alias}</span>
-            <span className={"latency " + statusClass(host)} />
-          </button>
+            host={host}
+            kind={kind}
+            onPickHost={onPickHost}
+            onOpenHost={onOpenHost}
+          />
         ))}
       </div>
     </div>
+  );
+}
+
+function TopologyNodeButton({
+  host,
+  kind,
+  onPickHost,
+  onOpenHost,
+}: {
+  host: Host;
+  kind: TopologyKind;
+  onPickHost: (host: Host) => void;
+  onOpenHost: (host: Host) => void;
+}) {
+  const clickTimerRef = useRef<number | null>(null);
+
+  const clearPendingPick = () => {
+    if (clickTimerRef.current === null) return;
+    window.clearTimeout(clickTimerRef.current);
+    clickTimerRef.current = null;
+  };
+
+  useEffect(() => {
+    return () => {
+      if (clickTimerRef.current !== null) {
+        window.clearTimeout(clickTimerRef.current);
+      }
+    };
+  }, []);
+
+  return (
+    <button
+      type="button"
+      className={"topology-node topology-node--" + kind}
+      onClick={(event) => {
+        clearPendingPick();
+        if (event.detail > 1) return;
+        clickTimerRef.current = window.setTimeout(() => {
+          clickTimerRef.current = null;
+          onPickHost(host);
+        }, TOPOLOGY_NODE_CLICK_DELAY_MS);
+      }}
+      onDoubleClick={(event) => {
+        event.preventDefault();
+        clearPendingPick();
+        onOpenHost(host);
+      }}
+      title={`${host.alias} - ${host.user}@${host.hostname}`}
+    >
+      <span className="topology-node__icon" style={{ color: host.hue || "var(--accent)" }}>{brandIcon(host)}</span>
+      <span className="topology-node__label">{host.alias}</span>
+      <span className="topology-node__protocol">{(host.connectionType || "ssh").toUpperCase()}</span>
+      <span className={"latency " + statusClass(host)} />
+    </button>
   );
 }
 

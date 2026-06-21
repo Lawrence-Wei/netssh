@@ -56,6 +56,8 @@ export interface Host {
   hostname: string;
   user: string;
   credentialProfileId?: string;
+  /** Optional single-hop SSH jump host id. Only SSH hosts can be used. */
+  jumpHostId?: string;
   port: number;
   identityFile?: string;
   group: GroupId;
@@ -140,3 +142,5 @@ export interface SshKey {
 
 export type Lang = "en" | "zh";
 export type Theme = "purple" | "blue" | "mica" | "light";
+export type ReadonlyCheckId = "reachability" | "identity" | "health";
+export type ConfigBackupProfile = "cisco" | "huawei" | "h3c" | "openwrt" | "linux";

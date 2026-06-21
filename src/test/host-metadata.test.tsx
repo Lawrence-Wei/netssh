@@ -1,16 +1,18 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
-import { render, screen, within } from "@testing-library/react";
+import { fireEvent, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import { act } from "react";
 import { Sidebar } from "../layouts/Sidebar";
 import { ConfirmProvider } from "../components/ConfirmDialog";
 import { useHosts } from "../store/hosts";
-import { displayGroupName, groupHostsForDisplay } from "../utils/groups";
+import { canonicalGroupId, displayGroupName, groupHostsForDisplay } from "../utils/groups";
 import { sortHostsForSidebar } from "../utils/hostFilters";
 import { deployScopeLabel, deviceTypeFromHost } from "../utils/deployScope";
 import { brandLabel } from "../components/BrandIcons";
 import type { Group, Host } from "../config/types";
 
 const groups: Group[] = [{ id: "unassigned", name: "Unassigned", color: "#897e6e" }];
+const HOST_DRAG_TYPE = "text/netssh-host";
 
 function host(id: string, alias: string, patch: Partial<Host> = {}): Host {
   return {
@@ -75,11 +77,85 @@ function renderSidebarWithGroups(hosts: Host[], sidebarGroups: Group[], lang: "e
   );
 }
 
+function hostDragDataTransfer(hostId: string) {
+  const data = new Map<string, string>([
+    [HOST_DRAG_TYPE, hostId],
+    ["text/plain", hostId],
+  ]);
+  const dataTransfer = {
+    types: [HOST_DRAG_TYPE, "text/plain"],
+    effectAllowed: "move",
+    dropEffect: "move",
+    setData: vi.fn((type: string, value: string) => {
+      data.set(type, value);
+      if (!dataTransfer.types.includes(type)) dataTransfer.types.push(type);
+    }),
+    getData: vi.fn((type: string) => data.get(type) || ""),
+  };
+  return dataTransfer as unknown as DataTransfer;
+}
+
+function textOnlyHostDragDataTransfer(hostId: string) {
+  const data = new Map<string, string>([["text/plain", hostId]]);
+  const dataTransfer = {
+    types: ["text/plain"],
+    effectAllowed: "move",
+    dropEffect: "move",
+    setData: vi.fn((type: string, value: string) => {
+      data.set(type, value);
+      if (!dataTransfer.types.includes(type)) dataTransfer.types.push(type);
+    }),
+    getData: vi.fn((type: string) => data.get(type) || ""),
+  };
+  return dataTransfer as unknown as DataTransfer;
+}
+
 describe("host metadata", () => {
   const initialState = useHosts.getState();
 
   beforeEach(() => {
     useHosts.setState(initialState, true);
+  });
+
+  it("groups sidebar assets by inferred type and runs fixed batch check ids", async () => {
+    const onRunReadonlyCheck = vi.fn();
+    render(
+      <ConfirmProvider>
+        <Sidebar
+          lang="en"
+          hosts={[
+            host("router-1", "edge-router", { role: "gateway" }),
+            host("linux-1", "ops-linux", { iconOverride: "ubuntu" }),
+          ]}
+          groups={groups}
+          onPickHost={vi.fn()}
+          onDoubleClickHost={vi.fn()}
+          onContextMenu={vi.fn()}
+          onOpenImport={vi.fn()}
+          onAddGroup={vi.fn()}
+          onRenameGroup={vi.fn()}
+          onRemoveGroup={vi.fn()}
+          onMoveHostToGroup={vi.fn()}
+          onReorderHost={vi.fn()}
+          onAddHostQuick={vi.fn()}
+          onRemoveHosts={vi.fn()}
+          onToggleFavorite={vi.fn()}
+          onRunReadonlyCheck={onRunReadonlyCheck}
+        />
+      </ConfirmProvider>
+    );
+
+    expect(screen.getByText("Router / gateway")).toBeTruthy();
+    expect(screen.getByText("Linux server")).toBeTruthy();
+
+    await userEvent.click(screen.getByText("Batch"));
+    await userEvent.click(screen.getByText("edge-router"));
+    await userEvent.click(screen.getByText("Identity"));
+
+    expect(onRunReadonlyCheck).toHaveBeenCalledWith(
+      [expect.objectContaining({ id: "router-1" })],
+      "identity"
+    );
   });
 
   it("stores favorites and last connection timestamps on hosts", () => {
@@ -166,6 +242,178 @@ describe("host metadata", () => {
     expect(sorted.map((item) => item.order)).toEqual([0, 1, 2]);
   });
 
+  it("moves a sidebar host into another site when dropped on the site bucket", () => {
+    const onMoveHostToGroup = vi.fn();
+    const onReorderHost = vi.fn();
+    render(
+      <ConfirmProvider>
+        <Sidebar
+          lang="en"
+          hosts={[
+            host("shgw", "shgw", { group: "shanghai" }),
+            host("wxgw", "wxgw", { group: "wuxi" }),
+          ]}
+          groups={[
+            { id: "shanghai", name: "Shanghai", color: "#8f7a65" },
+            { id: "wuxi", name: "Wuxi", color: "#6f7f95" },
+          ]}
+          onPickHost={vi.fn()}
+          onDoubleClickHost={vi.fn()}
+          onContextMenu={vi.fn()}
+          onOpenImport={vi.fn()}
+          onAddGroup={vi.fn()}
+          onRenameGroup={vi.fn()}
+          onRemoveGroup={vi.fn()}
+          onMoveHostToGroup={onMoveHostToGroup}
+          onReorderHost={onReorderHost}
+          onAddHostQuick={vi.fn()}
+          onRemoveHosts={vi.fn()}
+          onToggleFavorite={vi.fn()}
+        />
+      </ConfirmProvider>
+    );
+
+    const sourceRow = screen.getByText("shgw").closest(".host-row")!;
+    const targetGroup = screen.getByText("Wuxi").closest(".host-group")!;
+    const dataTransfer = hostDragDataTransfer("shgw");
+
+    act(() => {
+      fireEvent.dragStart(sourceRow, { dataTransfer });
+      fireEvent.dragOver(targetGroup, { dataTransfer });
+      fireEvent.drop(targetGroup, { dataTransfer });
+    });
+
+    expect(onReorderHost).toHaveBeenCalledWith("shgw", 1, "wuxi", ["wxgw", "shgw"]);
+    expect(onMoveHostToGroup).not.toHaveBeenCalled();
+  });
+
+  it("moves a sidebar host into the Wuxi site when only plain text drag data is available", () => {
+    const onMoveHostToGroup = vi.fn();
+    const onReorderHost = vi.fn();
+    render(
+      <ConfirmProvider>
+        <Sidebar
+          lang="zh"
+          hosts={[host("macbook", "macbook", { group: "unassigned" })]}
+          groups={[
+            { id: "unassigned", name: "Unassigned", color: "#897e6e" },
+            { id: "wuxi", name: "Wuxi", color: "#6f7f95", subnet: "192.168.66.0/24" },
+          ]}
+          onPickHost={vi.fn()}
+          onDoubleClickHost={vi.fn()}
+          onContextMenu={vi.fn()}
+          onOpenImport={vi.fn()}
+          onAddGroup={vi.fn()}
+          onRenameGroup={vi.fn()}
+          onRemoveGroup={vi.fn()}
+          onMoveHostToGroup={onMoveHostToGroup}
+          onReorderHost={onReorderHost}
+          onAddHostQuick={vi.fn()}
+          onRemoveHosts={vi.fn()}
+          onToggleFavorite={vi.fn()}
+        />
+      </ConfirmProvider>
+    );
+
+    const targetGroup = screen.getByText("无锡").closest(".host-group")!;
+    const dataTransfer = textOnlyHostDragDataTransfer("macbook");
+
+    act(() => {
+      fireEvent.dragEnter(targetGroup, { dataTransfer });
+      fireEvent.dragOver(targetGroup, { dataTransfer });
+      fireEvent.drop(targetGroup, { dataTransfer });
+    });
+
+    expect(onReorderHost).toHaveBeenCalledWith("macbook", 0, "wuxi", ["macbook"]);
+    expect(onMoveHostToGroup).not.toHaveBeenCalled();
+  });
+
+  it("keeps Pirelli-like custom sites independent and accepts drops while empty", () => {
+    expect(canonicalGroupId("pirelli")).toBeUndefined();
+    expect(canonicalGroupId("倍耐力")).toBeUndefined();
+
+    const onMoveHostToGroup = vi.fn();
+    const onReorderHost = vi.fn();
+    render(
+      <ConfirmProvider>
+        <Sidebar
+          lang="zh"
+          hosts={[host("edge-router", "edge-router", { group: "unassigned" })]}
+          groups={[
+            { id: "unassigned", name: "Unassigned", color: "#897e6e" },
+            { id: "pirelli", name: "倍耐力", color: "#60a5fa" },
+          ]}
+          onPickHost={vi.fn()}
+          onDoubleClickHost={vi.fn()}
+          onContextMenu={vi.fn()}
+          onOpenImport={vi.fn()}
+          onAddGroup={vi.fn()}
+          onRenameGroup={vi.fn()}
+          onRemoveGroup={vi.fn()}
+          onMoveHostToGroup={onMoveHostToGroup}
+          onReorderHost={onReorderHost}
+          onAddHostQuick={vi.fn()}
+          onRemoveHosts={vi.fn()}
+          onToggleFavorite={vi.fn()}
+        />
+      </ConfirmProvider>
+    );
+
+    const sourceRow = screen.getByText("edge-router").closest(".host-row")!;
+    const targetGroup = screen.getByText("倍耐力").closest(".host-group")!;
+    expect(within(targetGroup as HTMLElement).getByText("拖拽主机到这里")).toBeTruthy();
+
+    const dataTransfer = hostDragDataTransfer("edge-router");
+    act(() => {
+      fireEvent.dragStart(sourceRow, { dataTransfer });
+      fireEvent.dragOver(targetGroup, { dataTransfer });
+      fireEvent.drop(targetGroup, { dataTransfer });
+    });
+
+    expect(onReorderHost).toHaveBeenCalledWith("edge-router", 0, "pirelli", ["edge-router"]);
+    expect(onMoveHostToGroup).not.toHaveBeenCalled();
+  });
+
+  it("allows an open unsaved session payload to be dropped onto a site bucket", () => {
+    const onMoveHostToGroup = vi.fn();
+    const onReorderHost = vi.fn();
+    render(
+      <ConfirmProvider>
+        <Sidebar
+          lang="en"
+          hosts={[host("wxgw", "wxgw", { group: "wuxi" })]}
+          groups={[
+            { id: "shanghai", name: "Shanghai", color: "#8f7a65" },
+            { id: "wuxi", name: "Wuxi", color: "#6f7f95" },
+          ]}
+          onPickHost={vi.fn()}
+          onDoubleClickHost={vi.fn()}
+          onContextMenu={vi.fn()}
+          onOpenImport={vi.fn()}
+          onAddGroup={vi.fn()}
+          onRenameGroup={vi.fn()}
+          onRemoveGroup={vi.fn()}
+          onMoveHostToGroup={onMoveHostToGroup}
+          onReorderHost={onReorderHost}
+          onAddHostQuick={vi.fn()}
+          onRemoveHosts={vi.fn()}
+          onToggleFavorite={vi.fn()}
+        />
+      </ConfirmProvider>
+    );
+
+    const targetGroup = screen.getByText("Wuxi").closest(".host-group")!;
+    const dataTransfer = hostDragDataTransfer("draft-session");
+
+    act(() => {
+      fireEvent.dragOver(targetGroup, { dataTransfer });
+      fireEvent.drop(targetGroup, { dataTransfer });
+    });
+
+    expect(onMoveHostToGroup).toHaveBeenCalledWith("draft-session", "wuxi");
+    expect(onReorderHost).not.toHaveBeenCalled();
+  });
+
   it("normalizes uppercase unassigned groups during import and persistence", () => {
     const created = useHosts.getState().importHosts([
       {
@@ -199,6 +447,54 @@ describe("host metadata", () => {
     };
     expect(persisted.groups).toEqual([{ id: "unassigned", name: "Unassigned", color: "#897e6e" }]);
     expect(persisted.hosts[0].group).toBe("unassigned");
+  });
+
+  it("materializes inferred site groups so they can be moved to and renamed", () => {
+    useHosts.setState((state) => ({
+      ...state,
+      hosts: [
+        host("shgw", "shgw", { group: "shanghai" }),
+        host("prgw", "prgw-lan", { group: "pr-office" }),
+        host("wxgw", "wxgw", { group: "wuxi" }),
+      ],
+      groups: [
+        { id: "unassigned", name: "Unassigned", color: "#897e6e" },
+        { id: "wuxi", name: "Wuxi", color: "#6f7f95" },
+      ],
+    }), true);
+
+    const persisted = useHosts.persist.getOptions().partialize?.(useHosts.getState()) as {
+      hosts: Host[];
+      groups: Group[];
+    };
+    expect(persisted.groups.map((group) => group.id)).toEqual([
+      "unassigned",
+      "wuxi",
+      "shanghai",
+      "pr-office",
+    ]);
+
+    useHosts.getState().renameGroup("shanghai", "上海核心", "192.168.100.0/24");
+
+    const state = useHosts.getState();
+    expect(state.groups.find((group) => group.id === "shanghai")).toMatchObject({
+      name: "上海核心",
+      subnet: "192.168.100.0/24",
+    });
+    expect(state.groups.some((group) => group.id === "pr-office")).toBe(true);
+
+    const shanghaiBucket = groupHostsForDisplay(state.hosts, state.groups, "未分配")
+      .find((bucket) => bucket.group.id === "shanghai");
+    expect(shanghaiBucket).toBeTruthy();
+    expect(displayGroupName(shanghaiBucket!.group, "zh")).toBe("上海核心");
+
+    useHosts.getState().renameGroup("pr-office", "PR / Lab", undefined);
+    const persistedAfterRename = useHosts.persist.getOptions().partialize?.(useHosts.getState()) as {
+      groups: Group[];
+    };
+    expect(persistedAfterRename.groups.find((group) => group.id === "pr-office")).toMatchObject({
+      name: "PR / Lab",
+    });
   });
 
   it("hides the empty built-in unassigned group in the sidebar", () => {
@@ -243,6 +539,58 @@ describe("host metadata", () => {
     expect(within(sidebarNode).getByText("Cloud")).toBeTruthy();
     expect(sidebarNode.textContent).not.toContain("????");
     expect(sidebarNode.textContent).not.toContain("??");
+  });
+
+  it("saves and displays custom names for built-in site buckets", async () => {
+    const onRenameGroup = vi.fn();
+    const hosts = [host("prgw", "prgw-lan", { group: "pr-office" })];
+    const initialGroups: Group[] = [
+      { id: "unassigned", name: "Unassigned", color: "#897e6e" },
+      { id: "pr-office", name: "PR / E20C", color: "#7f7395" },
+    ];
+    const renamedGroups: Group[] = [
+      { id: "unassigned", name: "Unassigned", color: "#897e6e" },
+      { id: "pr-office", name: "PR / Lab", color: "#7f7395" },
+    ];
+    const props = {
+      lang: "zh" as const,
+      hosts,
+      onPickHost: vi.fn(),
+      onDoubleClickHost: vi.fn(),
+      onContextMenu: vi.fn(),
+      onOpenImport: vi.fn(),
+      onAddGroup: vi.fn(),
+      onRenameGroup,
+      onRemoveGroup: vi.fn(),
+      onMoveHostToGroup: vi.fn(),
+      onReorderHost: vi.fn(),
+      onAddHostQuick: vi.fn(),
+      onRemoveHosts: vi.fn(),
+      onToggleFavorite: vi.fn(),
+    };
+    const { rerender } = render(
+      <ConfirmProvider>
+        <Sidebar {...props} groups={initialGroups} />
+      </ConfirmProvider>
+    );
+
+    await userEvent.click(screen.getByTitle("重命名"));
+    const nameInput = screen.getByDisplayValue("PR / E20C");
+    await userEvent.clear(nameInput);
+    await userEvent.type(nameInput, "PR / Lab");
+    await userEvent.click(screen.getByText("保存"));
+
+    expect(onRenameGroup).toHaveBeenCalledWith("pr-office", "PR / Lab", undefined);
+
+    rerender(
+      <ConfirmProvider>
+        <Sidebar {...props} groups={renamedGroups} />
+      </ConfirmProvider>
+    );
+
+    const sidebarNode = document.querySelector(".sidebar")!;
+    expect(within(sidebarNode).getByText("PR / Lab")).toBeTruthy();
+    expect(within(sidebarNode).queryByText("PR / E20C")).toBeFalsy();
   });
 
   it("localizes deployment scope labels", () => {

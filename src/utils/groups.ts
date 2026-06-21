@@ -12,6 +12,14 @@ const CANONICAL_GROUPS: Record<string, { name: string; color: string }> = {
   unassigned: { name: "Unassigned", color: UNASSIGNED_COLOR },
 };
 
+const DEFAULT_GROUP_LABELS: Record<string, string[]> = {
+  shanghai: ["Shanghai", "上海"],
+  "pr-office": ["PR / E20C"],
+  wuxi: ["Wuxi", "无锡"],
+  cloud: ["Cloud", "云", "云端"],
+  unassigned: ["Unassigned", "未分配"],
+};
+
 export interface HostGroupBucket {
   group: Group;
   hosts: Host[];
@@ -34,7 +42,7 @@ export function canonicalGroupId(value?: string | null): GroupId | undefined {
   if (key === "wuxi" || key.startsWith("wuxi-") || key === "wx" || key.startsWith("wx-") || lower.includes("无锡")) {
     return "wuxi";
   }
-  if (key === "pr" || key.startsWith("pr-") || key.includes("e20c") || key.includes("pir") || lower.includes("办公室")) {
+  if (key === "pr" || key.startsWith("pr-") || key.includes("e20c") || lower.includes("办公室")) {
     return "pr-office";
   }
   if (key === "cloud" || key.startsWith("cloud-") || key.includes("cloudcone") || key.includes("vps") || key.includes("aliyun") || key.includes("tencent") || key.includes("aws") || key.includes("azure") || key.includes("gcp") || lower.includes("云")) {
@@ -53,10 +61,16 @@ export function canonicalGroupColor(id: GroupId, fallback = UNASSIGNED_COLOR) {
 
 export function displayGroupName(group: Group, lang: Lang) {
   const canonicalId = canonicalGroupId(group.id) || canonicalGroupId(group.name) || group.id;
+  const customName = customGroupName(canonicalId, group.name);
+  if (customName) return customName;
   const key = `groups.${canonicalId}`;
   const translated = t(key, lang);
   if (translated !== key) return translated;
   return canonicalGroupName(canonicalId);
+}
+
+export function storageGroupName(id: GroupId, name?: string | null) {
+  return customGroupName(id, name) || canonicalGroupName(id);
 }
 
 export function resolveGroupIdForDisplay(value: string | undefined, groups: Group[]) {
@@ -120,10 +134,11 @@ function normalizeGroupsForDisplay(groups: Group[], unassignedName: string) {
     const key = slugify(id);
     if (!id || seen.has(key)) return;
     seen.add(key);
+    const customName = customGroupName(id, rawName);
     normalized.push({
       ...group,
       id,
-      name: id === UNASSIGNED_GROUP_ID ? unassignedName : canonicalGroupName(id),
+      name: id === UNASSIGNED_GROUP_ID ? unassignedName : customName || canonicalGroupName(id),
       color: group.color || canonicalGroupColor(id),
     });
   };
@@ -131,4 +146,21 @@ function normalizeGroupsForDisplay(groups: Group[], unassignedName: string) {
   groups.forEach(add);
 
   return normalized;
+}
+
+function customGroupName(id: GroupId, name?: string | null) {
+  const raw = String(name || "").trim();
+  if (!raw || id === UNASSIGNED_GROUP_ID || isDamagedGroupLabel(raw)) return "";
+  const defaults = DEFAULT_GROUP_LABELS[id] || [canonicalGroupName(id)];
+  const rawKey = labelKey(raw);
+  const defaultMatch = defaults.some((label) => labelKey(label) === rawKey);
+  return defaultMatch ? "" : raw;
+}
+
+function isDamagedGroupLabel(value: string) {
+  return value.includes("�") || /\?{2,}/.test(value);
+}
+
+function labelKey(value: string) {
+  return value.trim().toLowerCase().replace(/\s+/g, "");
 }

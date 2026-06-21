@@ -13,6 +13,8 @@ interface SessionsState {
   openHost: (h: Host, connectNow?: boolean) => void;
   openDraftHost: (h: Host) => void;
   openEphemeralHost: (h: Host) => void;
+  updateEphemeralHost: (id: string, patch: Partial<Host>) => void;
+  replaceEphemeralHost: (ephemeralId: string, host: Host) => void;
   forgetEphemeralHost: (id: string) => void;
   connectActive: () => void;
   disconnectTab: (id: string) => void;
@@ -106,6 +108,32 @@ export const useSessions = create<SessionsState>((set, get) => ({
       ],
       ephemeralHosts: { ...ephemeralHosts, [h.id]: h },
       activeTabId: id,
+    });
+  },
+
+  updateEphemeralHost: (id, patch) => {
+    const { ephemeralHosts } = get();
+    const host = ephemeralHosts[id];
+    if (!host) return;
+    set({
+      ephemeralHosts: {
+        ...ephemeralHosts,
+        [id]: { ...host, ...patch },
+      },
+    });
+  },
+
+  replaceEphemeralHost: (ephemeralId, host) => {
+    const { tabs, ephemeralHosts } = get();
+    const nextEphemeral = { ...ephemeralHosts };
+    delete nextEphemeral[ephemeralId];
+    set({
+      tabs: tabs.map((tab) =>
+        tab.kind === "host" && tab.hostId === ephemeralId
+          ? { ...tab, hostId: host.id, title: host.alias, hue: host.hue }
+          : tab
+      ),
+      ephemeralHosts: nextEphemeral,
     });
   },
 

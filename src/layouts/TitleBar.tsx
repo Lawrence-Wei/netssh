@@ -1,9 +1,11 @@
-import { type MouseEvent, type ReactNode } from "react";
+import { type DragEvent, type MouseEvent } from "react";
 import { t } from "../utils/i18n";
 import type { Host, Lang, Tab } from "../config/types";
 import { brandIcon } from "../components/BrandIcons";
 import { Icon } from "../components/Icons";
 import { useSessions } from "../store/sessions";
+
+const HOST_DRAG_TYPES = ["application/x-netssh-host", "text/netssh-host", "text/plain"] as const;
 
 interface TitleBarProps {
   lang: Lang;
@@ -15,9 +17,6 @@ interface TitleBarProps {
   onCloseTab: (id: string) => void;
   onTabContextMenu?: (event: MouseEvent<HTMLDivElement>, tab: Tab) => void;
   onNewTab: () => void;
-  onNewLocalShell: () => void;
-  onConnectActive: () => void;
-  onDisconnectActive: () => void;
   onGoHome: () => void;
   onOpenSettings: () => void;
   onOpenCredentials: () => void;
@@ -35,9 +34,6 @@ export function TitleBar({
   onCloseTab,
   onTabContextMenu,
   onNewTab,
-  onNewLocalShell,
-  onConnectActive,
-  onDisconnectActive,
   onGoHome,
   onOpenSettings,
   onOpenCredentials,
@@ -45,8 +41,6 @@ export function TitleBar({
   onToggleSidebar,
 }: TitleBarProps) {
   const activeTab = tabs.find((tab) => tab.id === activeTabId);
-  const canConnect = activeTab?.kind === "host" && !!activeTab.hostId && !activeTab.connected;
-  const canDisconnect = activeTab?.kind === "host" && !!activeTab.connected;
   const splitTabIds = useSessions((state) => state.splitTabIds);
   const toggleSplit = useSessions((state) => state.toggleSplit);
   const canToggleSplit = activeTab?.kind === "host" && !!activeTab.hostId && !!activeTab.connected;
@@ -60,6 +54,8 @@ export function TitleBar({
     <div
       key={tab.id}
       className={"tab " + (tab.id === activeTabId ? "active" : "")}
+      draggable={tab.kind === "host" && Boolean(tab.hostId)}
+      onDragStart={(event) => startTabDrag(event, tab)}
       onClick={() => onSelectTab(tab.id)}
       onContextMenu={(event) => onTabContextMenu?.(event, tab)}
       title={displayTabTitle(tab, lang)}
@@ -75,28 +71,6 @@ export function TitleBar({
       )}
     </div>
   );
-  const sessionMenu = (
-    <nav className="app-menu" aria-label={lang === "zh" ? "会话菜单" : "Session menu"}>
-      <MenuButton label={lang === "zh" ? "会话" : "Session"}>
-        <MenuItem onClick={onNewTab} icon={Icon.plus} label={lang === "zh" ? "新会话" : "New session"} />
-        <MenuItem onClick={onNewLocalShell} icon={Icon.shell} label={lang === "zh" ? "本地 Shell" : "Local shell"} />
-        <MenuSeparator />
-        <MenuItem
-          onClick={onConnectActive}
-          icon={Icon.power}
-          label={lang === "zh" ? "连接当前主机" : "Connect active host"}
-          disabled={!canConnect}
-        />
-        <MenuItem
-          onClick={onDisconnectActive}
-          icon={Icon.close}
-          label={lang === "zh" ? "断开当前会话" : "Disconnect active session"}
-          disabled={!canDisconnect}
-        />
-      </MenuButton>
-    </nav>
-  );
-
   return (
     <div className="titlebar" data-tauri-drag-region onDoubleClick={(event) => titlebarDoubleClicked(event)}>
       <div className="titlebar-left">
@@ -126,13 +100,12 @@ export function TitleBar({
 
       <div className="tabstrip" data-tauri-drag-region>
         {homeTabs.map(renderTab)}
-        {sessionMenu}
-        <div className="tabstrip-scroll" data-tauri-drag-region>
-          {sessionTabs.map(renderTab)}
-        </div>
         <button className="tab-new" onClick={onNewTab} title={t("titlebar.newtab", lang)} aria-label={t("titlebar.newtab", lang)}>
           {Icon.plus}
         </button>
+        <div className="tabstrip-scroll" data-tauri-drag-region>
+          {sessionTabs.map(renderTab)}
+        </div>
       </div>
 
       <div className="titlebar-actions">
@@ -184,6 +157,18 @@ function tabIcon(tab: Tab, hosts: Host[], ephemeralHosts: Record<string, Host>) 
   return <span className="dot" style={{ background: tab.hue || "var(--text-mute)" }} />;
 }
 
+function startTabDrag(event: DragEvent<HTMLDivElement>, tab: Tab) {
+  if (tab.kind !== "host" || !tab.hostId) return;
+  HOST_DRAG_TYPES.forEach((type) => {
+    try {
+      event.dataTransfer.setData(type, tab.hostId || "");
+    } catch {
+      // Some browser shells reject custom drag MIME types; text/plain remains the fallback.
+    }
+  });
+  event.dataTransfer.effectAllowed = "move";
+}
+
 function displayTabTitle(tab: Tab, lang: Lang) {
   if (tab.kind === "home" || tab.title === "Home") return t("titlebar.home", lang);
   if (tab.title === "New session") return lang === "zh" ? "新会话" : "New session";
@@ -198,38 +183,6 @@ function isHomeTab(tab: Tab) {
   return tab.kind === "home" || tab.title === "Home";
 }
 
-function MenuButton({ label, children }: { label: string; children: ReactNode }) {
-  return (
-    <div className="menu-root">
-      <button className="menu-trigger" type="button">{label}</button>
-      <div className="menu-popover" role="menu">{children}</div>
-    </div>
-  );
-}
-
-function MenuItem({
-  icon,
-  label,
-  disabled,
-  onClick,
-}: {
-  icon: ReactNode;
-  label: string;
-  disabled?: boolean;
-  onClick: () => void;
-}) {
-  return (
-    <button className="menu-item" type="button" role="menuitem" disabled={disabled} onClick={onClick}>
-      {icon}
-      <span>{label}</span>
-    </button>
-  );
-}
-
-function MenuSeparator() {
-  return <div className="menu-separator" role="separator" />;
-}
-
 function titlebarDoubleClicked(event: MouseEvent<HTMLDivElement>) {
   const target = event.target as HTMLElement | null;
   if (!target) return;
@@ -238,8 +191,7 @@ function titlebarDoubleClicked(event: MouseEvent<HTMLDivElement>) {
   if (target.closest(".win-controls")) return;
   if (target.closest(".titlebar-left")) return;
   if (target.closest(".titlebar-actions")) return;
-  if (target.closest(".menu-popover")) return;
-  if (target.closest("button") && !target.closest(".menu-trigger")) return;
+  if (target.closest("button")) return;
   void windowAction("toggleMaximize");
 }
 

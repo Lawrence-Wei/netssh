@@ -1,14 +1,16 @@
-import { useMemo, useState } from "react";
-import type { MouseEvent } from "react";
+import { Fragment, useMemo, useState } from "react";
+import type { CSSProperties, DragEvent, MouseEvent } from "react";
 import { t } from "../utils/i18n";
 import { useReachability } from "../store/reachability";
 import { brandIcon } from "../components/BrandIcons";
 import { useConfirm } from "../components/ConfirmDialog";
 import { deployScope, deployScopeLabel } from "../utils/deployScope";
-import { groupHostsForDisplay } from "../utils/groups";
+import { displayGroupName, groupHostsForDisplay } from "../utils/groups";
 import { filterHostsForInventory, isFavoriteHost, sortHostsForSidebar, type HostListFilter } from "../utils/hostFilters";
-import type { Group, GroupId, Host, Lang } from "../config/types";
+import type { Group, GroupId, Host, Lang, ReadonlyCheckId } from "../config/types";
 import { Icon } from "../components/Icons";
+
+const HOST_DRAG_TYPES = ["application/x-netssh-host", "text/netssh-host", "text/plain"] as const;
 
 interface SidebarProps {
   lang: Lang;
@@ -31,6 +33,7 @@ interface SidebarProps {
   filter?: HostListFilter;
   onQueryChange?: (query: string) => void;
   onFilterChange?: (filter: HostListFilter) => void;
+  onRunReadonlyCheck?: (hosts: Host[], checkId: ReadonlyCheckId) => void;
 }
 
 export function Sidebar({
@@ -54,6 +57,7 @@ export function Sidebar({
   filter: controlledFilter,
   onQueryChange,
   onFilterChange,
+  onRunReadonlyCheck,
 }: SidebarProps) {
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
   const [dragOverGroup, setDragOverGroup] = useState<GroupId | null>(null);
@@ -90,6 +94,11 @@ export function Sidebar({
   const canManualReorder = filter !== "recent";
 
   const filteredIds = useMemo(() => new Set(filtered.map((h) => h.id)), [filtered]);
+  const knownHostIds = useMemo(() => new Set(hosts.map((h) => h.id)), [hosts]);
+  const selectedHosts = useMemo(
+    () => filtered.filter((host) => selectedIds.has(host.id)),
+    [filtered, selectedIds]
+  );
 
   const grouped = useMemo(() => {
     return groupHostsForDisplay(filtered, groups, t("groups.unassigned", lang))
@@ -124,14 +133,10 @@ export function Sidebar({
   const handleBatchDelete = () => {
     if (selectedIds.size === 0) return;
     void confirm({
-      title: lang === "zh"
-        ? `Remove ${selectedIds.size} hosts?`
-        : `Remove ${selectedIds.size} host(s)?`,
-      message: lang === "zh"
-        ? "Only Netssh local metadata is removed; ~/.ssh/config is not changed."
-        : "Only Netssh local data is removed. Your ~/.ssh/config stays untouched.",
-      confirmLabel: lang === "zh" ? "Remove" : "Remove",
-      cancelLabel: lang === "zh" ? "Cancel" : "Cancel",
+      title: t("host.action.confirmRemoveMany", lang, { count: selectedIds.size }),
+      message: t("host.action.removeMessage", lang),
+      confirmLabel: t("host.action.remove", lang),
+      cancelLabel: t("common.cancel", lang),
       danger: true,
     }).then((ok) => {
       if (ok) {
@@ -139,6 +144,54 @@ export function Sidebar({
         exitBatchMode();
       }
     });
+  };
+
+  const handleBatchCheck = (checkId: ReadonlyCheckId) => {
+    if (selectedHosts.length === 0) return;
+    onRunReadonlyCheck?.(selectedHosts, checkId);
+    exitBatchMode();
+  };
+
+  const clearDragState = () => {
+    setDragOverGroup(null);
+    setDragOverHostId(null);
+    setDropPosition(null);
+  };
+
+  const moveDraggedHostToGroup = (hostId: string, groupId: GroupId, orderedHostIds?: string[]) => {
+    if (knownHostIds.has(hostId) && orderedHostIds?.length) {
+      onReorderHost(hostId, orderedHostIds.indexOf(hostId), groupId, orderedHostIds);
+    } else {
+      onMoveHostToGroup(hostId, groupId);
+    }
+    setCollapsed((current) => ({ ...current, [groupId]: false }));
+    clearDragState();
+  };
+
+  const handleGroupDragOver = (event: DragEvent<HTMLElement>, groupId: GroupId) => {
+    if (batchMode || !hasHostDrag(event.dataTransfer)) return;
+    event.preventDefault();
+    event.dataTransfer.dropEffect = "move";
+    setDragOverGroup(groupId);
+    setDragOverHostId(null);
+    setDropPosition(null);
+  };
+
+  const handleGroupDragLeave = (event: DragEvent<HTMLElement>, groupId: GroupId) => {
+    const nextTarget = event.relatedTarget as Node | null;
+    if (nextTarget && event.currentTarget.contains(nextTarget)) return;
+    setDragOverGroup((id) => (id === groupId ? null : id));
+  };
+
+  const handleGroupDrop = (event: DragEvent<HTMLElement>, group: Group & { hosts: Host[] }) => {
+    event.preventDefault();
+    event.stopPropagation();
+    const hostId = readHostDragId(event.dataTransfer);
+    if (!hostId) {
+      clearDragState();
+      return;
+    }
+    moveDraggedHostToGroup(hostId, group.id, orderedIdsForGroupDrop(group.hosts, hostId));
   };
 
   return (
@@ -232,6 +285,27 @@ export function Sidebar({
                 {lang === "zh" ? "取消选择" : "Deselect"}
               </button>
               <button
+                className="chip"
+                disabled={selectedIds.size === 0}
+                onClick={() => handleBatchCheck("reachability")}
+              >
+                {t("ops.check.reachability", lang)}
+              </button>
+              <button
+                className="chip"
+                disabled={selectedIds.size === 0}
+                onClick={() => handleBatchCheck("identity")}
+              >
+                {t("ops.check.identity", lang)}
+              </button>
+              <button
+                className="chip"
+                disabled={selectedIds.size === 0}
+                onClick={() => handleBatchCheck("health")}
+              >
+                {t("ops.check.health", lang)}
+              </button>
+              <button
                 className="chip danger"
                 disabled={selectedIds.size === 0}
                 onClick={handleBatchDelete}
@@ -250,28 +324,25 @@ export function Sidebar({
       <div className="sidebar-body">
         {grouped.map((group) => {
           const isCollapsed = !!collapsed[group.id];
-          const groupLabelKey = `groups.${group.id}`;
-          const i18nLabel = t(groupLabelKey, lang);
-          const label = i18nLabel === groupLabelKey ? group.name : i18nLabel;
+          const label = displayGroupName(group, lang);
           return (
-            <div key={group.id} className={"host-group " + (isCollapsed ? "collapsed" : "")}>
+            <div
+              key={group.id}
+              className={
+                "host-group " +
+                (isCollapsed ? "collapsed" : "") +
+                (group.hosts.length === 0 ? " host-group--empty" : "") +
+                (dragOverGroup === group.id ? " drop-target" : "")
+              }
+              style={{ "--site-color": group.color } as CSSProperties}
+              onDragEnter={(event) => handleGroupDragOver(event, group.id)}
+              onDragOver={(event) => handleGroupDragOver(event, group.id)}
+              onDragLeave={(event) => handleGroupDragLeave(event, group.id)}
+              onDrop={(event) => handleGroupDrop(event, group)}
+            >
               <div
                 className={"host-group-head " + (dragOverGroup === group.id ? "drop-target" : "")}
                 onClick={() => setCollapsed({ ...collapsed, [group.id]: !isCollapsed })}
-                onDragOver={(event) => {
-                  event.preventDefault();
-                  setDragOverGroup(group.id);
-                }}
-                onDragLeave={() => setDragOverGroup((id) => (id === group.id ? null : id))}
-                onDrop={(event) => {
-                  event.preventDefault();
-                  const hostId = event.dataTransfer.getData("text/netssh-host");
-                  if (hostId) {
-                    onMoveHostToGroup(hostId, group.id);
-                    setCollapsed({ ...collapsed, [group.id]: false });
-                  }
-                  setDragOverGroup(null);
-                }}
               >
                 <span className="chevron">{Icon.chevron}</span>
                 <span className="moon" style={{ color: group.color, background: group.color }} />
@@ -338,7 +409,15 @@ export function Sidebar({
                 </form>
               )}
               <div className="host-list">
+                {group.hosts.length === 0 && (
+                  <div className="host-empty-drop">
+                    {t("site.emptyDrop", lang)}
+                  </div>
+                )}
                 {group.hosts.map((host, hostIndex) => {
+                  const assetKey = assetBucketKey(host);
+                  const previousAssetKey = hostIndex > 0 ? assetBucketKey(group.hosts[hostIndex - 1]) : "";
+                  const showAssetHeader = hostIndex === 0 || assetKey !== previousAssetKey;
                   const live = reachability[host.id];
                   const effStatus = live?.status ?? host.status;
                   const effLatency = live?.latency ?? host.latency;
@@ -355,22 +434,32 @@ export function Sidebar({
                     onReorderHost(host.id, orderedHostIds.indexOf(host.id), group.id, orderedHostIds);
                   };
                   return (
+                  <Fragment key={host.id}>
+                  {showAssetHeader && (
+                    <div className="asset-tree-head">
+                      <span>{assetBucketLabel(assetKey, lang)}</span>
+                      <small>{group.hosts.filter((item) => assetBucketKey(item) === assetKey).length}</small>
+                    </div>
+                  )}
                   <div
-                    key={host.id}
-                    draggable={!batchMode && canManualReorder}
+                    draggable={!batchMode}
                     onDragStart={(event) => {
-                      if (batchMode || !canManualReorder) return;
-                      event.dataTransfer.setData("text/netssh-host", host.id);
+                      if (batchMode) return;
+                      writeHostDragData(event.dataTransfer, host.id);
                       event.dataTransfer.effectAllowed = "move";
                     }}
+                    onDragEnd={clearDragState}
                     onDragOver={(event) => {
-                      if (batchMode || !canManualReorder) return;
-                      const dragHostId = event.dataTransfer.types.includes("text/netssh-host")
-                        ? true
-                        : false;
-                      if (!dragHostId) return;
+                      if (batchMode || !hasHostDrag(event.dataTransfer)) return;
                       event.preventDefault();
+                      event.stopPropagation();
                       event.dataTransfer.dropEffect = "move";
+                      if (!canManualReorder) {
+                        setDragOverGroup(group.id);
+                        setDragOverHostId(null);
+                        setDropPosition(null);
+                        return;
+                      }
                       const rect = event.currentTarget.getBoundingClientRect();
                       const y = event.clientY - rect.top;
                       const mid = rect.height / 2;
@@ -383,22 +472,23 @@ export function Sidebar({
                     }}
                     onDrop={(event) => {
                       event.preventDefault();
-                      const dragHostId = event.dataTransfer.getData("text/netssh-host");
+                      event.stopPropagation();
+                      const dragHostId = readHostDragId(event.dataTransfer);
                       if (!dragHostId || dragHostId === host.id) {
-                        setDragOverHostId(null);
-                        setDropPosition(null);
+                        clearDragState();
+                        return;
+                      }
+                      if (!canManualReorder) {
+                        moveDraggedHostToGroup(dragHostId, group.id);
                         return;
                       }
                       const pos = dropPosition;
                       if (!pos) {
-                        setDragOverHostId(null);
-                        setDropPosition(null);
+                        clearDragState();
                         return;
                       }
                       const orderedHostIds = orderedIdsForDrop(group.hosts, dragHostId, host.id, pos);
-                      onReorderHost(dragHostId, orderedHostIds.indexOf(dragHostId), group.id, orderedHostIds);
-                      setDragOverHostId(null);
-                      setDropPosition(null);
+                      moveDraggedHostToGroup(dragHostId, group.id, orderedHostIds);
                     }}
                     title={`${host.alias} - ${host.user}@${host.hostname}${host.port !== 22 ? `:${host.port}` : ""} - ${statusTooltip(effLatency, effStatus, lang)} - ${recentTooltip(host.lastConnectedAt, lang)}`}
                     className={
@@ -499,6 +589,7 @@ export function Sidebar({
                       />
                     </span>
                   </div>
+                  </Fragment>
                   );
                 })}
               </div>
@@ -566,4 +657,78 @@ function orderedIdsForDrop(hosts: Host[], dragHostId: string, targetHostId: stri
     : targetIndex + (pos === "below" ? 1 : 0);
   ids.splice(insertAt, 0, dragHostId);
   return ids;
+}
+
+function orderedIdsForGroupDrop(hosts: Host[], dragHostId: string) {
+  return [...hosts.map((host) => host.id).filter((id) => id !== dragHostId), dragHostId];
+}
+
+function writeHostDragData(dataTransfer: DataTransfer, hostId: string) {
+  HOST_DRAG_TYPES.forEach((type) => {
+    try {
+      dataTransfer.setData(type, hostId);
+    } catch {
+      // Some browser shells reject custom drag MIME types; text/plain is enough for fallback.
+    }
+  });
+}
+
+function hasHostDrag(dataTransfer: DataTransfer) {
+  const types = Array.from(dataTransfer.types || []).map((type) => type.toLowerCase());
+  return HOST_DRAG_TYPES.some((type) => types.includes(type));
+}
+
+function readHostDragId(dataTransfer: DataTransfer) {
+  for (const type of HOST_DRAG_TYPES) {
+    try {
+      const value = dataTransfer.getData(type).trim();
+      if (value) return value;
+    } catch {
+      // Keep trying the next representation.
+    }
+  }
+  return "";
+}
+
+function assetBucketKey(host: Host) {
+  if ((host.connectionType || "ssh") === "serial") return "serial";
+  const explicit = [host.assetType, host.iconOverride].filter(Boolean).join(" ").toLowerCase();
+  const text = [explicit, host.alias, host.hostname, host.role, ...(host.tags || [])]
+    .filter(Boolean)
+    .join(" ")
+    .toLowerCase();
+  if (/router|gateway|\bgw\b|openwrt|istore|lede|immortalwrt/.test(text)) return "router";
+  if (/switch|h3c|huawei|cisco|catalyst|nexus|s\d{4,}/.test(text)) return "switch";
+  if (/firewall|fw|asa|usg/.test(text)) return "firewall";
+  if (/nas|synology|qnap|truenas|storage/.test(text)) return "nas";
+  if (/windows|win11|win10|macos|macbook|desktop|laptop|pc/.test(text)) return "pc";
+  if (deployScope(host) === "cloud") return "cloud-server";
+  if (/linux|ubuntu|debian|centos|rocky|alma|server|pve|proxmox/.test(text)) return "linux-server";
+  return "ssh";
+}
+
+function assetBucketLabel(key: string, lang: Lang) {
+  const zh: Record<string, string> = {
+    router: "路由 / 网关",
+    switch: "交换机",
+    firewall: "防火墙",
+    nas: "NAS / 存储",
+    pc: "终端 / PC",
+    "cloud-server": "云服务器",
+    "linux-server": "Linux 服务器",
+    serial: "串口 Console",
+    ssh: "SSH 资产",
+  };
+  const en: Record<string, string> = {
+    router: "Router / gateway",
+    switch: "Switch",
+    firewall: "Firewall",
+    nas: "NAS / storage",
+    pc: "Endpoint / PC",
+    "cloud-server": "Cloud server",
+    "linux-server": "Linux server",
+    serial: "Serial console",
+    ssh: "SSH assets",
+  };
+  return lang === "zh" ? zh[key] || zh.ssh : en[key] || en.ssh;
 }
