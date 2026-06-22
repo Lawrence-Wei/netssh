@@ -171,11 +171,11 @@ function startTabDrag(event: DragEvent<HTMLDivElement>, tab: Tab) {
 
 function displayTabTitle(tab: Tab, lang: Lang) {
   if (tab.kind === "home" || tab.title === "Home") return t("titlebar.home", lang);
-  if (tab.title === "New session") return lang === "zh" ? "新会话" : "New session";
+  if (tab.title === "New session") return t("titlebar.newSession", lang);
   if (tab.title === "New host") return t("sidebar.foot.add", lang);
   if (tab.kind === "settings") return t("titlebar.settings", lang);
-  if (tab.kind === "snippets" || tab.title === "Snippets") return lang === "zh" ? "命令片段" : "Snippets";
-  if (tab.kind === "local" && tab.title === "PowerShell") return lang === "zh" ? "PowerShell" : "PowerShell";
+  if (tab.kind === "snippets" || tab.title === "Snippets") return t("titlebar.snippets", lang);
+  if (tab.kind === "local" && tab.title === "PowerShell") return "PowerShell";
   return tab.title;
 }
 

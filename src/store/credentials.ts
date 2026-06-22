@@ -36,6 +36,22 @@ function credAccount(id: string) {
   return `netssh:cred:${id}`;
 }
 
+type PersistableCredential = Credential & Record<string, unknown>;
+
+function sanitizeCredentialForPersistence(credential: PersistableCredential): Credential {
+  const {
+    password: _password,
+    passphrase: _passphrase,
+    privateKey: _privateKey,
+    private_key: _private_key,
+    ephemeralPassword: _ephemeralPassword,
+    ephemeral_password: _ephemeral_password,
+    secret: _secret,
+    ...safe
+  } = credential;
+  return safe;
+}
+
 export const useCredentials = create<CredentialsState>()(
   persist(
     (set, get) => ({
@@ -121,9 +137,8 @@ export const useCredentials = create<CredentialsState>()(
       name: "netssh.credentials",
       partialize: (state) => ({
         credentials: state.credentials.map((c) => {
-          // Never write password to localStorage — keep only metadata
-          const { ...safe } = c;
-          return safe;
+          // Never write secrets to localStorage - keep only profile metadata.
+          return sanitizeCredentialForPersistence(c as PersistableCredential);
         }),
       }),
     }

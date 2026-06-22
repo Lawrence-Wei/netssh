@@ -649,9 +649,9 @@ export function TerminalPane({
       identityFile,
       tags: mergeHostCredentialTags(undefined, host, username),
       notes: host.alias !== host.hostname ? host.hostname : undefined,
+      password,
     });
-    const saved = await useCredentials.getState().savePassword(created.id, password);
-    if (!saved) {
+    if (!created.hasPassword) {
       await useCredentials.getState().remove(created.id);
       throw new Error("credential_save_failed");
     }
@@ -1126,6 +1126,9 @@ export function describeConnectionError(error: unknown, lang: Lang = "en") {
   }
   if (/username_invalid/i.test(raw)) {
     return t("conn.error.message.username", lang);
+  }
+  if (/key_load_failed|identity file|no such file.*key|unable to load key/i.test(raw)) {
+    return t("conn.error.message.keyLoadFailed", lang);
   }
   if (/key_passphrase_needed|passphrase|encrypted private key|unable to decrypt|bad decrypt|invalid passphrase/i.test(raw)) {
     return t("conn.error.message.passphrase", lang);

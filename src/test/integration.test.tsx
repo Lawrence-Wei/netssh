@@ -161,6 +161,55 @@ describe("凭据管理", () => {
       account: "netssh:cred:cred-test-id",
     });
   });
+
+  it("partialize strips sensitive fields from credential and identity metadata", async () => {
+    const credentialPersisted = useCredentials.persist.getOptions().partialize!(
+      {
+        credentials: [
+          {
+            id: "cred-poisoned",
+            name: "poisoned",
+            group: "lab",
+            user: "root",
+            hasPassword: true,
+            password: "should-not-persist",
+            passphrase: "also-secret",
+            privateKey: "PRIVATE KEY",
+            ephemeralPassword: "one-shot",
+            secret: "token",
+            createdAt: 1,
+          },
+        ],
+      } as never
+    );
+    expect(JSON.stringify(credentialPersisted)).not.toContain("should-not-persist");
+    expect(JSON.stringify(credentialPersisted)).not.toContain("also-secret");
+    expect(JSON.stringify(credentialPersisted)).not.toContain("PRIVATE KEY");
+    expect(JSON.stringify(credentialPersisted)).not.toContain("one-shot");
+    expect(JSON.stringify(credentialPersisted)).not.toContain("token");
+
+    const { useIdentities } = await import("../store/identities");
+    const identityPersisted = useIdentities.persist.getOptions().partialize!(
+      {
+        identities: [
+          {
+            id: "ident-poisoned",
+            name: "poisoned",
+            user: "root",
+            password: "identity-secret",
+            passphrase: "identity-passphrase",
+            private_key: "PRIVATE KEY",
+            ephemeral_password: "one-shot",
+            createdAt: 1,
+          },
+        ],
+      } as never
+    );
+    expect(JSON.stringify(identityPersisted)).not.toContain("identity-secret");
+    expect(JSON.stringify(identityPersisted)).not.toContain("identity-passphrase");
+    expect(JSON.stringify(identityPersisted)).not.toContain("PRIVATE KEY");
+    expect(JSON.stringify(identityPersisted)).not.toContain("one-shot");
+  });
 });
 
 // ============================================================

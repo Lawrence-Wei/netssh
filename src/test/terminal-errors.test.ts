@@ -24,6 +24,10 @@ describe("describeConnectionError", () => {
       "SSH key passphrase required",
     ],
     [
+      "key_load_failed",
+      "SSH key could not be loaded",
+    ],
+    [
       "password_required: SSH key was not accepted and no password is available",
       "Password required",
     ],

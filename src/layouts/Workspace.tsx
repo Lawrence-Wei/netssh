@@ -7,6 +7,7 @@ import { HostDetail } from "../pages/HostDetail";
 import { Settings } from "../pages/Settings";
 import { SnippetsLibrary } from "../pages/SnippetsLibrary";
 import { TerminalPane, type QueuedCommand } from "../pages/TerminalPane";
+import { t } from "../utils/i18n";
 
 interface WorkspaceProps {
   lang: Lang;
@@ -195,7 +196,7 @@ export function Workspace({
                   <span className="split-cell__title">{st.title}</span>
                   <button
                     className="icon-btn"
-                    title={lang === "zh" ? "Pop out of split" : "Pop out of split"}
+                    title={t("workspace.split.popOut", lang)}
                     onClick={(e) => {
                       e.stopPropagation();
                       toggleSplit(st.id);
@@ -231,7 +232,7 @@ export function Workspace({
                     />
                   ) : (
                     <div style={{ padding: 24, color: "var(--text-mute)" }}>
-                      {lang === "zh" ? "session unavailable" : "session unavailable"}
+                      {t("workspace.sessionUnavailable", lang)}
                     </div>
                   )}
                 </div>

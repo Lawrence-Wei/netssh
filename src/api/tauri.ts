@@ -32,7 +32,22 @@ function localStateGet(key?: unknown) {
 
 function localStatePut(key?: unknown, value?: unknown) {
   if (typeof window === "undefined" || typeof key !== "string" || typeof value !== "string") return;
+  if (containsSensitiveAppState(key, value)) {
+    throw new Error("app_state_sensitive_value_rejected");
+  }
   window.localStorage.setItem(key, value);
+}
+
+function containsSensitiveAppState(key: string, value: string) {
+  const haystack = `${key} ${value}`.toLowerCase();
+  return [
+    "password",
+    "passphrase",
+    "privatekey",
+    "private_key",
+    "ephemeralpassword",
+    "ephemeral_password",
+  ].some((needle) => haystack.includes(needle));
 }
 
 function browserInvokeFallback<T>(cmd: string, args?: InvokeArgs): T {

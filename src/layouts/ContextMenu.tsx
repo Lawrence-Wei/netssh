@@ -35,11 +35,11 @@ export function ContextMenu({ lang, x, y, host, groups, onAction, onClose }: Con
       id: "favorite",
       icon: Icon.bookmark,
       label: favorite
-        ? (lang === "zh" ? "取消收藏" : "Remove favorite")
-        : (lang === "zh" ? "添加收藏" : "Add favorite"),
+        ? t("ctx.favoriteRemove", lang)
+        : t("ctx.favoriteAdd", lang),
     },
     { id: "edit", icon: Icon.edit, label: t("ctx.edit", lang) },
-    { id: "move", icon: Icon.chevron, label: lang === "zh" ? "移动到站点" : "Move to site", hasSub: true },
+    { id: "move", icon: Icon.chevron, label: t("ctx.move", lang), hasSub: true },
     { divider: true },
     { id: "delete", icon: Icon.trash, label: t("ctx.delete", lang), danger: true },
   ];

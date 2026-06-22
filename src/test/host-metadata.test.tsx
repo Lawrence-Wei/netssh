@@ -110,6 +110,17 @@ function textOnlyHostDragDataTransfer(hostId: string) {
   return dataTransfer as unknown as DataTransfer;
 }
 
+function hiddenTypesHostDragDataTransfer(hostId: string) {
+  const data = new Map<string, string>([["text/plain", hostId]]);
+  return {
+    types: [] as string[],
+    effectAllowed: "move",
+    dropEffect: "move",
+    setData: vi.fn((type: string, value: string) => data.set(type, value)),
+    getData: vi.fn((type: string) => data.get(type) || ""),
+  } as unknown as DataTransfer;
+}
+
 describe("host metadata", () => {
   const initialState = useHosts.getState();
 
@@ -317,6 +328,47 @@ describe("host metadata", () => {
 
     const targetGroup = screen.getByText("无锡").closest(".host-group")!;
     const dataTransfer = textOnlyHostDragDataTransfer("macbook");
+
+    act(() => {
+      fireEvent.dragEnter(targetGroup, { dataTransfer });
+      fireEvent.dragOver(targetGroup, { dataTransfer });
+      fireEvent.drop(targetGroup, { dataTransfer });
+    });
+
+    expect(onReorderHost).toHaveBeenCalledWith("macbook", 0, "wuxi", ["macbook"]);
+    expect(onMoveHostToGroup).not.toHaveBeenCalled();
+  });
+
+  it("accepts a Wuxi site drop when dragover hides dataTransfer types", () => {
+    const onMoveHostToGroup = vi.fn();
+    const onReorderHost = vi.fn();
+    render(
+      <ConfirmProvider>
+        <Sidebar
+          lang="zh"
+          hosts={[host("macbook", "macbook", { group: "unassigned" })]}
+          groups={[
+            { id: "unassigned", name: "Unassigned", color: "#897e6e" },
+            { id: "wuxi", name: "Wuxi", color: "#6f7f95", subnet: "192.168.66.0/24" },
+          ]}
+          onPickHost={vi.fn()}
+          onDoubleClickHost={vi.fn()}
+          onContextMenu={vi.fn()}
+          onOpenImport={vi.fn()}
+          onAddGroup={vi.fn()}
+          onRenameGroup={vi.fn()}
+          onRemoveGroup={vi.fn()}
+          onMoveHostToGroup={onMoveHostToGroup}
+          onReorderHost={onReorderHost}
+          onAddHostQuick={vi.fn()}
+          onRemoveHosts={vi.fn()}
+          onToggleFavorite={vi.fn()}
+        />
+      </ConfirmProvider>
+    );
+
+    const targetGroup = screen.getByText("无锡").closest(".host-group")!;
+    const dataTransfer = hiddenTypesHostDragDataTransfer("macbook");
 
     act(() => {
       fireEvent.dragEnter(targetGroup, { dataTransfer });

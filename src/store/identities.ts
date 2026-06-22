@@ -6,6 +6,16 @@ import { persist } from "zustand/middleware";
 import { credDelete, credStore, credLoad } from "../api/tauri";
 import type { Identity } from "../config/types";
 
+type SensitiveIdentityInput = {
+  password?: string;
+  passphrase?: string;
+  privateKey?: string;
+  private_key?: string;
+  ephemeralPassword?: string;
+  ephemeral_password?: string;
+  secret?: string;
+};
+
 interface IdentityState {
   identities: Identity[];
   add: (input: { name: string; user: string; identityFile?: string; notes?: string; password?: string }) => Promise<Identity>;
@@ -16,6 +26,20 @@ interface IdentityState {
 
 function identAccount(id: string) {
   return `netssh:ident:${id}`;
+}
+
+function sanitizeIdentityForPersistence(identity: Identity & Record<string, unknown>): Identity {
+  const {
+    password: _password,
+    passphrase: _passphrase,
+    privateKey: _privateKey,
+    private_key: _private_key,
+    ephemeralPassword: _ephemeralPassword,
+    ephemeral_password: _ephemeral_password,
+    secret: _secret,
+    ...safe
+  } = identity;
+  return safe;
 }
 
 export const useIdentities = create<IdentityState>()(
@@ -43,7 +67,17 @@ export const useIdentities = create<IdentityState>()(
       update: async (id, patch, password) => {
         const existing = get().identities.find((i) => i.id === id);
         if (!existing) return;
-        const next = { ...existing, ...patch };
+        const {
+          password: _password,
+          passphrase: _passphrase,
+          privateKey: _privateKey,
+          private_key: _private_key,
+          ephemeralPassword: _ephemeralPassword,
+          ephemeral_password: _ephemeral_password,
+          secret: _secret,
+          ...safePatch
+        } = patch as Partial<Identity> & SensitiveIdentityInput;
+        const next = { ...existing, ...safePatch };
         if (password !== undefined) {
           try {
             if (password) await credStore(identAccount(id), password);
@@ -66,7 +100,11 @@ export const useIdentities = create<IdentityState>()(
     }),
     {
       name: "netssh.identities",
-      partialize: (state) => ({ identities: state.identities }),
+      partialize: (state) => ({
+        identities: state.identities.map((identity) =>
+          sanitizeIdentityForPersistence(identity as Identity & Record<string, unknown>)
+        ),
+      }),
     }
   )
 );

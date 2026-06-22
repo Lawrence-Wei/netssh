@@ -318,6 +318,16 @@ fn normalized_password(args: &SshOpenArgs) -> Option<String> {
     args.password.clone().filter(|p| !p.trim().is_empty())
 }
 
+fn identity_file_log_label(identity_file: &str) -> String {
+    let expanded = expand_tilde(identity_file);
+    expanded
+        .rsplit(['\\', '/'])
+        .next()
+        .filter(|name| !name.trim().is_empty())
+        .map(|name| format!("configured:{name}"))
+        .unwrap_or_else(|| "configured".into())
+}
+
 fn accepted_host_keys(args: &SshOpenArgs) -> HashSet<String> {
     let mut accepted_keys = if args.skip_open_ssh_known_hosts.unwrap_or(false) {
         info!("Skipping OpenSSH known_hosts for explicit host-key recovery retry");
@@ -469,6 +479,7 @@ async fn authenticate_handle(
     let identity_file = normalized_identity_file(args);
 
     let authed = if let Some(ref identity_file) = identity_file {
+        let identity_label = identity_file_log_label(identity_file);
         match tokio::time::timeout(
             SSH_AUTH_ATTEMPT_TIMEOUT,
             try_publickey_auth(handle, &args.user, identity_file, &args.passphrase),
@@ -476,27 +487,27 @@ async fn authenticate_handle(
         .await
         {
             Ok(Ok(true)) => {
-                info!(user = %args.user, key = %identity_file, "Public-key auth succeeded");
+                info!(user = %args.user, key = %identity_label, "Public-key auth succeeded");
                 true
             }
             Ok(Ok(false)) => false,
             Ok(Err(err)) if password.is_some() => {
                 warn!(
                     user = %args.user,
-                    key = %identity_file,
+                    key = %identity_label,
                     error = %err,
                     "Public-key auth failed, falling back to password"
                 );
                 false
             }
             Ok(Err(err)) => {
-                error!(user = %args.user, key = %identity_file, error = %err, "Public-key auth fatal");
+                error!(user = %args.user, key = %identity_label, error = %err, "Public-key auth fatal");
                 return Err(err);
             }
             Err(_) if password.is_some() => {
                 warn!(
                     user = %args.user,
-                    key = %identity_file,
+                    key = %identity_label,
                     timeout_ms = SSH_AUTH_ATTEMPT_TIMEOUT.as_millis() as u64,
                     "Public-key auth timed out, falling back to password"
                 );
@@ -505,7 +516,7 @@ async fn authenticate_handle(
             Err(_) => {
                 error!(
                     user = %args.user,
-                    key = %identity_file,
+                    key = %identity_label,
                     timeout_ms = SSH_AUTH_ATTEMPT_TIMEOUT.as_millis() as u64,
                     "Public-key auth timed out"
                 );
@@ -1592,14 +1603,25 @@ async fn try_publickey_auth(
     let key = match russh_keys::load_secret_key(&path, passphrase.as_deref()) {
         Ok(k) => k,
         Err(e) => {
-            if passphrase.is_none() {
-                return Err(anyhow!("key_passphrase_needed: {}", e));
-            }
-            return Err(anyhow!("failed to load key {}: {}", path, e));
+            return Err(anyhow!("{}", key_load_error_code(&e.to_string())));
         }
     };
     let ok = handle.authenticate_publickey(user, Arc::new(key)).await?;
     Ok(ok)
+}
+
+fn key_load_error_code(error: &str) -> &'static str {
+    let raw = error.to_ascii_lowercase();
+    if raw.contains("passphrase")
+        || raw.contains("decrypt")
+        || raw.contains("encrypted")
+        || raw.contains("bad password")
+        || raw.contains("invalid password")
+    {
+        "key_passphrase_needed"
+    } else {
+        "key_load_failed"
+    }
 }
 
 async fn try_password_auth_with_timeout(
@@ -2035,6 +2057,26 @@ mod tests {
         assert_eq!(
             host_key_decision_policy("mismatch", HostKeyDecision::AcceptAndRemember),
             HostKeyDecisionPolicy::Reject("host_key_mismatch")
+        );
+    }
+
+    #[test]
+    fn identity_file_log_label_redacts_parent_path() {
+        let label = identity_file_log_label("C:\\Users\\lawrence\\.ssh\\lab_ed25519");
+        assert_eq!(label, "configured:lab_ed25519");
+        assert!(!label.contains("Users"));
+        assert!(!label.contains("lawrence"));
+    }
+
+    #[test]
+    fn key_load_error_code_uses_stable_redacted_codes() {
+        assert_eq!(
+            key_load_error_code("bad decrypt while reading C:\\Users\\lawrence\\.ssh\\id_rsa"),
+            "key_passphrase_needed"
+        );
+        assert_eq!(
+            key_load_error_code("No such file or directory: C:\\Users\\lawrence\\.ssh\\missing"),
+            "key_load_failed"
         );
     }
 

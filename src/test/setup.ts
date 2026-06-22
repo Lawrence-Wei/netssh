@@ -42,9 +42,28 @@ const tauriWindowMock = vi.hoisted(() => ({
   },
 }));
 
+const credentialSecretsMock = vi.hoisted(() => {
+  const secrets = new Map<string, string>();
+  return {
+    store(account: string, secret: string) {
+      secrets.set(account, secret);
+    },
+    load(account: string) {
+      return secrets.get(account) || "";
+    },
+    delete(account: string) {
+      secrets.delete(account);
+    },
+    clear() {
+      secrets.clear();
+    },
+  };
+});
+
 Object.assign(globalThis, {
   __netsshEmitTauriEvent: tauriEventMock.emitEvent,
   __netsshClearTauriEvents: tauriEventMock.clear,
+  __netsshClearTestCredentials: credentialSecretsMock.clear,
 });
 
 // ============================================================
@@ -68,6 +87,14 @@ vi.mock("@tauri-apps/api/core", () => ({
         return Promise.resolve([]);
       case "keys_list":
         return Promise.resolve([]);
+      case "cred_store":
+        credentialSecretsMock.store(String(args?.account), String(args?.secret));
+        return Promise.resolve();
+      case "cred_load":
+        return Promise.resolve(credentialSecretsMock.load(String(args?.account)));
+      case "cred_delete":
+        credentialSecretsMock.delete(String(args?.account));
+        return Promise.resolve();
       case "i18n_detect_system":
         return Promise.resolve("en");
       case "autostart_status":

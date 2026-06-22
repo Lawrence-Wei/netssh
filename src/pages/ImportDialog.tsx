@@ -323,9 +323,7 @@ async function buildDiagnostics(
       if (existingAliases.has(key)) {
         diagnostics.push({
           level: "warn",
-          message: lang === "zh"
-            ? `Asset already exists for alias ${alias}; import will skip it.`
-            : `Existing asset alias "${alias}" will be skipped during import.`,
+          message: t("import.diagnostic.existingAlias", lang, { alias }),
         });
       }
     });
@@ -336,9 +334,7 @@ async function buildDiagnostics(
     if (!host.identityFile) {
       diagnostics.push({
         level: "info",
-        message: lang === "zh"
-          ? `${host.alias} has no IdentityFile; password auth or ssh-agent will be used.`
-          : `${host.alias} has no IdentityFile and will rely on password or ssh-agent.`,
+        message: t("import.diagnostic.noIdentityFile", lang, { alias: host.alias }),
       });
     } else {
       identityChecks.push(
@@ -355,9 +351,7 @@ async function buildDiagnostics(
     if (host.port && host.port !== 22) {
       diagnostics.push({
         level: "info",
-        message: lang === "zh"
-          ? `${host.alias} uses non-standard SSH port ${host.port}.`
-          : `${host.alias} uses non-standard SSH port ${host.port}.`,
+        message: t("import.diagnostic.nonStandardPort", lang, { alias: host.alias, port: host.port }),
       });
     }
   });
@@ -366,9 +360,7 @@ async function buildDiagnostics(
     if (owners.length > 1) {
       diagnostics.push({
         level: "warn",
-        message: lang === "zh"
-          ? `Duplicate Host alias in import: ${alias}.`
-          : `Duplicate Host alias in import: ${alias}.`,
+        message: t("import.diagnostic.duplicateAlias", lang, { alias }),
       });
     }
   });
@@ -377,9 +369,7 @@ async function buildDiagnostics(
     if (owners.length > 1) {
       diagnostics.push({
         level: "warn",
-        message: lang === "zh"
-          ? `Multiple assets point at ${target}: ${owners.join(", ")}.`
-          : `Multiple assets point to ${target}: ${owners.join(", ")}.`,
+        message: t("import.diagnostic.duplicateTarget", lang, { target, owners: owners.join(", ") }),
       });
     }
   });
@@ -389,7 +379,7 @@ async function buildDiagnostics(
   if (diagnostics.length === 0) {
     diagnostics.push({
       level: "info",
-      message: lang === "zh" ? "No obvious conflicts found." : "No obvious conflicts found.",
+      message: t("import.diagnostic.noConflicts", lang),
     });
   }
 
@@ -411,11 +401,7 @@ function identityFileDiagnosticMessage(
   lang: Lang
 ): string {
   if (result === "unknown") {
-    return lang === "zh"
-      ? `${alias} IdentityFile could not be checked: ${path}.`
-      : `${alias} references an IdentityFile that could not be checked: ${path}.`;
+    return t("import.diagnostic.identityUnknown", lang, { alias, path });
   }
-  return lang === "zh"
-    ? `${alias} IdentityFile does not exist: ${path}.`
-    : `${alias} references a missing IdentityFile: ${path}.`;
+  return t("import.diagnostic.identityMissing", lang, { alias, path });
 }

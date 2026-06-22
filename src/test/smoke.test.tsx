@@ -51,6 +51,7 @@ beforeEach(() => {
   useCredentials.setState(initialStates.credentials as never, true);
   useIdentities.setState(initialStates.identities as never, true);
   resetLiveSessions();
+  (globalThis as unknown as { __netsshClearTestCredentials?: () => void }).__netsshClearTestCredentials?.();
   window.localStorage.clear();
 });
 
@@ -366,8 +367,26 @@ describe("2. TitleBar", () => {
       const saved = useHosts.getState().hosts.find((host) => host.hostname === "10.0.0.50" && host.user === "root");
       expect(saved).toBeTruthy();
       expect(saved?.ephemeralPassword).toBeUndefined();
+      expect(saved?.credentialProfileId).toEqual(expect.stringMatching(/^cred-/));
       expect(saved?.iconOverride).toBe("cisco");
       expect(Object.keys(useSessions.getState().ephemeralHosts)).toHaveLength(0);
+
+      const credential = useCredentials
+        .getState()
+        .credentials.find((item) => item.id === saved?.credentialProfileId);
+      expect(credential).toEqual(expect.objectContaining({
+        name: "10.0.0.50",
+        user: "root",
+        hasPassword: true,
+      }));
+      expect(credential?.tags).toEqual(expect.arrayContaining([
+        "target:root@10.0.0.50:22",
+        "target-host:10.0.0.50",
+        "target-user:root",
+        "target-port:22",
+      ]));
+      expect(JSON.stringify(useCredentials.getState().credentials)).not.toContain("secret");
+      expect(window.localStorage.getItem("netssh.credentials") || "").not.toContain("secret");
     });
   });
 });
@@ -480,6 +499,44 @@ describe("3. Sidebar", () => {
     expect(screen.getByRole("button", { name: "移除" })).toBeTruthy();
     expect(screen.queryByText("Remove")).toBeFalsy();
     expect(screen.queryByText("Cancel")).toBeFalsy();
+  });
+
+  it("moves an unassigned host into the Wuxi site by dragging onto the site bucket", () => {
+    useSettings.setState((state) => ({ ...state, lang: "zh", followSystem: false }), true);
+    useHosts.setState((state) => ({
+      ...state,
+      groups: [
+        { id: "unassigned", name: "Unassigned", color: "#897e6e" },
+        { id: "wuxi", name: "Wuxi", color: "#6f7f95", subnet: "192.168.66.0/24" },
+      ],
+      hosts: [
+        {
+          id: "unassigned-macbook",
+          alias: "macbook",
+          hostname: "192.168.66.234",
+          user: "lawrence",
+          port: 22,
+          group: "unassigned",
+          status: "off",
+          latency: null,
+        },
+      ],
+    }), true);
+
+    renderApp();
+    const sourceRow = within(sidebar()).getByText("macbook").closest(".host-row")!;
+    const targetGroup = within(sidebar()).getByText("无锡").closest(".host-group")!;
+    const dataTransfer = mockDragDataTransfer() as DataTransfer & { types: string[] };
+
+    act(() => {
+      fireEvent.dragStart(sourceRow, { dataTransfer });
+      dataTransfer.types = [];
+      fireEvent.dragEnter(targetGroup, { dataTransfer });
+      fireEvent.dragOver(targetGroup, { dataTransfer });
+      fireEvent.drop(targetGroup, { dataTransfer });
+    });
+
+    expect(useHosts.getState().hosts.find((host) => host.id === "unassigned-macbook")?.group).toBe("wuxi");
   });
 });
 

@@ -28,7 +28,7 @@ import {
 import { moveLiveSession } from "../utils/liveSessions";
 import { useCredentials } from "../store/credentials";
 import { deviceTypeFromHost } from "../utils/deployScope";
-import { findCredentialForHost } from "../utils/credentialMatching";
+import { findCredentialForHost, mergeHostCredentialTags } from "../utils/credentialMatching";
 import type { ConfigBackupProfile, ReadonlyCheckId } from "../config/types";
 
 type OpsNotice = {
@@ -305,7 +305,7 @@ export default function App() {
     openHost(host, connectNow);
   };
 
-  const persistConnectedHost = (host: Host) => {
+  const persistConnectedHost = async (host: Host) => {
     const sessionState = useSessions.getState();
     const latestEphemeralHost = sessionState.ephemeralHosts[host.id];
     if (!latestEphemeralHost) {
@@ -314,7 +314,12 @@ export default function App() {
     }
 
     const hostState = useHosts.getState();
-    const safeHost = inventoryHostFromEphemeral(latestEphemeralHost);
+    const safeBaseHost = inventoryHostFromEphemeral(latestEphemeralHost);
+    const credentialProfileId = await rememberManualSessionPassword(
+      safeBaseHost,
+      latestEphemeralHost.ephemeralPassword
+    );
+    const safeHost = credentialProfileId ? { ...safeBaseHost, credentialProfileId } : safeBaseHost;
     const existing = findSavedHostForManualSession(hostState.hosts, safeHost);
     const connectedAt = Date.now();
 
@@ -721,7 +726,7 @@ export default function App() {
             className="sidebar-resizer"
             role="separator"
             aria-orientation="vertical"
-            title={lang === "zh" ? "Drag to resize the sidebar. Double-click to reset." : "Drag to resize the sidebar. Double-click to reset."}
+            title={t("workspace.sidebarResize", lang)}
             onPointerDown={startSidebarResize}
             onDoubleClick={() => {
               setSidebarWidth(320);
@@ -877,6 +882,47 @@ function manualSessionHostPatch(existing: Host, manualHost: Host, connectedAt: n
     status: "ok",
     lastConnectedAt: connectedAt,
   };
+}
+
+async function rememberManualSessionPassword(host: Host, password?: string) {
+  if (!password || (host.connectionType || "ssh") === "serial") return host.credentialProfileId;
+  const credentialStore = useCredentials.getState();
+  const credentialProfile = findCredentialForHost(host, credentialStore.credentials);
+  const username = (credentialProfile?.user || host.user || "").trim();
+  if (!username) return host.credentialProfileId;
+  const identityFile = credentialProfile?.identityFile || host.identityFile || undefined;
+
+  if (credentialProfile) {
+    await credentialStore.update(credentialProfile.id, {
+      user: username,
+      identityFile,
+      tags: mergeHostCredentialTags(credentialProfile.tags, host, username),
+    });
+    const saved = await useCredentials.getState().savePassword(credentialProfile.id, password);
+    return saved ? credentialProfile.id : host.credentialProfileId;
+  }
+
+  const created = await credentialStore.add({
+    name: host.alias.trim() || host.hostname.trim() || `${username}@${host.port || 22}`,
+    group: preferredCredentialGroup(host),
+    user: username,
+    identityFile,
+    tags: mergeHostCredentialTags(undefined, host, username),
+    notes: host.alias !== host.hostname ? host.hostname : undefined,
+    password,
+  });
+
+  if (!created.hasPassword) {
+    await useCredentials.getState().remove(created.id);
+    return host.credentialProfileId;
+  }
+  return created.id;
+}
+
+function preferredCredentialGroup(host: Host) {
+  const detected = host.iconOverride || deviceTypeFromHost(host);
+  if (detected && detected !== "auto") return detected;
+  return host.role?.trim() || host.group?.trim() || "ssh";
 }
 
 function hostKey(value?: string | null) {

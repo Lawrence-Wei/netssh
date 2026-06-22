@@ -11,6 +11,7 @@ import type { Group, GroupId, Host, Lang, ReadonlyCheckId } from "../config/type
 import { Icon } from "../components/Icons";
 
 const HOST_DRAG_TYPES = ["application/x-netssh-host", "text/netssh-host", "text/plain"] as const;
+const HOST_DRAG_READ_TYPES = [...HOST_DRAG_TYPES, "Text", "text"] as const;
 
 interface SidebarProps {
   lang: Lang;
@@ -169,7 +170,7 @@ export function Sidebar({
   };
 
   const handleGroupDragOver = (event: DragEvent<HTMLElement>, groupId: GroupId) => {
-    if (batchMode || !hasHostDrag(event.dataTransfer)) return;
+    if (batchMode || !canAcceptHostDragOver(event.dataTransfer)) return;
     event.preventDefault();
     event.dataTransfer.dropEffect = "move";
     setDragOverGroup(groupId);
@@ -213,8 +214,8 @@ export function Sidebar({
             ["all", t("sidebar.filter.all", lang)],
             ["favorite", t("sidebar.filter.pinned", lang)],
             ["recent", t("sidebar.filter.recent", lang)],
-            ["local", lang === "zh" ? "本地" : "Local"],
-            ["cloud", lang === "zh" ? "云端" : "Cloud"],
+            ["local", t("sidebar.filter.local", lang)],
+            ["cloud", t("sidebar.filter.cloud", lang)],
           ].map(([id, label]) => (
             <button key={id} className={"chip " + (filter === id ? "active" : "")} onClick={() => updateFilter(id as HostListFilter)}>
               {label}
@@ -268,21 +269,21 @@ export function Sidebar({
             <button
               className="sidebar-quick__btn"
               onClick={() => setBatchMode(true)}
-              title={lang === "zh" ? "批量管理主机" : "Batch manage hosts"}
+              title={t("sidebar.batch.title", lang)}
             >
               <svg viewBox="0 0 14 14" width="10" height="10" fill="none">
                 <rect x="1.5" y="2" width="11" height="10" rx="1.5" stroke="currentColor" strokeWidth="1.2" />
                 <path d="M4 7l2 2 4-4" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round" />
               </svg>
-              <span>{lang === "zh" ? "批量" : "Batch"}</span>
+              <span>{t("sidebar.batch.label", lang)}</span>
             </button>
           ) : (
             <div className="batch-actions">
               <button className="chip" onClick={selectAllFiltered}>
-                {lang === "zh" ? "全选" : "Select all"}
+                {t("sidebar.batch.selectAll", lang)}
               </button>
               <button className="chip" onClick={deselectAll}>
-                {lang === "zh" ? "取消选择" : "Deselect"}
+                {t("sidebar.batch.deselect", lang)}
               </button>
               <button
                 className="chip"
@@ -314,7 +315,7 @@ export function Sidebar({
                 <span>{selectedIds.size > 0 ? `(${selectedIds.size})` : ""}</span>
               </button>
               <button className="chip" onClick={exitBatchMode}>
-                {lang === "zh" ? "完成" : "Done"}
+                {t("sidebar.batch.done", lang)}
               </button>
             </div>
           )}
@@ -450,7 +451,7 @@ export function Sidebar({
                     }}
                     onDragEnd={clearDragState}
                     onDragOver={(event) => {
-                      if (batchMode || !hasHostDrag(event.dataTransfer)) return;
+                      if (batchMode || !canAcceptHostDragOver(event.dataTransfer)) return;
                       event.preventDefault();
                       event.stopPropagation();
                       event.dataTransfer.dropEffect = "move";
@@ -602,16 +603,17 @@ export function Sidebar({
 }
 
 function statusTooltip(latency?: number | null, status?: Host["status"], lang?: Lang) {
+  const resolvedLang = lang || "en";
   if (status === "off" || latency == null) {
-    return lang === "zh" ? "尚未检测：双击连接后更新状态" : "Not checked yet: double-click to connect and update status";
+    return t("sidebar.status.unchecked", resolvedLang);
   }
   if (latency < 20) {
-    return lang === "zh" ? `健康：${latency} ms 延迟` : `Healthy: ${latency} ms latency`;
+    return t("sidebar.status.healthy", resolvedLang, { latency });
   }
   if (latency < 60) {
-    return lang === "zh" ? `需关注：${latency} ms 延迟` : `Needs attention: ${latency} ms latency`;
+    return t("sidebar.status.attention", resolvedLang, { latency });
   }
-  return lang === "zh" ? `异常：${latency} ms 延迟或连接问题` : `Critical: ${latency} ms latency or connection issue`;
+  return t("sidebar.status.critical", resolvedLang, { latency });
 }
 
 function latencyClass(latency?: number | null, status?: Host["status"]) {
@@ -637,7 +639,7 @@ function formatRecent(timestamp: number, lang: Lang) {
 
 function recentTooltip(timestamp: number | undefined, lang: Lang) {
   if (!timestamp) return t("host.lastseen.never", lang);
-  return lang === "zh" ? `最近连接：${formatRecent(timestamp, lang)}` : `Last connected: ${formatRecent(timestamp, lang)}`;
+  return t("sidebar.status.recent", lang, { time: formatRecent(timestamp, lang) });
 }
 
 function orderedIdsForMove(hosts: Host[], fromIndex: number, delta: -1 | 1) {
@@ -664,7 +666,7 @@ function orderedIdsForGroupDrop(hosts: Host[], dragHostId: string) {
 }
 
 function writeHostDragData(dataTransfer: DataTransfer, hostId: string) {
-  HOST_DRAG_TYPES.forEach((type) => {
+  HOST_DRAG_READ_TYPES.forEach((type) => {
     try {
       dataTransfer.setData(type, hostId);
     } catch {
@@ -673,13 +675,15 @@ function writeHostDragData(dataTransfer: DataTransfer, hostId: string) {
   });
 }
 
-function hasHostDrag(dataTransfer: DataTransfer) {
-  const types = Array.from(dataTransfer.types || []).map((type) => type.toLowerCase());
-  return HOST_DRAG_TYPES.some((type) => types.includes(type));
+function canAcceptHostDragOver(dataTransfer: DataTransfer) {
+  const types = transferTypes(dataTransfer);
+  if (types.includes("files")) return false;
+  if (types.length === 0) return true;
+  return HOST_DRAG_READ_TYPES.some((type) => types.includes(type.toLowerCase()));
 }
 
 function readHostDragId(dataTransfer: DataTransfer) {
-  for (const type of HOST_DRAG_TYPES) {
+  for (const type of HOST_DRAG_READ_TYPES) {
     try {
       const value = dataTransfer.getData(type).trim();
       if (value) return value;
@@ -688,6 +692,10 @@ function readHostDragId(dataTransfer: DataTransfer) {
     }
   }
   return "";
+}
+
+function transferTypes(dataTransfer: DataTransfer) {
+  return Array.from(dataTransfer.types || []).map((type) => type.toLowerCase());
 }
 
 function assetBucketKey(host: Host) {
@@ -708,27 +716,16 @@ function assetBucketKey(host: Host) {
 }
 
 function assetBucketLabel(key: string, lang: Lang) {
-  const zh: Record<string, string> = {
-    router: "路由 / 网关",
-    switch: "交换机",
-    firewall: "防火墙",
-    nas: "NAS / 存储",
-    pc: "终端 / PC",
-    "cloud-server": "云服务器",
-    "linux-server": "Linux 服务器",
-    serial: "串口 Console",
-    ssh: "SSH 资产",
+  const keyByBucket: Record<string, string> = {
+    router: "sidebar.asset.router",
+    switch: "sidebar.asset.switch",
+    firewall: "sidebar.asset.firewall",
+    nas: "sidebar.asset.nas",
+    pc: "sidebar.asset.pc",
+    "cloud-server": "sidebar.asset.cloudServer",
+    "linux-server": "sidebar.asset.linuxServer",
+    serial: "sidebar.asset.serial",
+    ssh: "sidebar.asset.ssh",
   };
-  const en: Record<string, string> = {
-    router: "Router / gateway",
-    switch: "Switch",
-    firewall: "Firewall",
-    nas: "NAS / storage",
-    pc: "Endpoint / PC",
-    "cloud-server": "Cloud server",
-    "linux-server": "Linux server",
-    serial: "Serial console",
-    ssh: "SSH assets",
-  };
-  return lang === "zh" ? zh[key] || zh.ssh : en[key] || en.ssh;
+  return t(keyByBucket[key] || "sidebar.asset.ssh", lang);
 }
