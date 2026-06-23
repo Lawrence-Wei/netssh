@@ -46,7 +46,10 @@ pub fn parse(path: Option<String>) -> Result<Vec<HostEntry>> {
             .join("known_hosts");
         if let Ok(text) = std::fs::read_to_string(&known) {
             for line in text.lines() {
-                let host = line.split(|c: char| c.is_whitespace() || c == ',').next().unwrap_or("");
+                let host = line
+                    .split(|c: char| c.is_whitespace() || c == ',')
+                    .next()
+                    .unwrap_or("");
                 if host.is_empty() || host.contains('|') || seen.contains(host) {
                     continue;
                 }

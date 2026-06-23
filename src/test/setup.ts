@@ -171,6 +171,11 @@ vi.mock("@tauri-apps/api/event", () => ({
   emit: vi.fn(() => Promise.resolve()),
 }));
 
+// Component tests use fixture host status and do not start Sidebar's background polling.
+vi.mock("../store/reachability", () => ({
+  useReachability: () => ({}),
+}));
+
 // ============================================================
 // Mock Tauri services so reachability / pty / ssh calls do not crash tests.
 // ============================================================

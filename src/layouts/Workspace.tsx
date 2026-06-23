@@ -1,5 +1,5 @@
 import { useMemo } from "react";
-import { shallow } from "zustand/shallow";
+import { useShallow } from "zustand/react/shallow";
 import type { QuickCommand } from "../config/defaults";
 import { useSessions } from "../store/sessions";
 import type { Group, Host, Lang, ReadonlyCheckId, SettingsSectionId, Snippet, Tab } from "../config/types";
@@ -85,15 +85,14 @@ export function Workspace({
   onBackupConfig,
 }: WorkspaceProps) {
   const { splitTabIds, tabs, activeTabId, setActive, toggleSplit, openQuad } = useSessions(
-    (s) => ({
+    useShallow((s) => ({
       splitTabIds: s.splitTabIds,
       tabs: s.tabs,
       activeTabId: s.activeTabId,
       setActive: s.setActive,
       toggleSplit: s.toggleSplit,
       openQuad: s.openQuad,
-    }),
-    shallow
+    }))
   );
 
   const splitTabs = useMemo(() => {

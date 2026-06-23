@@ -346,19 +346,21 @@ describe("2. TitleBar", () => {
     await user.type(within(card).getByLabelText("Username"), "root");
     await user.type(within(card).getByLabelText("Password"), "secret");
     await user.click(within(card).getByRole("button", { name: "Connect" }));
-    (globalThis as unknown as { __netsshEmitTauriEvent?: (event: string, payload: unknown) => void }).__netsshEmitTauriEvent?.(
-      "ssh:host-metadata",
-      {
-        session_id: "mock-ssh-id",
-        alias: "10.0.0.50",
-        host: "10.0.0.50",
-        port: 22,
-        icon_override: "cisco",
-        icon_confidence: 100,
-        role: "switch",
-        tags: ["cisco"],
-      }
-    );
+    act(() => {
+      (globalThis as unknown as { __netsshEmitTauriEvent?: (event: string, payload: unknown) => void }).__netsshEmitTauriEvent?.(
+        "ssh:host-metadata",
+        {
+          session_id: "mock-ssh-id",
+          alias: "10.0.0.50",
+          host: "10.0.0.50",
+          port: 22,
+          icon_override: "cisco",
+          icon_confidence: 100,
+          role: "switch",
+          tags: ["cisco"],
+        }
+      );
+    });
     await waitFor(() => {
       expect(document.querySelectorAll(".tab").length).toBe(beforeConnectTabs);
       expect(screen.getAllByText("root@10.0.0.50").length).toBeGreaterThan(0);

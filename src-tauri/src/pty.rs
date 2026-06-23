@@ -105,7 +105,9 @@ impl PtySession {
     }
 
     #[allow(dead_code)]
-    pub fn id(&self) -> &str { &self.id }
+    pub fn id(&self) -> &str {
+        &self.id
+    }
 }
 
 fn apply_terminal_env(
@@ -133,15 +135,27 @@ pub fn detect_local_shells() -> Vec<ShellInfo> {
 
     let candidates = if cfg!(windows) {
         vec![
-            ("pwsh", "PowerShell 7", "C:\\Program Files\\PowerShell\\7\\pwsh.exe"),
+            (
+                "pwsh",
+                "PowerShell 7",
+                "C:\\Program Files\\PowerShell\\7\\pwsh.exe",
+            ),
             (
                 "powershell",
                 "Windows PowerShell",
                 "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
             ),
             ("cmd", "Command Prompt", "C:\\Windows\\System32\\cmd.exe"),
-            ("wsl", "WSL (default distro)", "C:\\Windows\\System32\\wsl.exe"),
-            ("gitbash", "Git Bash", "C:\\Program Files\\Git\\bin\\bash.exe"),
+            (
+                "wsl",
+                "WSL (default distro)",
+                "C:\\Windows\\System32\\wsl.exe",
+            ),
+            (
+                "gitbash",
+                "Git Bash",
+                "C:\\Program Files\\Git\\bin\\bash.exe",
+            ),
         ]
     } else {
         vec![

@@ -147,7 +147,9 @@ pub fn sanitize_backup_segment(value: &str) -> String {
     for ch in value.trim().chars() {
         if ch.is_ascii_alphanumeric() || matches!(ch, '-' | '_' | '.') {
             out.push(ch);
-        } else if ch.is_whitespace() || matches!(ch, '/' | '\\' | ':' | '*' | '?' | '"' | '<' | '>' | '|') {
+        } else if ch.is_whitespace()
+            || matches!(ch, '/' | '\\' | ':' | '*' | '?' | '"' | '<' | '>' | '|')
+        {
             out.push('_');
         }
     }
@@ -236,7 +238,10 @@ mod tests {
     fn backup_path_segment_removes_path_separators_and_reserved_chars() {
         assert_eq!(sanitize_backup_segment("../core sw:1"), "core_sw_1");
         assert_eq!(sanitize_backup_segment(""), "host");
-        assert_eq!(sanitize_backup_segment("cisco-core_01.example"), "cisco-core_01.example");
+        assert_eq!(
+            sanitize_backup_segment("cisco-core_01.example"),
+            "cisco-core_01.example"
+        );
     }
 }
 
@@ -277,9 +282,8 @@ pub fn list_trusted_host_fingerprints(
     host: &str,
     port: u16,
 ) -> Result<Vec<String>> {
-    let mut stmt = conn.prepare(
-        "SELECT fingerprint FROM trusted_host_keys WHERE host = ?1 AND port = ?2",
-    )?;
+    let mut stmt =
+        conn.prepare("SELECT fingerprint FROM trusted_host_keys WHERE host = ?1 AND port = ?2")?;
     let rows = stmt.query_map(params![host, i64::from(port)], |row| row.get(0))?;
     let mut out = Vec::new();
     for row in rows {
@@ -290,9 +294,7 @@ pub fn list_trusted_host_fingerprints(
 
 pub fn open_connection_log(conn: &Connection, host_alias: &str) -> Result<String> {
     let id = uuid::Uuid::new_v4().to_string();
-    let opened_at = SystemTime::now()
-        .duration_since(UNIX_EPOCH)?
-        .as_secs() as i64;
+    let opened_at = SystemTime::now().duration_since(UNIX_EPOCH)?.as_secs() as i64;
     conn.execute(
         "INSERT INTO connection_log (id, host_alias, opened_at, bytes_in, bytes_out)
          VALUES (?1, ?2, ?3, 0, 0)",
@@ -309,9 +311,7 @@ pub fn close_connection_log(
     exit_status: Option<i32>,
     error: Option<&str>,
 ) -> Result<()> {
-    let closed_at = SystemTime::now()
-        .duration_since(UNIX_EPOCH)?
-        .as_secs() as i64;
+    let closed_at = SystemTime::now().duration_since(UNIX_EPOCH)?.as_secs() as i64;
     conn.execute(
         "UPDATE connection_log
          SET closed_at = ?1, bytes_in = ?2, bytes_out = ?3, exit_status = ?4, error = ?5
@@ -342,11 +342,7 @@ pub fn remember_trusted_host_key(
     Ok(())
 }
 
-pub fn remove_trusted_host_key(
-    conn: &Connection,
-    host: &str,
-    port: u16,
-) -> Result<()> {
+pub fn remove_trusted_host_key(conn: &Connection, host: &str, port: u16) -> Result<()> {
     conn.execute(
         "DELETE FROM trusted_host_keys WHERE host = ?1 AND port = ?2",
         params![host, i64::from(port)],

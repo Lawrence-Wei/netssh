@@ -78,7 +78,13 @@ fn storage_db_open_and_migrate() {
     conn.execute(
         "INSERT INTO trusted_host_keys (host, port, key_type, fingerprint, trusted_at)
          VALUES (?1, ?2, ?3, ?4, ?5)",
-        rusqlite::params!["test-host", 22, "ssh-ed25519", "SHA256:abc123", 1717920000u64],
+        rusqlite::params![
+            "test-host",
+            22,
+            "ssh-ed25519",
+            "SHA256:abc123",
+            1717920000u64
+        ],
     )
     .expect("插入 host key 失败");
 
@@ -162,7 +168,10 @@ fn registry_insert_and_remove() {
         assert!(sender.is_some(), "应有注册过的 challenge");
 
         // 发送一个决策并检查 rx 收到
-        sender.unwrap().send(netssh_lib::HostKeyDecision::AcceptOnce).unwrap();
+        sender
+            .unwrap()
+            .send(netssh_lib::HostKeyDecision::AcceptOnce)
+            .unwrap();
     }
 
     // 由于是 oneshot，rx 应该能立刻拿到值
@@ -213,8 +222,16 @@ fn expand_tilde_expands_user_home() {
 #[test]
 fn host_matches_complex_known_hosts_lines() {
     // 非标准端口带方括号
-    assert!(netssh_lib::ssh_host_matches("[192.168.1.1]:2222", "192.168.1.1", 2222));
-    assert!(!netssh_lib::ssh_host_matches("[192.168.1.1]:2222", "192.168.1.1", 22));
+    assert!(netssh_lib::ssh_host_matches(
+        "[192.168.1.1]:2222",
+        "192.168.1.1",
+        2222
+    ));
+    assert!(!netssh_lib::ssh_host_matches(
+        "[192.168.1.1]:2222",
+        "192.168.1.1",
+        22
+    ));
     // 逗号分隔
     assert!(netssh_lib::ssh_host_matches("host-a,host-b", "host-b", 22));
     // 通配符

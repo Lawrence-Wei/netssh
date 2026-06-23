@@ -103,10 +103,7 @@ pub fn ssh_forget_trusted_host_key(host: String, port: u16) -> Result<(), String
 
 #[tauri::command]
 pub fn ssh_send(state: State<'_, AppState>, id: String, data: Vec<u8>) -> Result<(), String> {
-    let sessions = state
-        .ssh_sessions
-        .lock()
-        .unwrap_or_else(|e| e.into_inner());
+    let sessions = state.ssh_sessions.lock().unwrap_or_else(|e| e.into_inner());
     if let Some(s) = sessions.get(&id) {
         s.send(&data).map_err(|e| e.to_string())?;
     }
@@ -114,11 +111,13 @@ pub fn ssh_send(state: State<'_, AppState>, id: String, data: Vec<u8>) -> Result
 }
 
 #[tauri::command]
-pub fn ssh_resize(state: State<'_, AppState>, id: String, cols: u16, rows: u16) -> Result<(), String> {
-    let sessions = state
-        .ssh_sessions
-        .lock()
-        .unwrap_or_else(|e| e.into_inner());
+pub fn ssh_resize(
+    state: State<'_, AppState>,
+    id: String,
+    cols: u16,
+    rows: u16,
+) -> Result<(), String> {
+    let sessions = state.ssh_sessions.lock().unwrap_or_else(|e| e.into_inner());
     if let Some(s) = sessions.get(&id) {
         s.resize(cols, rows).map_err(|e| e.to_string())?;
     }
@@ -140,10 +139,7 @@ pub async fn ssh_close(state: State<'_, AppState>, id: String) -> Result<(), Str
 
 #[tauri::command]
 pub fn ssh_detach(state: State<'_, AppState>, id: String) -> Result<(), String> {
-    let mut sessions = state
-        .ssh_sessions
-        .lock()
-        .unwrap_or_else(|e| e.into_inner());
+    let mut sessions = state.ssh_sessions.lock().unwrap_or_else(|e| e.into_inner());
     if let Some(s) = sessions.get_mut(&id) {
         s.detach();
     }
@@ -152,10 +148,7 @@ pub fn ssh_detach(state: State<'_, AppState>, id: String) -> Result<(), String> 
 
 #[tauri::command]
 pub fn ssh_reattach(state: State<'_, AppState>, id: String) -> Result<(), String> {
-    let mut sessions = state
-        .ssh_sessions
-        .lock()
-        .unwrap_or_else(|e| e.into_inner());
+    let mut sessions = state.ssh_sessions.lock().unwrap_or_else(|e| e.into_inner());
     if let Some(s) = sessions.get_mut(&id) {
         s.reattach();
         Ok(())
@@ -207,7 +200,12 @@ pub fn pty_send(state: State<'_, AppState>, id: String, data: Vec<u8>) -> Result
 }
 
 #[tauri::command]
-pub fn pty_resize(state: State<'_, AppState>, id: String, cols: u16, rows: u16) -> Result<(), String> {
+pub fn pty_resize(
+    state: State<'_, AppState>,
+    id: String,
+    cols: u16,
+    rows: u16,
+) -> Result<(), String> {
     if let Some(s) = state
         .pty_sessions
         .lock()
@@ -269,7 +267,12 @@ pub fn serial_send(state: State<'_, AppState>, id: String, data: Vec<u8>) -> Res
 }
 
 #[tauri::command]
-pub fn serial_resize(state: State<'_, AppState>, id: String, cols: u16, rows: u16) -> Result<(), String> {
+pub fn serial_resize(
+    state: State<'_, AppState>,
+    id: String,
+    cols: u16,
+    rows: u16,
+) -> Result<(), String> {
     if let Some(s) = state
         .serial_sessions
         .lock()
@@ -735,7 +738,9 @@ mod tests {
             readonly_command(ReadonlyCheckId::Health, ConfigBackupProfile::Linux).unwrap(),
             "uptime && df -h"
         );
-        assert!(readonly_command(ReadonlyCheckId::Reachability, ConfigBackupProfile::Linux).is_err());
+        assert!(
+            readonly_command(ReadonlyCheckId::Reachability, ConfigBackupProfile::Linux).is_err()
+        );
     }
 
     #[test]

@@ -2,19 +2,19 @@ mod app_lifecycle;
 mod commands;
 mod credentials;
 mod pty;
+mod serial;
 mod ssh;
 mod ssh_config;
-mod serial;
 pub mod storage;
 
 // 导出供集成测试使用的符号
-pub use ssh::{list_keys, HostKeyChallengeRegistry, HostKeyDecision, SshSession,
-    host_matches as ssh_host_matches,
-    expand_tilde as ssh_expand_tilde,
-    load_known_hosts_from_reader as ssh_load_known_hosts_from_reader,
-};
-pub use ssh_config::{parse as config_parse};
 pub use commands::validate_app_state_value;
+pub use ssh::{
+    expand_tilde as ssh_expand_tilde, host_matches as ssh_host_matches, list_keys,
+    load_known_hosts_from_reader as ssh_load_known_hosts_from_reader, HostKeyChallengeRegistry,
+    HostKeyDecision, SshSession,
+};
+pub use ssh_config::parse as config_parse;
 
 use tracing_subscriber::EnvFilter;
 

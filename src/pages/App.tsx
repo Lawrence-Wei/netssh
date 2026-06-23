@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { shallow } from "zustand/shallow";
+import { useShallow } from "zustand/react/shallow";
 import type { CSSProperties, PointerEvent as ReactPointerEvent } from "react";
 import { TitleBar } from "../layouts/TitleBar";
 import { Sidebar } from "../layouts/Sidebar";
@@ -55,7 +55,7 @@ export default function App() {
     reorderHost,
     loadFromSshConfig,
   } = useHosts(
-    (s) => ({
+    useShallow((s) => ({
       hosts: s.hosts,
       groups: s.groups,
       addHost: s.addHost,
@@ -70,8 +70,7 @@ export default function App() {
       moveHostToGroup: s.moveHostToGroup,
       reorderHost: s.reorderHost,
       loadFromSshConfig: s.loadFromSshConfig,
-    }),
-    shallow
+    }))
   );
   const {
     tabs,
@@ -90,7 +89,7 @@ export default function App() {
     goHome,
     setActive,
   } = useSessions(
-    (s) => ({
+    useShallow((s) => ({
       tabs: s.tabs,
       activeTabId: s.activeTabId,
       ephemeralHosts: s.ephemeralHosts,
@@ -107,12 +106,10 @@ export default function App() {
       newTab: s.newTab,
       goHome: s.goHome,
       setActive: s.setActive,
-    }),
-    shallow
+    }))
   );
   const { snippets, categories, quickCommands } = useSnippets(
-    (s) => ({ snippets: s.snippets, categories: s.categories, quickCommands: s.quickCommands }),
-    shallow
+    useShallow((s) => ({ snippets: s.snippets, categories: s.categories, quickCommands: s.quickCommands }))
   );
   const {
     theme,
@@ -141,7 +138,7 @@ export default function App() {
     autostart,
     allowConfigWrite,
   } = useSettings(
-    (s) => ({
+    useShallow((s) => ({
       theme: s.theme,
       lang: s.lang,
       setLang: s.setLang,
@@ -167,8 +164,7 @@ export default function App() {
       telemetry: s.telemetry,
       autostart: s.autostart,
       allowConfigWrite: s.allowConfigWrite,
-    }),
-    shallow
+    }))
   );
 
   const [ctxMenu, setCtxMenu] = useState<null | { x: number; y: number; host: Host }>(null);
@@ -250,7 +246,15 @@ export default function App() {
   }, []);
 
   useEffect(() => {
-    if (followSystem) void detectSystemLang().then(setLang);
+    if (!followSystem) return;
+    let cancelled = false;
+    void detectSystemLang().then((systemLang) => {
+      if (cancelled || useSettings.getState().lang === systemLang) return;
+      setLang(systemLang);
+    });
+    return () => {
+      cancelled = true;
+    };
   }, [followSystem, setLang]);
 
   useEffect(() => {

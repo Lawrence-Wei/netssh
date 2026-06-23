@@ -176,7 +176,12 @@ fn parse_data_bits(raw: Option<u8>) -> Result<DataBits> {
 }
 
 fn parse_parity(raw: &Option<String>) -> Result<Parity> {
-    match raw.as_deref().unwrap_or(DEFAULT_PARITY).to_ascii_lowercase().as_str() {
+    match raw
+        .as_deref()
+        .unwrap_or(DEFAULT_PARITY)
+        .to_ascii_lowercase()
+        .as_str()
+    {
         "none" => Ok(Parity::None),
         "odd" => Ok(Parity::Odd),
         "even" => Ok(Parity::Even),
@@ -220,7 +225,14 @@ fn normalize_line_ending(raw: String) -> String {
 
 fn port_metadata(
     port_type: &serialport::SerialPortType,
-) -> (String, Option<String>, Option<String>, Option<String>, Option<u16>, Option<u16>) {
+) -> (
+    String,
+    Option<String>,
+    Option<String>,
+    Option<String>,
+    Option<u16>,
+    Option<u16>,
+) {
     match port_type {
         serialport::SerialPortType::UsbPort(info) => {
             let vendor_id = info.vid;

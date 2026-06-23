@@ -174,7 +174,8 @@ mod windows_autostart {
         let key = create_run_key(KEY_SET_VALUE)?;
         let name = wide(AUTOSTART_RUN_NAME);
         let data = utf16le_bytes(command);
-        let status = unsafe { RegSetValueExW(key.0, PCWSTR(name.as_ptr()), 0, REG_SZ, Some(&data)) };
+        let status =
+            unsafe { RegSetValueExW(key.0, PCWSTR(name.as_ptr()), 0, REG_SZ, Some(&data)) };
         win32_ok(status, "RegSetValueExW")
     }
 
@@ -234,11 +235,16 @@ mod windows_autostart {
         };
         win32_ok(status, "RegGetValueW data")?;
 
-        let nul = buffer.iter().position(|unit| *unit == 0).unwrap_or(buffer.len());
+        let nul = buffer
+            .iter()
+            .position(|unit| *unit == 0)
+            .unwrap_or(buffer.len());
         Ok(Some(String::from_utf16_lossy(&buffer[..nul])))
     }
 
-    fn create_run_key(access: windows::Win32::System::Registry::REG_SAM_FLAGS) -> Result<RegKey, String> {
+    fn create_run_key(
+        access: windows::Win32::System::Registry::REG_SAM_FLAGS,
+    ) -> Result<RegKey, String> {
         let subkey = wide(RUN_KEY);
         let mut key = HKEY::default();
         let status = unsafe {
@@ -258,10 +264,20 @@ mod windows_autostart {
         Ok(RegKey(key))
     }
 
-    fn open_run_key(access: windows::Win32::System::Registry::REG_SAM_FLAGS) -> Result<RegKey, String> {
+    fn open_run_key(
+        access: windows::Win32::System::Registry::REG_SAM_FLAGS,
+    ) -> Result<RegKey, String> {
         let subkey = wide(RUN_KEY);
         let mut key = HKEY::default();
-        let status = unsafe { RegOpenKeyExW(HKEY_CURRENT_USER, PCWSTR(subkey.as_ptr()), 0, access, &mut key) };
+        let status = unsafe {
+            RegOpenKeyExW(
+                HKEY_CURRENT_USER,
+                PCWSTR(subkey.as_ptr()),
+                0,
+                access,
+                &mut key,
+            )
+        };
         win32_ok(status, "RegOpenKeyExW")?;
         Ok(RegKey(key))
     }
@@ -305,7 +321,10 @@ mod windows_autostart {
         fn autostart_command_quotes_exe_path_and_adds_tray_arg() {
             let command = command_for_exe_path(Path::new("C:\\Program Files\\Netssh\\Netssh.exe"))
                 .expect("command");
-            assert_eq!(command, "\"C:\\Program Files\\Netssh\\Netssh.exe\" --minimized-to-tray");
+            assert_eq!(
+                command,
+                "\"C:\\Program Files\\Netssh\\Netssh.exe\" --minimized-to-tray"
+            );
         }
 
         #[test]

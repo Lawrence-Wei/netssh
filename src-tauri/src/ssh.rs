@@ -142,10 +142,8 @@ fn ssh_client_config(profile: SshAlgorithmProfile) -> client::Config {
             append_legacy_algorithms(&mut config);
         }
         SshAlgorithmProfile::LegacyNetworkDevice => {
-            config.preferred.kex = std::borrow::Cow::Owned(vec![
-                russh::kex::DH_G14_SHA1,
-                russh::kex::DH_G1_SHA1,
-            ]);
+            config.preferred.kex =
+                std::borrow::Cow::Owned(vec![russh::kex::DH_G14_SHA1, russh::kex::DH_G1_SHA1]);
             config.preferred.key = std::borrow::Cow::Owned(vec![russh_keys::key::SSH_RSA]);
             config.preferred.cipher = std::borrow::Cow::Owned(vec![
                 russh::cipher::AES_128_CTR,
@@ -193,7 +191,11 @@ fn append_legacy_algorithms(config: &mut client::Config) {
     config.preferred.cipher = std::borrow::Cow::Owned(cipher_list);
 }
 
-fn no_common_algorithm_message(kind: &russh::AlgorithmKind, ours: &[String], theirs: &[String]) -> String {
+fn no_common_algorithm_message(
+    kind: &russh::AlgorithmKind,
+    ours: &[String],
+    theirs: &[String],
+) -> String {
     let ours = format_algorithm_list(ours);
     let theirs = format_algorithm_list(theirs);
     match kind {
@@ -204,7 +206,9 @@ fn no_common_algorithm_message(kind: &russh::AlgorithmKind, ours: &[String], the
             format!("host_key_algo_no_common: server offered [{theirs}]; client offered [{ours}]")
         }
         russh::AlgorithmKind::Cipher => {
-            format!("cipher_no_common_algorithm: server offered [{theirs}]; client offered [{ours}]")
+            format!(
+                "cipher_no_common_algorithm: server offered [{theirs}]; client offered [{ours}]"
+            )
         }
         russh::AlgorithmKind::Mac => {
             format!("mac_no_common_algorithm: server offered [{theirs}]; client offered [{ours}]")
@@ -224,7 +228,11 @@ fn format_algorithm_list(items: &[String]) -> String {
 }
 
 async fn open_ssh_tcp(addr: &str) -> Result<tokio::net::TcpStream> {
-    match tokio::time::timeout(SSH_TCP_CONNECT_TIMEOUT, tokio::net::TcpStream::connect(addr)).await
+    match tokio::time::timeout(
+        SSH_TCP_CONNECT_TIMEOUT,
+        tokio::net::TcpStream::connect(addr),
+    )
+    .await
     {
         Ok(Ok(socket)) => Ok(socket),
         Ok(Err(e)) => {
@@ -265,11 +273,15 @@ fn classify_ssh_handshake_error(
     }
     let err_str = error.to_string();
     let err_lower = err_str.to_lowercase();
-    if err_lower.contains("no common") && (err_lower.contains("kex") || err_lower.contains("key exchange")) {
+    if err_lower.contains("no common")
+        && (err_lower.contains("kex") || err_lower.contains("key exchange"))
+    {
         error!(error = %error, "SSH KEX algorithm negotiation failed (no overlap with server)");
         return anyhow!("kex_no_common_algorithm: {err_str}");
     }
-    if err_lower.contains("no common") && (err_lower.contains("host key") || err_lower.contains(" key")) {
+    if err_lower.contains("no common")
+        && (err_lower.contains("host key") || err_lower.contains(" key"))
+    {
         error!(error = %error, "SSH host key algorithm negotiation failed (no overlap with server)");
         return anyhow!("host_key_algo_no_common: {err_str}");
     }
@@ -336,8 +348,7 @@ fn accepted_host_keys(args: &SshOpenArgs) -> HashSet<String> {
         load_known_hosts(&args.host, args.port)
     };
     if let Ok(conn) = storage::open() {
-        if let Ok(trusted) = storage::list_trusted_host_fingerprints(&conn, &args.host, args.port)
-        {
+        if let Ok(trusted) = storage::list_trusted_host_fingerprints(&conn, &args.host, args.port) {
             if !trusted.is_empty() {
                 debug!(count = trusted.len(), "Loaded persisted trusted host keys");
             }
@@ -442,7 +453,8 @@ async fn connect_authenticated_tcp(
         }
     }
 
-    Err(last_error.unwrap_or_else(|| anyhow!("network_unreachable: SSH handshake did not complete")))
+    Err(last_error
+        .unwrap_or_else(|| anyhow!("network_unreachable: SSH handshake did not complete")))
 }
 
 async fn connect_authenticated_stream<S>(
@@ -568,13 +580,9 @@ async fn authenticate_handle(
                         error = %err,
                         "Keyboard-interactive auth unavailable, trying password auth"
                     );
-                    let ok = try_password_auth_with_timeout(
-                        handle,
-                        &args.user,
-                        &args.host,
-                        password,
-                    )
-                    .await?;
+                    let ok =
+                        try_password_auth_with_timeout(handle, &args.user, &args.host, password)
+                            .await?;
                     if ok {
                         info!(user = %args.user, "Password auth succeeded");
                         Ok(())
@@ -607,7 +615,8 @@ async fn authenticate_handle(
             }
         } else {
             info!(user = %args.user, host = %args.host, "Attempting password auth");
-            let ok = try_password_auth_with_timeout(handle, &args.user, &args.host, password).await?;
+            let ok =
+                try_password_auth_with_timeout(handle, &args.user, &args.host, password).await?;
             if ok {
                 info!(user = %args.user, "Password auth succeeded");
                 Ok(())
@@ -807,7 +816,8 @@ impl SshSession {
 
         authenticate_handle(&mut handle, &args, banner_device_hint.as_deref()).await?;
 
-        if let Some(metadata) = metadata_from_device_hint(id, &args, banner_device_hint.as_deref()) {
+        if let Some(metadata) = metadata_from_device_hint(id, &args, banner_device_hint.as_deref())
+        {
             debug!(
                 alias = %args.alias,
                 host = %args.host,
@@ -1084,13 +1094,8 @@ async fn detect_host_metadata(
         Ok(Err(err)) => return Err(err),
         Err(_) => return Err(anyhow!("metadata_probe_timeout")),
     };
-    let posix_metadata = host_metadata_from_probe(
-        session_id,
-        &args.alias,
-        &args.host,
-        args.port,
-        &output,
-    );
+    let posix_metadata =
+        host_metadata_from_probe(session_id, &args.alias, &args.host, args.port, &output);
     if posix_metadata
         .as_ref()
         .and_then(|metadata| metadata.icon_override.as_ref())
@@ -1109,9 +1114,13 @@ async fn detect_host_metadata(
             Ok(Ok(output)) => output,
             Ok(Err(_)) | Err(_) => continue,
         };
-        if let Some(metadata) =
-            host_metadata_from_network_probe(session_id, &args.alias, &args.host, args.port, &output)
-        {
+        if let Some(metadata) = host_metadata_from_network_probe(
+            session_id,
+            &args.alias,
+            &args.host,
+            args.port,
+            &output,
+        ) {
             return Ok(Some(metadata));
         }
     }
@@ -1134,7 +1143,9 @@ async fn run_host_metadata_command(
 
     let mut output = Vec::new();
     loop {
-        let Some(msg) = channel.wait().await else { break };
+        let Some(msg) = channel.wait().await else {
+            break;
+        };
         match msg {
             ChannelMsg::Data { ref data } | ChannelMsg::ExtendedData { ref data, ext: _ } => {
                 if output.len() >= 32 * 1024 {
@@ -1384,10 +1395,16 @@ fn infer_icon_override(alias: &str, host: &str, probe: &RemoteProbe) -> (Option<
     ) {
         return (Some("asus".into()), 95);
     }
-    if contains_any(&remote_text, &["huawei", "vrp", "s5700", "s6700", "cloudengine"]) {
+    if contains_any(
+        &remote_text,
+        &["huawei", "vrp", "s5700", "s6700", "cloudengine"],
+    ) {
         return (Some("huawei".into()), 90);
     }
-    if contains_any(&remote_text, &["cisco", "ios xe", "ios-xe", "nx-os", "catalyst"]) {
+    if contains_any(
+        &remote_text,
+        &["cisco", "ios xe", "ios-xe", "nx-os", "catalyst"],
+    ) {
         return (Some("cisco".into()), 90);
     }
     if contains_any(&remote_text, &["ubuntu"]) || probe.os_id.as_deref() == Some("ubuntu") {
@@ -1473,7 +1490,9 @@ fn infer_role(alias: &str, probe: &RemoteProbe, icon: Option<&str>) -> Option<St
     match icon {
         Some("proxmox") => Some("hypervisor".into()),
         Some("openwrt") | Some("istoreos") | Some("asus") => Some("router".into()),
-        Some("huawei") | Some("cisco") if contains_any(&text, &["switch", "s5700", "s6700", "catalyst"]) => {
+        Some("huawei") | Some("cisco")
+            if contains_any(&text, &["switch", "s5700", "s6700", "catalyst"]) =>
+        {
             Some("switch".into())
         }
         Some("huawei") | Some("cisco") if contains_any(&text, &["router", "gateway"]) => {
@@ -1711,7 +1730,8 @@ async fn try_keyboard_interactive_auth(
 }
 
 fn is_keyboard_interactive_unavailable(err: &anyhow::Error) -> bool {
-    err.to_string().starts_with("keyboard_interactive_unavailable:")
+    err.to_string()
+        .starts_with("keyboard_interactive_unavailable:")
 }
 
 fn keyboard_interactive_responses(prompts: &[Prompt], password: &str) -> Vec<String> {
@@ -1827,8 +1847,12 @@ fn known_hosts_path() -> Option<std::path::PathBuf> {
 
 fn load_known_hosts(hostname: &str, port: u16) -> HashSet<String> {
     let mut set = HashSet::new();
-    let Some(path) = known_hosts_path() else { return set };
-    let Ok(file) = std::fs::File::open(&path) else { return set };
+    let Some(path) = known_hosts_path() else {
+        return set;
+    };
+    let Ok(file) = std::fs::File::open(&path) else {
+        return set;
+    };
     load_known_hosts_from_reader(BufReader::new(file), hostname, port, &mut set);
     set
 }
@@ -1893,8 +1917,7 @@ fn single_host_matches(pattern: &str, hostname: &str, port: u16) -> bool {
         };
         use hmac::{Hmac, Mac};
         use sha1::Sha1;
-        let mut mac = Hmac::<Sha1>::new_from_slice(&salt)
-            .expect("HMAC can take key of any size");
+        let mut mac = Hmac::<Sha1>::new_from_slice(&salt).expect("HMAC can take key of any size");
         let hashed_target = if port == 22 {
             hostname.to_string()
         } else {
@@ -1927,9 +1950,7 @@ fn clean_env_value(value: Option<&str>) -> Option<&str> {
 fn host_key_decision_policy(status: &str, decision: HostKeyDecision) -> HostKeyDecisionPolicy {
     match (status, decision) {
         ("unknown", HostKeyDecision::AcceptOnce) => HostKeyDecisionPolicy::AcceptOnce,
-        ("unknown", HostKeyDecision::AcceptAndRemember) => {
-            HostKeyDecisionPolicy::AcceptAndRemember
-        }
+        ("unknown", HostKeyDecision::AcceptAndRemember) => HostKeyDecisionPolicy::AcceptAndRemember,
         (_, HostKeyDecision::Reject) => HostKeyDecisionPolicy::Reject("host_key_rejected"),
         ("mismatch", HostKeyDecision::AcceptOnce | HostKeyDecision::AcceptAndRemember) => {
             HostKeyDecisionPolicy::Reject("host_key_mismatch")
@@ -2092,8 +2113,9 @@ __NETSSH_KERNEL__=Linux 6.8.0-60-generic x86_64
 __NETSSH_END__
 "#;
 
-        let metadata = host_metadata_from_probe("session-1", "metrics", "192.168.77.213", 22, output)
-            .expect("metadata");
+        let metadata =
+            host_metadata_from_probe("session-1", "metrics", "192.168.77.213", 22, output)
+                .expect("metadata");
         assert_eq!(metadata.remote_hostname.as_deref(), Some("metrics"));
         assert_eq!(metadata.os_id.as_deref(), Some("ubuntu"));
         assert_eq!(metadata.icon_override.as_deref(), Some("ubuntu"));
@@ -2183,9 +2205,14 @@ Quidway S5700-28C-EI uptime is 10 weeks
 Cisco Catalyst 9300 Switch uptime is 2 weeks
 "#;
 
-        let metadata =
-            host_metadata_from_network_probe("session-1", "core-cisco", "192.168.100.252", 22, output)
-                .expect("metadata");
+        let metadata = host_metadata_from_network_probe(
+            "session-1",
+            "core-cisco",
+            "192.168.100.252",
+            22,
+            output,
+        )
+        .expect("metadata");
         assert_eq!(metadata.icon_override.as_deref(), Some("cisco"));
         assert_eq!(metadata.role.as_deref(), Some("switch"));
         assert!(metadata.tags.contains(&"ios-xe".to_string()));
@@ -2300,18 +2327,45 @@ Cisco Catalyst 9300 Switch uptime is 2 weeks
     #[test]
     fn modern_profile_keeps_legacy_network_algorithms_as_fallback() {
         let config = ssh_client_config(SshAlgorithmProfile::ModernWithLegacyFallback);
-        assert!(config.preferred.kex.iter().any(|item| item.as_ref() == "diffie-hellman-group14-sha1"));
-        assert!(config.preferred.kex.iter().any(|item| item.as_ref() == "diffie-hellman-group1-sha1"));
-        assert!(config.preferred.key.iter().any(|item| item.as_ref() == "ssh-rsa"));
-        assert!(config.preferred.cipher.iter().any(|item| item.as_ref() == "aes128-cbc"));
-        assert!(config.preferred.cipher.iter().any(|item| item.as_ref() == "3des-cbc"));
-        assert!(config.preferred.mac.iter().any(|item| item.as_ref() == "hmac-sha1"));
+        assert!(config
+            .preferred
+            .kex
+            .iter()
+            .any(|item| item.as_ref() == "diffie-hellman-group14-sha1"));
+        assert!(config
+            .preferred
+            .kex
+            .iter()
+            .any(|item| item.as_ref() == "diffie-hellman-group1-sha1"));
+        assert!(config
+            .preferred
+            .key
+            .iter()
+            .any(|item| item.as_ref() == "ssh-rsa"));
+        assert!(config
+            .preferred
+            .cipher
+            .iter()
+            .any(|item| item.as_ref() == "aes128-cbc"));
+        assert!(config
+            .preferred
+            .cipher
+            .iter()
+            .any(|item| item.as_ref() == "3des-cbc"));
+        assert!(config
+            .preferred
+            .mac
+            .iter()
+            .any(|item| item.as_ref() == "hmac-sha1"));
     }
 
     #[test]
     fn legacy_network_profile_offers_cisco_compatible_algorithms_first() {
         let config = ssh_client_config(SshAlgorithmProfile::LegacyNetworkDevice);
-        assert_eq!(config.preferred.kex[0].as_ref(), "diffie-hellman-group14-sha1");
+        assert_eq!(
+            config.preferred.kex[0].as_ref(),
+            "diffie-hellman-group14-sha1"
+        );
         assert_eq!(config.preferred.key[0].as_ref(), "ssh-rsa");
         assert_eq!(config.preferred.cipher[0].as_ref(), "aes128-ctr");
         assert_eq!(config.preferred.mac[0].as_ref(), "hmac-sha1");
