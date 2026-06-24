@@ -83,11 +83,32 @@
   --aurora-3: rgba(192, 38, 211, 0.22);
 
   /* terminal palette (ANSI) */
-  --term-bg: rgba(8, 4, 22, 0.55);
+  --term-bg: rgba(4, 8, 18, 0.78);
   --term-fg: #e8e0ff;
+  --term-output: #d8d2ec;
+  --term-dim: #8f83b3;
   --term-cursor: #a78bfa;
   --term-cursor-accent: #0a0617;
   --term-selection: rgba(167, 139, 250, 0.30);
+  --term-command-fg: #d7ffe5;
+  --term-command-bg: #10271f;
+  --term-command-ruler: #35f08f;
+  --term-ansi-black: #151022;
+  --term-ansi-red: #ff5c57;
+  --term-ansi-green: #5af78e;
+  --term-ansi-yellow: #f3f99d;
+  --term-ansi-blue: #57c7ff;
+  --term-ansi-magenta: #ff6ac1;
+  --term-ansi-cyan: #9aedfe;
+  --term-ansi-white: #f1f5f9;
+  --term-ansi-bright-black: #817899;
+  --term-ansi-bright-red: #ff8b86;
+  --term-ansi-bright-green: #9fffb8;
+  --term-ansi-bright-yellow: #fff3a3;
+  --term-ansi-bright-blue: #8fdfff;
+  --term-ansi-bright-magenta: #ff9bd4;
+  --term-ansi-bright-cyan: #c8ffff;
+  --term-ansi-bright-white: #ffffff;
 
   --radius-sm: 6px;
   --radius: 10px;
@@ -215,9 +236,30 @@
 
   --term-bg: rgba(248, 250, 252, 0.76);
   --term-fg: #172033;
+  --term-output: #172033;
+  --term-dim: #64748b;
   --term-cursor: #0f9f76;
   --term-cursor-accent: #ffffff;
   --term-selection: rgba(37, 99, 235, 0.22);
+  --term-command-fg: #052e1d;
+  --term-command-bg: #dff7eb;
+  --term-command-ruler: #0f9f76;
+  --term-ansi-black: #1f2937;
+  --term-ansi-red: #dc2626;
+  --term-ansi-green: #15803d;
+  --term-ansi-yellow: #b45309;
+  --term-ansi-blue: #2563eb;
+  --term-ansi-magenta: #c026d3;
+  --term-ansi-cyan: #0891b2;
+  --term-ansi-white: #f8fafc;
+  --term-ansi-bright-black: #64748b;
+  --term-ansi-bright-red: #ef4444;
+  --term-ansi-bright-green: #16a34a;
+  --term-ansi-bright-yellow: #d97706;
+  --term-ansi-bright-blue: #3b82f6;
+  --term-ansi-bright-magenta: #d946ef;
+  --term-ansi-bright-cyan: #06b6d4;
+  --term-ansi-bright-white: #ffffff;
 
   --accent-r: 15; --accent-g: 159; --accent-b: 118;
   --accent-strong-r: 4; --accent-strong-g: 120; --accent-strong-b: 87;
@@ -1266,8 +1308,8 @@ input, textarea { background: none; border: 0; outline: none; }
   display: grid;
   gap: 6px;
 }
-.connection-error__password input[type="password"] {
-  width: min(320px, 58vw);
+.connection-error__field input {
+  width: min(240px, 58vw);
   height: 38px;
   border-radius: 8px;
   border: 1px solid var(--glass-stroke-strong);
@@ -1277,7 +1319,10 @@ input, textarea { background: none; border: 0; outline: none; }
   font-family: var(--font-mono);
   font-size: 13px;
 }
-.connection-error__password input[type="password"]:focus {
+.connection-error__password input[type="password"] {
+  width: min(320px, 58vw);
+}
+.connection-error__field input:focus {
   outline: none;
   border-color: var(--accent);
   box-shadow: 0 0 0 3px var(--accent-soft);
@@ -1455,6 +1500,12 @@ input, textarea { background: none; border: 0; outline: none; }
 .terminal-host .xterm { background: transparent !important; }
 .terminal-host .xterm .xterm-viewport { background: transparent !important; }
 .terminal-host .xterm-screen canvas { background: transparent !important; }
+.terminal-host .xterm-command-decoration {
+  border-left: 2px solid var(--term-command-ruler);
+  background: linear-gradient(90deg, color-mix(in srgb, var(--term-command-ruler) 18%, transparent), transparent 72%);
+  opacity: 0.95;
+  pointer-events: none;
+}
 .terminal-host .xterm .xterm-viewport::-webkit-scrollbar { width: 6px; }
 .terminal-host .xterm .xterm-viewport::-webkit-scrollbar-track { background: transparent; }
 .terminal-host .xterm .xterm-viewport::-webkit-scrollbar-thumb {

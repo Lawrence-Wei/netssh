@@ -3,7 +3,7 @@ import type { CSSProperties, FormEvent } from "react";
 import { FitAddon } from "@xterm/addon-fit";
 import { WebLinksAddon } from "@xterm/addon-web-links";
 import { WebglAddon } from "@xterm/addon-webgl";
-import { Terminal as XTerm, type IDisposable } from "@xterm/xterm";
+import { Terminal as XTerm, type IDecoration, type IDisposable } from "@xterm/xterm";
 import {
   onPtyData,
   onPtyExit,
@@ -115,10 +115,13 @@ export function TerminalPane({
   const [hostKeyChallenge, setHostKeyChallenge] = useState<HostKeyChallengeState | null>(null);
   const [retryNonce, setRetryNonce] = useState(0);
   const [skipOpenSshKnownHosts, setSkipOpenSshKnownHosts] = useState(false);
+  const [sessionUsername, setSessionUsername] = useState("");
   const [sessionPassword, setSessionPassword] = useState("");
+  const [usernameDraft, setUsernameDraft] = useState(host?.user || "");
   const [passwordDraft, setPasswordDraft] = useState("");
   const [rememberPassword, setRememberPassword] = useState(true);
   const [passwordSaveError, setPasswordSaveError] = useState<string | null>(null);
+  const [credentialsHydrated, setCredentialsHydrated] = useState(() => useCredentials.persist.hasHydrated());
   const [connectionPhase, setConnectionPhase] = useState<ConnectionPhase>(() => (host || shellId ? "opening" : "idle"));
   const [clock, setClock] = useState(() => new Date());
   const isLogClosedRef = useRef(false);
@@ -130,6 +133,7 @@ export function TerminalPane({
   const pendingHostKeyDecisionRef = useRef<PendingHostKeyDecision | null>(null);
   const onConnectedRef = useRef(onConnected);
   const hostsRef = useRef(hosts);
+  const commandDecorationsRef = useRef<IDecoration[]>([]);
   hostsRef.current = hosts;
   onConnectedRef.current = onConnected;
   const {
@@ -158,6 +162,14 @@ export function TerminalPane({
   }, []);
 
   useEffect(() => {
+    if (useCredentials.persist.hasHydrated()) {
+      setCredentialsHydrated(true);
+      return;
+    }
+    return useCredentials.persist.onFinishHydration(() => setCredentialsHydrated(true));
+  }, []);
+
+  useEffect(() => {
     activeRef.current = active;
     const term = termRef.current;
     const fit = fitRef.current;
@@ -174,7 +186,9 @@ export function TerminalPane({
   }, [active]);
 
   useEffect(() => {
+    setSessionUsername("");
     setSessionPassword("");
+    setUsernameDraft(host?.user || "");
     setPasswordDraft("");
     setRememberPassword(true);
     setPasswordSaveError(null);
@@ -238,6 +252,7 @@ export function TerminalPane({
     termRef.current = term;
     fitRef.current = fit;
 
+    const outputHighlighter = createTerminalOutputHighlighter();
     let dataSub: IDisposable | null = null;
     let selectionSub: IDisposable | null = null;
     let unlistenHostKeyChallenge: (() => void) | null = null;
@@ -245,6 +260,10 @@ export function TerminalPane({
     let unlistenExit: (() => void) | null = null;
     let disposed = false;
     let focusTimer = 0;
+    for (const decoration of commandDecorationsRef.current) decoration.dispose();
+    commandDecorationsRef.current = [];
+    const commandDecorations = commandDecorationsRef.current;
+    const pendingCommandInput = { value: "" };
     const resetMetrics = () => {
       bytesInRef.current = 0;
       bytesOutRef.current = 0;
@@ -273,6 +292,9 @@ export function TerminalPane({
     initialResizeTimer = window.setTimeout(queueResize, 100);
 
     const sendInput = (data: string) => {
+      for (const command of collectSubmittedCommands(data, pendingCommandInput)) {
+        decorateSubmittedCommand(term, command, commandDecorations, true);
+      }
       const sessionId = sessionIdRef.current;
       if (sessionId && modeRef.current === "ssh") {
         const outgoing = sendBytes(new TextEncoder().encode(data));
@@ -344,7 +366,7 @@ export function TerminalPane({
           resetMetrics();
           unlistenData = await onPtyData(id, (b64) => {
             const bytes = base64Bytes(b64);
-            term.write(writeBytes(bytes));
+            term.write(highlightTerminalBytes(writeBytes(bytes), outputHighlighter));
           });
           unlistenExit = await onPtyExit(id, () => onCloseRef.current?.());
           setConnectionPhase("connected");
@@ -374,7 +396,7 @@ export function TerminalPane({
             resetMetrics();
             unlistenData = await onSerialData(id, (b64) => {
               const bytes = base64Bytes(b64);
-              term.write(writeBytes(bytes));
+              term.write(highlightTerminalBytes(writeBytes(bytes), outputHighlighter));
             });
             unlistenExit = await onSerialExit(id, () => onCloseRef.current?.());
             setConnectionPhase("connected");
@@ -385,6 +407,10 @@ export function TerminalPane({
 
           modeRef.current = "ssh";
           setLiveMode("ssh");
+          if (!credentialsHydrated) {
+            setConnectionPhase("opening");
+            return;
+          }
           const jumpHost = host.jumpHostId ? hostsRef.current.find((item) => item.id === host.jumpHostId) : undefined;
           unlistenHostKeyChallenge = await onHostKeyChallenge((event) => {
             const isTargetEvent = event.host === host.hostname && event.port === host.port;
@@ -416,7 +442,7 @@ export function TerminalPane({
           const credentials = useCredentials.getState().credentials;
           const loadPassword = useCredentials.getState().loadPassword;
           const credentialProfile = findCredentialForHost(host, credentials);
-          const username = credentialProfile?.user || host.user;
+          const username = (sessionUsername || credentialProfile?.user || host.user || "").trim();
           const identityFile = credentialProfile?.identityFile || host.identityFile;
           let password: string | undefined = sessionPassword || host.ephemeralPassword || undefined;
           if (!password && credentialProfile) {
@@ -474,7 +500,7 @@ export function TerminalPane({
           sessionIdRef.current = id;
           unlistenData = await onSshData(id, (b64) => {
             const bytes = base64Bytes(b64);
-            term.write(writeBytes(bytes));
+            term.write(highlightTerminalBytes(writeBytes(bytes), outputHighlighter));
           });
           unlistenExit = await onSshExit(id, () => {
             void closeConnectionLog();
@@ -518,6 +544,8 @@ export function TerminalPane({
       unlistenHostKeyChallenge?.();
       unlistenData?.();
       unlistenExit?.();
+      for (const decoration of commandDecorations) decoration.dispose();
+      commandDecorationsRef.current = [];
       const id = sessionIdRef.current;
       if (id && modeRef.current === "ssh") {
         void sshDetach(id);
@@ -538,6 +566,8 @@ export function TerminalPane({
     reattachSessionId,
     retryNonce,
     skipOpenSshKnownHosts,
+    credentialsHydrated,
+    sessionUsername,
     sessionPassword,
     terminalCursorStyle,
     terminalCursorBlink,
@@ -554,6 +584,9 @@ export function TerminalPane({
     lastRunLengthRef.current = runQueue.length;
     const command = runQueue[runQueue.length - 1];
     const id = sessionIdRef.current;
+    if (termRef.current) {
+      decorateSubmittedCommand(termRef.current, command.cmd, commandDecorationsRef.current, false);
+    }
     if (id && modeRef.current === "ssh") {
       const outgoing = sendBytes(new TextEncoder().encode(`${command.cmd}\r`));
       void sshSend(id, outgoing);
@@ -622,11 +655,11 @@ export function TerminalPane({
     setRetryNonce((n) => n + 1);
     onRetry?.();
   };
-  const rememberPasswordForHost = async (password: string) => {
+  const rememberPasswordForHost = async (password: string, usernameOverride?: string) => {
     if (!host || host.connectionType === "serial") return;
     const credentialStore = useCredentials.getState();
     const credentialProfile = findCredentialForHost(host, credentialStore.credentials);
-    const username = (credentialProfile?.user || host.user || "").trim();
+    const username = (usernameOverride || credentialProfile?.user || host.user || "").trim();
     if (!username) throw new Error("username_required");
     const identityFile = credentialProfile?.identityFile || host.identityFile;
 
@@ -661,14 +694,17 @@ export function TerminalPane({
     event.preventDefault();
     const nextPassword = passwordDraft;
     if (!nextPassword) return;
+    const nextUsername = usernameDraft.trim();
+    if (!nextUsername) return;
     setPasswordSaveError(null);
     if (rememberPassword) {
       try {
-        await rememberPasswordForHost(nextPassword);
+        await rememberPasswordForHost(nextPassword, nextUsername);
       } catch {
         setPasswordSaveError(t("term.password.saveFailed", lang));
       }
     }
+    setSessionUsername(nextUsername);
     setSessionPassword(nextPassword);
     setPasswordDraft("");
     handleRetry();
@@ -794,6 +830,17 @@ export function TerminalPane({
                 <form className="connection-error__password" onSubmit={submitPasswordRetry}>
                   <div className="connection-error__password-row">
                     <label className="connection-error__field">
+                      <span className="k">{t("manual.field.user", lang)}</span>
+                      <input
+                        value={usernameDraft}
+                        onChange={(event) => {
+                          setUsernameDraft(event.target.value);
+                          setPasswordSaveError(null);
+                        }}
+                        autoComplete="username"
+                      />
+                    </label>
+                    <label className="connection-error__field">
                       <span className="k">{t("manual.field.password", lang)}</span>
                       <input
                         type="password"
@@ -806,7 +853,7 @@ export function TerminalPane({
                         autoComplete="current-password"
                       />
                     </label>
-                    <button className="btn" type="submit" disabled={!passwordDraft}>
+                    <button className="btn" type="submit" disabled={!passwordDraft || !usernameDraft.trim()}>
                       {Icon.power}
                       <span>{t("term.password.retry", lang)}</span>
                     </button>
@@ -960,6 +1007,236 @@ function HostKeyChallengeOverlay({
   );
 }
 
+const MAX_COMMAND_DECORATIONS = 120;
+
+function collectSubmittedCommands(data: string, pending: { value: string }) {
+  const submitted: string[] = [];
+  for (const char of data) {
+    if (char === "\r" || char === "\n") {
+      submitted.push(pending.value);
+      pending.value = "";
+      continue;
+    }
+    if (char === "\u001b") {
+      pending.value = "";
+      return submitted;
+    }
+    if (char === "\u0003") {
+      pending.value = "";
+      continue;
+    }
+    if (char === "\u0015") {
+      pending.value = "";
+      continue;
+    }
+    if (char === "\u0017") {
+      pending.value = pending.value.replace(/\s*\S+\s*$/, "");
+      continue;
+    }
+    if (char === "\b" || char === "\u007f") {
+      pending.value = Array.from(pending.value).slice(0, -1).join("");
+      continue;
+    }
+    if (char >= " " || char === "\t") {
+      pending.value += char;
+    }
+  }
+  return submitted;
+}
+
+function decorateSubmittedCommand(
+  term: XTerm,
+  command: string,
+  decorations: IDecoration[],
+  requireEchoOnLine: boolean
+) {
+  const normalized = command.trim();
+  if (!normalized) return;
+  if (requireEchoOnLine && !currentLineLooksLikeCommand(term, normalized)) return;
+  const marker = term.registerMarker(0);
+  if (!marker) return;
+  const decoration = term.registerDecoration({
+    marker,
+    x: 0,
+    width: Math.max(term.cols, 1),
+    layer: "bottom",
+    overviewRulerOptions: {
+      color: getCSS("--term-command-ruler", "#22c55e"),
+      position: "left",
+    },
+  });
+  if (!decoration) return;
+  decoration.onRender((element) => {
+    element.classList.add("xterm-command-decoration");
+  });
+  decorations.push(decoration);
+  while (decorations.length > MAX_COMMAND_DECORATIONS) {
+    decorations.shift()?.dispose();
+  }
+}
+
+function currentLineLooksLikeCommand(term: XTerm, command: string) {
+  const buffer = term.buffer.active;
+  const line = buffer.getLine(buffer.baseY + buffer.cursorY)?.translateToString(true) || "";
+  if (!line.trim()) return false;
+  if (line.toLowerCase().includes("password")) return false;
+  const sample = command.length <= 24 ? command : command.slice(-24);
+  return line.includes(command) || line.includes(sample);
+}
+
+interface TerminalOutputHighlighter {
+  decoder: TextDecoder;
+}
+
+interface HighlightSpan {
+  start: number;
+  end: number;
+  sgr: string;
+  priority: number;
+}
+
+interface HighlightRule {
+  pattern: RegExp;
+  sgr: string;
+  priority: number;
+}
+
+const ANSI_RESET = "\x1b[0m";
+const SGR = {
+  prompt: "\x1b[1;92m",
+  command: "\x1b[1;97m",
+  header: "\x1b[1;97m",
+  ip: "\x1b[96m",
+  mac: "\x1b[96m",
+  iface: "\x1b[94m",
+  good: "\x1b[1;92m",
+  warn: "\x1b[1;93m",
+  bad: "\x1b[1;91m",
+  dim: "\x1b[90m",
+  value: "\x1b[95m",
+};
+
+const TERMINAL_HIGHLIGHT_RULES: HighlightRule[] = [
+  { pattern: /\b(?:administratively\s+down|err-?disabled|notconnect|disabled|failed|failure|error|denied|refused|timeout|unreachable)\b/gi, sgr: SGR.bad, priority: 90 },
+  { pattern: /\b(?:up|connected|enabled|active|forwarding|reachable|success|succeeded|established|online|full)\b/gi, sgr: SGR.good, priority: 70 },
+  { pattern: /\b(?:down|inactive|shutdown|reject(?:ed)?|deny|failed)\b/gi, sgr: SGR.bad, priority: 70 },
+  { pattern: /\b(?:warning|warn|unknown|unset|manual|NVRAM|startup|startup-config|candidate)\b/gi, sgr: SGR.warn, priority: 62 },
+  { pattern: /\b(?:unassigned|none|null|n\/a|--)\b/gi, sgr: SGR.dim, priority: 60 },
+  { pattern: /\b(?:YES|NO|OK\?|OK|Method|Status|Protocol|Interface|IP-Address|Address|Port|VLAN|Name|State|Mode|Description|Type|Speed|Duplex|Admin)\b/g, sgr: SGR.header, priority: 58 },
+  { pattern: /\b(?:\d{1,3}\.){3}\d{1,3}(?:\/\d{1,2})?\b/g, sgr: SGR.ip, priority: 52 },
+  { pattern: /\b(?:[0-9a-f]{4}\.){2}[0-9a-f]{4}\b|\b(?:[0-9a-f]{2}:){5}[0-9a-f]{2}\b/gi, sgr: SGR.mac, priority: 52 },
+  { pattern: /\b(?:GigabitEthernet|FastEthernet|TenGigabitEthernet|TwentyFiveGigE|FortyGigabitEthernet|HundredGigE|Ethernet|Vlan|Loopback|Port-channel|Serial|Tunnel|Management|Mgmt|Console|GE|XGE|Eth|Fa|Gi|Te|Po|Vl)\S*/gi, sgr: SGR.iface, priority: 50 },
+  { pattern: /\b(?:show|sh|display|dis|configure|conf|terminal|interface|int|vlan|ip|brief|br|run|running-config|startup-config|ping|traceroute|tracert|ssh|telnet|copy|write|save|reload|undo|shutdown|no)\b/gi, sgr: SGR.command, priority: 42 },
+  { pattern: /\b(?:\d+(?:\.\d+)?\s?(?:ms|s|%|Mbps|Gbps|Kbps|MB|GB|KB|bytes?|packets?))\b/gi, sgr: SGR.value, priority: 35 },
+];
+
+function createTerminalOutputHighlighter(): TerminalOutputHighlighter {
+  return { decoder: new TextDecoder() };
+}
+
+function highlightTerminalBytes(bytes: Uint8Array, highlighter: TerminalOutputHighlighter) {
+  const text = highlighter.decoder.decode(bytes, { stream: true });
+  return highlightPlainTerminalText(text);
+}
+
+export function highlightPlainTerminalText(text: string) {
+  if (!text || hasAnsiControl(text)) return text;
+  if (hasUnsafeControl(text)) return text;
+
+  const parts = text.split(/(\r\n|\n|\r)/);
+  let result = "";
+  for (let index = 0; index < parts.length; index += 1) {
+    const part = parts[index];
+    if (!part) continue;
+    if (part === "\r\n" || part === "\n" || part === "\r") {
+      result += part;
+      continue;
+    }
+    result += highlightPlainTerminalLine(part);
+  }
+  return result;
+}
+
+function hasAnsiControl(text: string) {
+  return text.includes("\x1b") || text.includes("\u009b");
+}
+
+function hasUnsafeControl(text: string) {
+  for (let index = 0; index < text.length; index += 1) {
+    const code = text.charCodeAt(index);
+    const isAllowedWhitespaceControl = code === 9 || code === 10 || code === 13;
+    if ((code < 32 && !isAllowedWhitespaceControl) || code === 127) return true;
+  }
+  return false;
+}
+
+function highlightPlainTerminalLine(line: string) {
+  if (!line.trim()) return line;
+  const spans: HighlightSpan[] = [];
+  addTerminalPromptSpans(line, spans);
+  for (const rule of TERMINAL_HIGHLIGHT_RULES) {
+    addHighlightSpans(line, spans, rule);
+  }
+  return applyHighlightSpans(line, spans);
+}
+
+function addTerminalPromptSpans(line: string, spans: HighlightSpan[]) {
+  const prompt = line.match(/^\s*(?:[\w.-]+@)?[\w.-]+(?:\([^)]+\))?[>#]/);
+  if (!prompt?.[0]) return;
+  const promptStart = prompt[0].search(/\S/);
+  const promptEnd = prompt[0].length;
+  spans.push({ start: Math.max(promptStart, 0), end: promptEnd, sgr: SGR.prompt, priority: 100 });
+}
+
+function addHighlightSpans(line: string, spans: HighlightSpan[], rule: HighlightRule) {
+  rule.pattern.lastIndex = 0;
+  for (const match of line.matchAll(rule.pattern)) {
+    if (match.index === undefined || !match[0]) continue;
+    spans.push({
+      start: match.index,
+      end: match.index + match[0].length,
+      sgr: rule.sgr,
+      priority: rule.priority,
+    });
+  }
+}
+
+function applyHighlightSpans(line: string, spans: HighlightSpan[]) {
+  const chosen = chooseHighlightSpans(spans);
+  if (chosen.length === 0) return line;
+
+  let result = "";
+  let cursor = 0;
+  for (const span of chosen) {
+    result += line.slice(cursor, span.start);
+    result += span.sgr;
+    result += line.slice(span.start, span.end);
+    result += ANSI_RESET;
+    cursor = span.end;
+  }
+  result += line.slice(cursor);
+  return result;
+}
+
+function chooseHighlightSpans(spans: HighlightSpan[]) {
+  const chosen: HighlightSpan[] = [];
+  const sorted = spans
+    .filter((span) => span.end > span.start)
+    .sort((a, b) =>
+      a.start - b.start ||
+      b.priority - a.priority ||
+      (b.end - b.start) - (a.end - a.start)
+    );
+
+  let coveredUntil = -1;
+  for (const span of sorted) {
+    if (span.start < coveredUntil) continue;
+    chosen.push(span);
+    coveredUntil = span.end;
+  }
+  return chosen;
+}
+
 function safeFit(fit: FitAddon) {
   if (!isFitReady(fit)) return false;
   try {
@@ -1019,26 +1296,27 @@ function base64Bytes(b64: string) {
 function terminalTheme() {
   return {
     background: "rgba(0,0,0,0)",
-    foreground: getCSS("--term-fg"),
+    foreground: getCSS("--term-output", getCSS("--term-fg")),
     cursor: getCSS("--term-cursor"),
     cursorAccent: getCSS("--term-cursor-accent", "#0a0617"),
     selectionBackground: getCSS("--term-selection"),
-    black: "#1a0a2e",
-    red: "#f87171",
-    green: "#4ade80",
-    yellow: "#fbbf24",
-    blue: "#60a5fa",
-    magenta: "#f0abfc",
-    cyan: "#67e8f9",
-    white: "#eee6ff",
-    brightBlack: "#6f6391",
-    brightRed: "#fca5a5",
-    brightGreen: "#86efac",
-    brightYellow: "#fcd34d",
-    brightBlue: "#93c5fd",
-    brightMagenta: "#f9a8d4",
-    brightCyan: "#a5f3fc",
-    brightWhite: "#fefcff",
+    selectionForeground: getCSS("--term-ansi-bright-white", "#ffffff"),
+    black: getCSS("--term-ansi-black", "#151022"),
+    red: getCSS("--term-ansi-red", "#ff5c57"),
+    green: getCSS("--term-ansi-green", "#5af78e"),
+    yellow: getCSS("--term-ansi-yellow", "#f3f99d"),
+    blue: getCSS("--term-ansi-blue", "#57c7ff"),
+    magenta: getCSS("--term-ansi-magenta", "#ff6ac1"),
+    cyan: getCSS("--term-ansi-cyan", "#9aedfe"),
+    white: getCSS("--term-ansi-white", "#f1f5f9"),
+    brightBlack: getCSS("--term-ansi-bright-black", "#817899"),
+    brightRed: getCSS("--term-ansi-bright-red", "#ff8b86"),
+    brightGreen: getCSS("--term-ansi-bright-green", "#9fffb8"),
+    brightYellow: getCSS("--term-ansi-bright-yellow", "#fff3a3"),
+    brightBlue: getCSS("--term-ansi-bright-blue", "#8fdfff"),
+    brightMagenta: getCSS("--term-ansi-bright-magenta", "#ff9bd4"),
+    brightCyan: getCSS("--term-ansi-bright-cyan", "#c8ffff"),
+    brightWhite: getCSS("--term-ansi-bright-white", "#ffffff"),
   };
 }
 

@@ -1,6 +1,6 @@
 [package]
 name = "netssh"
-version = "1.1.19"
+version = "1.1.21"
 description = "Modern SSH / infrastructure device manager"
 authors = ["you"]
 edition = "2021"
@@ -34,8 +34,9 @@ serialport = "=4.9.0"
 # SSH config parsing
 ssh2-config = "0.6"
 
-# Credentials — keyring backend: Windows Credential Manager, Keychain on macOS
-keyring = "3.4"
+# Credentials — keyring backend: Windows Credential Manager on Windows.
+# keyring has no native backend enabled by default, so keep windows-native explicit.
+keyring = { version = "3.4", features = ["windows-native"] }
 
 # Storage
 rusqlite = { version = "0.32", features = ["bundled"] }

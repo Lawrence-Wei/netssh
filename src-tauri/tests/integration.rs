@@ -138,8 +138,18 @@ fn app_state_validation_rejects_sensitive_payloads() {
     )
     .is_ok());
     assert!(netssh_lib::validate_app_state_value(
+        "netssh.credentials",
+        r#"{"state":{"credentials":[{"id":"cred-1","user":"lawrence","hasPassword":true}]}}"#
+    )
+    .is_ok());
+    assert!(netssh_lib::validate_app_state_value(
         "netssh.settings",
         r#"{"state":{"ephemeralPassword":"secret"}}"#
+    )
+    .is_err());
+    assert!(netssh_lib::validate_app_state_value(
+        "netssh.credentials",
+        r#"{"state":{"credentials":[{"id":"cred-1","password":"secret"}]}}"#
     )
     .is_err());
     assert!(netssh_lib::validate_app_state_value("password", "anything").is_err());

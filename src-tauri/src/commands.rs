@@ -7,6 +7,7 @@ use std::time::Instant;
 
 use base64::{engine::general_purpose::STANDARD, Engine};
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
 use tauri::{AppHandle, Emitter, State};
 
 use crate::{app_lifecycle, credentials, pty, serial, ssh, ssh_config, storage};
@@ -652,19 +653,66 @@ fn base64_encode(b: &[u8]) -> String {
 }
 
 pub fn validate_app_state_value(key: &str, value: &str) -> Result<(), String> {
-    let haystack = format!("{} {}", key, value).to_ascii_lowercase();
-    const DENYLIST: &[&str] = &[
-        "password",
-        "passphrase",
-        "privatekey",
-        "private_key",
-        "ephemeralpassword",
-        "ephemeral_password",
-    ];
-    if DENYLIST.iter().any(|needle| haystack.contains(needle)) {
+    if is_sensitive_app_state_field(key) {
+        return Err("app_state_sensitive_value_rejected".into());
+    }
+    if let Ok(json) = serde_json::from_str::<Value>(value) {
+        if json_contains_sensitive_app_state_field(&json) {
+            return Err("app_state_sensitive_value_rejected".into());
+        }
+        return Ok(());
+    }
+    if raw_value_contains_sensitive_app_state_field(value) {
         return Err("app_state_sensitive_value_rejected".into());
     }
     Ok(())
+}
+
+fn json_contains_sensitive_app_state_field(value: &Value) -> bool {
+    match value {
+        Value::Array(items) => items.iter().any(json_contains_sensitive_app_state_field),
+        Value::Object(map) => map.iter().any(|(key, nested)| {
+            is_sensitive_app_state_field(key) || json_contains_sensitive_app_state_field(nested)
+        }),
+        _ => false,
+    }
+}
+
+fn is_sensitive_app_state_field(key: &str) -> bool {
+    let normalized = key
+        .chars()
+        .filter(|ch| *ch != '_' && *ch != '-' && !ch.is_whitespace())
+        .flat_map(|ch| ch.to_lowercase())
+        .collect::<String>();
+    if normalized == "haspassword" {
+        return false;
+    }
+    matches!(
+        normalized.as_str(),
+        "password" | "passphrase" | "privatekey" | "ephemeralpassword" | "secret"
+    )
+}
+
+fn raw_value_contains_sensitive_app_state_field(value: &str) -> bool {
+    let raw = value.to_ascii_lowercase();
+    [
+        "\"password\"",
+        "'password'",
+        "\"passphrase\"",
+        "'passphrase'",
+        "\"privatekey\"",
+        "'privatekey'",
+        "\"private_key\"",
+        "'private_key'",
+        "\"ephemeralpassword\"",
+        "'ephemeralpassword'",
+        "\"ephemeral_password\"",
+        "'ephemeral_password'",
+        "\"secret\"",
+        "'secret'",
+    ]
+    .iter()
+    .any(|needle| raw.contains(needle))
 }
 
 pub fn readonly_command(

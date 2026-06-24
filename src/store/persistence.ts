@@ -1,5 +1,6 @@
 import type { StateStorage } from "zustand/middleware";
 import { appStateDelete, appStateGet, appStatePut } from "../api/tauri";
+import { containsSensitiveAppState } from "../utils/sensitiveState";
 
 export const appStorage: StateStorage = {
   async getItem(name) {
@@ -31,15 +32,3 @@ export const appStorage: StateStorage = {
     }
   },
 };
-
-function containsSensitiveAppState(name: string, value: string) {
-  const haystack = `${name} ${value}`.toLowerCase();
-  return [
-    "password",
-    "passphrase",
-    "privatekey",
-    "private_key",
-    "ephemeralpassword",
-    "ephemeral_password",
-  ].some((needle) => haystack.includes(needle));
-}

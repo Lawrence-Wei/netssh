@@ -4,6 +4,7 @@
 import { invoke as tauriInvoke } from "@tauri-apps/api/core";
 import { listen as tauriListen, type UnlistenFn } from "@tauri-apps/api/event";
 import type { ConfigBackupProfile, Host, ReadonlyCheckId, ShellInfo, SerialFlowControl, SerialLineEnding, SerialParity, SerialStopBits, SshKey } from "../config/types";
+import { containsSensitiveAppState } from "../utils/sensitiveState";
 
 type InvokeArgs = Record<string, unknown> | undefined;
 type TauriEvent<T> = { payload: T };
@@ -36,18 +37,6 @@ function localStatePut(key?: unknown, value?: unknown) {
     throw new Error("app_state_sensitive_value_rejected");
   }
   window.localStorage.setItem(key, value);
-}
-
-function containsSensitiveAppState(key: string, value: string) {
-  const haystack = `${key} ${value}`.toLowerCase();
-  return [
-    "password",
-    "passphrase",
-    "privatekey",
-    "private_key",
-    "ephemeralpassword",
-    "ephemeral_password",
-  ].some((needle) => haystack.includes(needle));
 }
 
 function browserInvokeFallback<T>(cmd: string, args?: InvokeArgs): T {

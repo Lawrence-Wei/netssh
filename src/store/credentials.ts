@@ -7,8 +7,9 @@
 // store only keeps metadata and a boolean flag `hasPassword`.
 
 import { create } from "zustand";
-import { persist } from "zustand/middleware";
+import { createJSONStorage, persist } from "zustand/middleware";
 import { credDelete, credLoad, credStore } from "../api/tauri";
+import { appStorage } from "./persistence";
 
 export interface Credential {
   id: string;
@@ -135,6 +136,7 @@ export const useCredentials = create<CredentialsState>()(
     }),
     {
       name: "netssh.credentials",
+      storage: createJSONStorage(() => appStorage),
       partialize: (state) => ({
         credentials: state.credentials.map((c) => {
           // Never write secrets to localStorage - keep only profile metadata.

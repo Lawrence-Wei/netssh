@@ -149,6 +149,19 @@ describe("凭据管理", () => {
     for (const c of persisted.credentials) {
       expect((c as Record<string, unknown>).password).toBeUndefined();
     }
+    await waitFor(() => {
+      expect(invokeMock).toHaveBeenCalledWith("app_state_put", {
+        key: "netssh.credentials",
+        value: expect.stringContaining("\"hasPassword\":true"),
+      });
+    });
+    const credentialStateWrites = invokeMock.mock.calls.filter(
+      ([cmd, args]) =>
+        cmd === "app_state_put" &&
+        (args as Record<string, unknown>)?.key === "netssh.credentials"
+    );
+    expect(credentialStateWrites.length).toBeGreaterThan(0);
+    expect(JSON.stringify(credentialStateWrites)).not.toContain("my-password");
   });
 
   it("loadPassword 调用 cred_load", async () => {

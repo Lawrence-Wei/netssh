@@ -1,4 +1,4 @@
-import { cleanup, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { invoke } from "@tauri-apps/api/core";
@@ -180,9 +180,13 @@ describe("TerminalPane connection state", () => {
       render(<TerminalPane lang="en" host={host} onRememberCredential={onRememberCredential} />);
 
       const passwordInput = await screen.findByPlaceholderText("Enter password");
+      const usernameInput = screen.getByLabelText("Username") as HTMLInputElement;
       const rememberToggle = screen.getByLabelText("Remember password on this device") as HTMLInputElement;
+      expect(usernameInput.value).toBe(host.user);
       expect(rememberToggle.checked).toBe(true);
 
+      await user.clear(usernameInput);
+      await user.type(usernameInput, "cisco-admin");
       await user.type(passwordInput, "cisco-secret");
       await user.click(screen.getByRole("button", { name: /Retry with password/i }));
 
@@ -190,7 +194,7 @@ describe("TerminalPane connection state", () => {
         expect(invokeMock).toHaveBeenCalledWith("ssh_open", {
           args: expect.objectContaining({
             host: host.hostname,
-            user: host.user,
+            user: "cisco-admin",
             password: "cisco-secret",
           }),
         });
@@ -202,13 +206,148 @@ describe("TerminalPane connection state", () => {
       const [credential] = useCredentials.getState().credentials;
       expect(credential).toEqual(expect.objectContaining({
         name: host.alias,
-        user: host.user,
+        user: "cisco-admin",
         hasPassword: true,
       }));
+      expect(credential.tags).toEqual(expect.arrayContaining([
+        `target:cisco-admin@${host.hostname}:22`,
+        `target-host:${host.hostname}`,
+        "target-user:cisco-admin",
+        "target-port:22",
+      ]));
       expect(JSON.stringify(useCredentials.getState().credentials)).not.toContain("cisco-secret");
       expect(window.localStorage.getItem("netssh.credentials") || "").not.toContain("cisco-secret");
       expect(Array.from(secrets.values())).toContain("cisco-secret");
     } finally {
+      if (defaultInvoke) invokeMock.mockImplementation(defaultInvoke);
+    }
+  });
+
+  it("reuses a saved username and password for the same host and port", async () => {
+    const invokeMock = vi.mocked(invoke);
+    const defaultInvoke = invokeMock.getMockImplementation();
+    const secrets = new Map<string, string>();
+    invokeMock.mockImplementation((cmd: string, args?: Record<string, unknown>) => {
+      if (cmd === "cred_store") {
+        secrets.set(String(args?.account), String(args?.secret));
+        return Promise.resolve();
+      }
+      if (cmd === "cred_load") {
+        return Promise.resolve(secrets.get(String(args?.account)) || "");
+      }
+      if (cmd === "cred_delete") {
+        secrets.delete(String(args?.account));
+        return Promise.resolve();
+      }
+      return defaultInvoke ? defaultInvoke(cmd, args) : Promise.resolve(null);
+    });
+
+    try {
+      await useCredentials.getState().add({
+        name: "lab-cisco-admin",
+        group: "cisco",
+        user: "cisco-admin",
+        notes: host.hostname,
+        tags: [
+          `target:cisco-admin@${host.hostname}:22`,
+          `target-host:${host.hostname}`,
+          "target-user:cisco-admin",
+          "target-port:22",
+        ],
+        password: "remembered-admin-secret",
+      });
+      invokeMock.mockClear();
+
+      render(<TerminalPane lang="en" host={{ ...host, id: "host-default-root", user: "root" }} />);
+
+      await waitFor(() => {
+        expect(invokeMock).toHaveBeenCalledWith("ssh_open", {
+          args: expect.objectContaining({
+            host: host.hostname,
+            user: "cisco-admin",
+            password: "remembered-admin-secret",
+          }),
+        });
+      });
+      expect(screen.queryByPlaceholderText("Enter password")).toBeNull();
+    } finally {
+      if (defaultInvoke) invokeMock.mockImplementation(defaultInvoke);
+    }
+  });
+
+  it("waits for persisted credentials to hydrate before deciding a password is missing", async () => {
+    const invokeMock = vi.mocked(invoke);
+    const defaultInvoke = invokeMock.getMockImplementation();
+    const secrets = new Map<string, string>();
+    invokeMock.mockImplementation((cmd: string, args?: Record<string, unknown>) => {
+      if (cmd === "cred_store") {
+        secrets.set(String(args?.account), String(args?.secret));
+        return Promise.resolve();
+      }
+      if (cmd === "cred_load") {
+        return Promise.resolve(secrets.get(String(args?.account)) || "");
+      }
+      if (cmd === "cred_delete") {
+        secrets.delete(String(args?.account));
+        return Promise.resolve();
+      }
+      return defaultInvoke ? defaultInvoke(cmd, args) : Promise.resolve(null);
+    });
+
+    const listeners: Array<(state: ReturnType<typeof useCredentials.getState>) => void> = [];
+    let hydrated = false;
+    const hasHydratedSpy = vi
+      .spyOn(useCredentials.persist, "hasHydrated")
+      .mockImplementation(() => hydrated);
+    const onFinishHydrationSpy = vi
+      .spyOn(useCredentials.persist, "onFinishHydration")
+      .mockImplementation((listener) => {
+        listeners.push(listener);
+        return () => {};
+      });
+
+    try {
+      await useCredentials.getState().add({
+        name: "persisted-cisco",
+        group: "cisco",
+        user: host.user,
+        notes: host.hostname,
+        tags: [
+          `target:${host.user}@${host.hostname}:22`,
+          `target-host:${host.hostname}`,
+          `target-user:${host.user}`,
+          "target-port:22",
+        ],
+        password: "hydrated-secret",
+      });
+      invokeMock.mockClear();
+
+      render(<TerminalPane lang="en" host={{ ...host, id: "host-after-restart" }} />);
+
+      await waitFor(() => {
+        expect(screen.getAllByText("Connecting").length).toBeGreaterThanOrEqual(1);
+      });
+      expect(screen.queryByPlaceholderText("Enter password")).toBeNull();
+      expect(invokeMock.mock.calls.some(([cmd]) => cmd === "ssh_open")).toBe(false);
+
+      hydrated = true;
+      act(() => {
+        listeners.forEach((listener) => listener(useCredentials.getState()));
+      });
+
+      await waitFor(() => {
+        expect(invokeMock).toHaveBeenCalledWith("ssh_open", {
+          args: expect.objectContaining({
+            host: host.hostname,
+            user: host.user,
+            password: "hydrated-secret",
+          }),
+        });
+      });
+      expect(screen.queryByPlaceholderText("Enter password")).toBeNull();
+    } finally {
+      hasHydratedSpy.mockRestore();
+      onFinishHydrationSpy.mockRestore();
       if (defaultInvoke) invokeMock.mockImplementation(defaultInvoke);
     }
   });
@@ -251,6 +390,73 @@ describe("TerminalPane connection state", () => {
             host: host.hostname,
             user: host.user,
             password: "remembered-secret",
+          }),
+        });
+      });
+      expect(screen.queryByPlaceholderText("Enter password")).toBeNull();
+    } finally {
+      if (defaultInvoke) invokeMock.mockImplementation(defaultInvoke);
+    }
+  });
+
+  it("reuses a saved password for similar sessions with the same user and asset type", async () => {
+    const invokeMock = vi.mocked(invoke);
+    const defaultInvoke = invokeMock.getMockImplementation();
+    const secrets = new Map<string, string>();
+    invokeMock.mockImplementation((cmd: string, args?: Record<string, unknown>) => {
+      if (cmd === "cred_store") {
+        secrets.set(String(args?.account), String(args?.secret));
+        return Promise.resolve();
+      }
+      if (cmd === "cred_load") {
+        return Promise.resolve(secrets.get(String(args?.account)) || "");
+      }
+      if (cmd === "cred_delete") {
+        secrets.delete(String(args?.account));
+        return Promise.resolve();
+      }
+      return defaultInvoke ? defaultInvoke(cmd, args) : Promise.resolve(null);
+    });
+
+    try {
+      await useCredentials.getState().add({
+        name: "lab-switch-login",
+        group: "switch",
+        user: host.user,
+        notes: "192.168.100.253",
+        tags: [
+          "switch",
+          "huawei",
+          `target:${host.user}@192.168.100.253:22`,
+          "target-host:192.168.100.253",
+          `target-user:${host.user}`,
+          "target-port:22",
+        ],
+        password: "remembered-switch-secret",
+      });
+      invokeMock.mockClear();
+
+      render(
+        <TerminalPane
+          lang="en"
+          host={{
+            ...host,
+            id: "host-similar-switch",
+            alias: "192.168.77.2",
+            hostname: "192.168.77.2",
+            assetType: "switch",
+            role: "switch",
+            tags: ["huawei"],
+          }}
+        />
+      );
+
+      await waitFor(() => {
+        expect(invokeMock).toHaveBeenCalledWith("ssh_open", {
+          args: expect.objectContaining({
+            host: "192.168.77.2",
+            user: host.user,
+            password: "remembered-switch-secret",
           }),
         });
       });

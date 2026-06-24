@@ -2,6 +2,7 @@ import { describe, it, expect, beforeEach, vi } from "vitest";
 import { fireEvent, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { act } from "react";
+import { invoke } from "@tauri-apps/api/core";
 import { Sidebar } from "../layouts/Sidebar";
 import { ConfirmProvider } from "../components/ConfirmDialog";
 import { useHosts } from "../store/hosts";
@@ -186,6 +187,107 @@ describe("host metadata", () => {
     expect(updated?.pinned).toBe(true);
     expect(updated?.lastConnectedAt).toBe(1_800_000_000_000);
     expect(updated?.status).toBe("ok");
+  });
+
+  it("does not let ssh_config auto-refresh rewrite manual host connection details", async () => {
+    const invokeMock = vi.mocked(invoke);
+    const defaultInvoke = invokeMock.getMockImplementation();
+    invokeMock.mockImplementation((cmd: string, args?: Record<string, unknown>) => {
+      if (cmd === "config_parse") {
+        return Promise.resolve([
+          {
+            alias: "switch",
+            hostname: "192.168.100.253",
+            user: "admin",
+            port: 22,
+            identity_file: "C:\\Users\\lawrence\\.ssh\\id_ed25519",
+            group: "wuxi",
+            source: "ssh-config",
+            raw: "Host switch",
+          },
+        ]);
+      }
+      return defaultInvoke ? defaultInvoke(cmd, args) : Promise.resolve(null);
+    });
+
+    try {
+      useHosts.setState((state) => ({
+        ...state,
+        hosts: [
+          host("manual-switch", "switch", {
+            hostname: "192.168.77.2",
+            user: "lawrence",
+            group: "wuxi",
+            source: "manual",
+          }),
+        ],
+      }), true);
+
+      await useHosts.getState().loadFromSshConfig();
+
+      const updated = useHosts.getState().hosts.find((item) => item.id === "manual-switch");
+      expect(updated).toEqual(expect.objectContaining({
+        alias: "switch",
+        hostname: "192.168.77.2",
+        user: "lawrence",
+        port: 22,
+        source: "manual",
+      }));
+      expect(updated?.identityFile).toBeUndefined();
+    } finally {
+      if (defaultInvoke) invokeMock.mockImplementation(defaultInvoke);
+    }
+  });
+
+  it("refreshes ssh_config-managed hosts from the current ssh config", async () => {
+    const invokeMock = vi.mocked(invoke);
+    const defaultInvoke = invokeMock.getMockImplementation();
+    invokeMock.mockImplementation((cmd: string, args?: Record<string, unknown>) => {
+      if (cmd === "config_parse") {
+        return Promise.resolve([
+          {
+            alias: "switch",
+            hostname: "192.168.100.253",
+            user: "admin",
+            port: 2222,
+            identity_file: "C:\\Users\\lawrence\\.ssh\\id_ed25519",
+            group: "wuxi",
+            source: "ssh-config",
+            raw: "Host switch",
+          },
+        ]);
+      }
+      return defaultInvoke ? defaultInvoke(cmd, args) : Promise.resolve(null);
+    });
+
+    try {
+      useHosts.setState((state) => ({
+        ...state,
+        hosts: [
+          host("cfg-switch", "switch", {
+            hostname: "192.168.77.2",
+            user: "lawrence",
+            port: 22,
+            group: "wuxi",
+            source: "ssh-config",
+          }),
+        ],
+      }), true);
+
+      await useHosts.getState().loadFromSshConfig();
+
+      const updated = useHosts.getState().hosts.find((item) => item.id === "cfg-switch");
+      expect(updated).toEqual(expect.objectContaining({
+        alias: "switch",
+        hostname: "192.168.100.253",
+        user: "admin",
+        port: 2222,
+        identityFile: "C:\\Users\\lawrence\\.ssh\\id_ed25519",
+        source: "ssh-config",
+      }));
+    } finally {
+      if (defaultInvoke) invokeMock.mockImplementation(defaultInvoke);
+    }
   });
 
   it("exposes manual up/down ordering for sidebar hosts", async () => {

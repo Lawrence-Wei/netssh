@@ -31,10 +31,21 @@ pub fn delete(account: &str) -> Result<()> {
 mod tests {
     use super::*;
 
+    #[cfg(windows)]
+    #[test]
+    fn windows_uses_persistent_credential_manager_backend() {
+        use keyring::credential::CredentialPersistence;
+
+        assert!(matches!(
+            keyring::default::default_credential_builder().persistence(),
+            CredentialPersistence::UntilDelete
+        ));
+    }
+
     #[test]
     #[ignore = "writes to the real keystore — run manually"]
     fn round_trip() {
-        let acct = format!("netssh-test-{}", uuid::Uuid::new_v4());
+        let acct = format!("netssh:cred:netssh-test-{}", uuid::Uuid::new_v4());
         store(&acct, "hunter2").unwrap();
         assert_eq!(load(&acct).unwrap(), "hunter2");
         delete(&acct).unwrap();

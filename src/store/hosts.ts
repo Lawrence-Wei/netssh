@@ -190,6 +190,10 @@ function normalizeHostsData(hosts: Host[], groups: Group[]) {
   };
 }
 
+function shouldRefreshConnectionFromSshConfig(host: Host) {
+  return host.source === "ssh-config" || host.source === "known-hosts" || host.id.startsWith("cfg-");
+}
+
 export const useHosts = create<HostsState>()(
   persist(
     (set, get) => ({
@@ -205,6 +209,18 @@ export const useHosts = create<HostsState>()(
           const merged = existing.map((h) => {
             const fresh = parsed.find((p) => p.alias === h.alias);
             if (!fresh) return h;
+            if (!shouldRefreshConnectionFromSshConfig(h)) {
+              return {
+                ...h,
+                aliases: fresh.aliases ?? h.aliases,
+                role: fresh.role ?? h.role,
+                tags: mergeTags(h.tags, fresh.tags),
+                iconOverride: fresh.iconOverride ?? h.iconOverride,
+                group: fresh.group && !isUnassignedGroup(fresh.group)
+                  ? resolveKnownGroupId(fresh.group, get().groups)
+                  : h.group,
+              };
+            }
             return {
               ...h,
               hostname: fresh.hostname ?? h.hostname,
